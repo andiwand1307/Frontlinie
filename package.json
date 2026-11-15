@@ -1,0 +1,16 @@
+{
+  "name": "frontlinie",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Frontlinie - Echtzeitstrategie im Browser, als Android-App via Capacitor",
+  "scripts": {
+    "start": "npx serve www",
+    "sync": "cap sync android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.6.2",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/cli": "^8.6.2",
+    "@capacitor/core": "^8.6.2"
+  }
+}

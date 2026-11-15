@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Frontlinie</string>
+    <string name="title_activity_main">Frontlinie</string>
+    <string name="package_name">de.andiwand.frontlinie</string>
+    <string name="custom_url_scheme">de.andiwand.frontlinie</string>
+</resources>
