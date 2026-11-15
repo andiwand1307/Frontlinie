@@ -1,0 +1,519 @@
+/* FRONTLINIE – data.js
+ * G.DATA: reine Spieldaten (Fraktionen, Gebäude, Einheiten, Schadenstabelle, Gelände).
+ * Keine Logik außer kleinen Nachschlage-Helfern. Werte gemäß SPEC §2.
+ */
+var G = (typeof G !== 'undefined') ? G : {};
+(function () {
+  'use strict';
+
+  var TILE = 32;          // Weltpixel pro Kachel
+  var TICK_HZ = 20;       // feste Sim-Rate
+
+  // Geländetypen (Index = Wert im Terrain-Array)
+  var TERRAIN = [
+    { id: 'grass',  name: 'Gras',   foot: true,  wheel: true,  build: true  },
+    { id: 'sand',   name: 'Sand',   foot: true,  wheel: true,  build: true  },
+    { id: 'rock',   name: 'Fels',   foot: false, wheel: false, build: false },
+    { id: 'water',  name: 'Wasser', foot: false, wheel: false, build: false },
+    { id: 'trees',  name: 'Bäume',  foot: true,  wheel: false, build: false },
+    { id: 'road',   name: 'Straße', foot: true,  wheel: true,  build: true , wheelSpeed: 1.25 },
+    { id: 'bridge', name: 'Brücke', foot: true,  wheel: true,  build: false, wheelSpeed: 1.25 }
+  ];
+  var T = {}; TERRAIN.forEach(function (t, i) { T[t.id] = i; });
+
+  var FACTIONS = {
+    coalition: { id: 'coalition', name: 'Koalition', color: '#3b82f6', dark: '#1e40af', light: '#93c5fd',
+                 desc: 'schnell, präzise, teurer' },
+    syndicate: { id: 'syndicate', name: 'Syndikat',  color: '#ef4444', dark: '#991b1b', light: '#fca5a5',
+                 desc: 'robust, massig, günstiger, langsamer' }
+  };
+
+  // Schadensmultiplikatoren: DAMAGE[waffe][panzerung]
+  var DAMAGE = {
+    bullet: { inf: 1.0, light: 0.5, heavy: 0.25, building: 0.25 },
+    rocket: { inf: 0.3, light: 1.0, heavy: 1.2,  building: 0.8 },
+    cannon: { inf: 0.4, light: 0.9, heavy: 1.0,  building: 0.9 },
+    // v0.5 (SPEC_v05 §2): Fraktionstürme
+    laser:     { inf: 0.6, light: 1.2, heavy: 1.3,  building: 0.5 },
+    lightning: { inf: 1.2, light: 1.0, heavy: 0.9,  building: 0.4 },
+    // v0.7 (SPEC_v07 §1): Scharfschütze, Flammenwerfer
+    sniper:    { inf: 1.5, light: 0.1, heavy: 0.05, building: 0.05 },
+    flame:     { inf: 1.5, light: 0.8, heavy: 0.3,  building: 0.65 }
+  };
+
+  // Gebäude (für beide Fraktionen gleich). cost/time in Credits/Sekunden.
+  // weapon: nur bei Türmen. sight in Kacheln.
+  var BUILDINGS = {
+    hq:       { id: 'hq', name: 'Hauptquartier', w: 3, h: 3, cost: 0,    time: 0,  power: 10,  hp: 3000, req: null,       sight: 5, sellable: false,
+                desc: 'Baut Gebäude' },
+    power:    { id: 'power', name: 'Kraftwerk',  w: 2, h: 2, cost: 300,  time: 10, power: 100, hp: 800,  req: 'hq',       sight: 5,
+                desc: 'Liefert Energie' },
+    refinery: { id: 'refinery', name: 'Raffinerie', w: 3, h: 2, cost: 1500, time: 20, power: -30, hp: 1500, req: 'power', sight: 5,
+                desc: 'Erz → Credits, mit Sammler' },
+    barracks: { id: 'barracks', name: 'Kaserne', w: 2, h: 2, cost: 400,  time: 12, power: -20, hp: 900,  req: 'power',    sight: 5, produces: 'infantry',
+                desc: 'Bildet Infanterie aus' },
+    factory:  { id: 'factory', name: 'Fahrzeugwerk', w: 3, h: 3, cost: 1800, time: 25, power: -40, hp: 2000, req: 'refinery', sight: 5, produces: 'vehicle',
+                desc: 'Baut Fahrzeuge' },
+    turret:   { id: 'turret', name: 'Geschützturm', w: 1, h: 1, cost: 600, time: 12, power: -20, hp: 1000, req: 'barracks', sight: 8, defense: true,
+                weapon: { type: 'cannon', range: 7, dmg: 60, rof: 1.5 }, desc: 'Gut gegen Fahrzeuge' },
+    mg:       { id: 'mg', name: 'MG-Stellung', w: 1, h: 1, cost: 450, time: 10, power: -10, hp: 700, req: 'barracks', sight: 7, defense: true,
+                weapon: { type: 'bullet', range: 5, dmg: 14, rof: 0.4 }, desc: 'Gut gegen Infanterie' },
+
+    // ---- v0.3: neutrale Kartengebäude (stehen auf der Karte, werden nicht gebaut; Startbesitzer −1) ----
+    // kind2 'garrison': Infanterie besetzt es (cap Plätze, rangeBonus auf Waffenreichweite der Insassen).
+    // kind2 'special' : unzerstörbar (invuln), wird durch Infanterie erobert; special = Effektart.
+    house:    { id: 'house', name: 'Wohnhaus', w: 2, h: 2, cost: 0, time: 0, power: 0, hp: 1200, req: null, sight: 6, sellable: false,
+                neutral: true, kind2: 'garrison', cap: 3, rangeBonus: 1, desc: 'Infanterie kann es besetzen' },
+    block:    { id: 'block', name: 'Wohnblock', w: 3, h: 2, cost: 0, time: 0, power: 0, hp: 2000, req: null, sight: 6, sellable: false,
+                neutral: true, kind2: 'garrison', cap: 5, rangeBonus: 1, desc: 'Infanterie kann es besetzen' },
+    bunker:   { id: 'bunker', name: 'Bunker', w: 2, h: 2, cost: 0, time: 0, power: 0, hp: 2500, req: null, sight: 7, sellable: false,
+                neutral: true, kind2: 'garrison', cap: 4, rangeBonus: 2, desc: 'Besetzbar, +2 Reichweite' },
+    oilrig:   { id: 'oilrig', name: 'Ölbohrturm', w: 2, h: 2, cost: 0, time: 0, power: 0, hp: 1000, req: null, sight: 4, sellable: false,
+                neutral: true, kind2: 'special', special: 'oil', invuln: true, desc: '+12 Credits/s' },
+    radar:    { id: 'radar', name: 'Radarstation', w: 2, h: 2, cost: 0, time: 0, power: 0, hp: 1000, req: null, sight: 14, sellable: false,
+                neutral: true, kind2: 'special', special: 'radar', invuln: true, desc: 'Weite Sicht, Gegner auf der Minimap' },
+    hospital: { id: 'hospital', name: 'Feldlazarett', w: 3, h: 2, cost: 0, time: 0, power: 0, hp: 1000, req: null, sight: 5, sellable: false,
+                neutral: true, kind2: 'special', special: 'heal', invuln: true, desc: 'Heilt eigene Infanterie' },
+    workshop: { id: 'workshop', name: 'Werkstatt', w: 3, h: 2, cost: 0, time: 0, power: 0, hp: 1000, req: null, sight: 5, sellable: false,
+                neutral: true, kind2: 'special', special: 'repair', invuln: true, desc: 'Repariert eigene Fahrzeuge' },
+    artillery:{ id: 'artillery', name: 'Artilleriestellung', w: 2, h: 2, cost: 0, time: 0, power: 0, hp: 1000, req: null, sight: 5, sellable: false,
+                neutral: true, kind2: 'special', special: 'arty', invuln: true, desc: 'Artillerieschlag (Aufladung 180 s)' },
+
+    // ---- v0.4: Tech-Zentrum + fraktionsgebundene Superwaffen (SPEC_v04 §2/§3) ----
+    techcenter: { id: 'techcenter', name: 'Tech-Zentrum', w: 3, h: 3, cost: 2000, time: 25, power: -60, hp: 1800, req: 'factory', sight: 6,
+                desc: 'Schaltet Spitzentechnik frei' },
+    orbital:  { id: 'orbital', name: 'Orbital-Leitstelle', w: 3, h: 2, cost: 3500, time: 40, power: -150, hp: 2500, req: 'techcenter', sight: 6,
+                faction: 'coalition', superweapon: 'orbital', limit: 1, desc: 'Orbitalschlag (Aufladung 6 min)' },
+    silo:     { id: 'silo', name: 'Raketensilo', w: 3, h: 2, cost: 3500, time: 40, power: -150, hp: 2500, req: 'techcenter', sight: 6,
+                faction: 'syndicate', superweapon: 'missile', limit: 1, desc: 'Großrakete (Aufladung 6 min)' },
+
+    // ---- v0.5: Verteidigung (SPEC_v05 §2, Reiter „Verteidigung“ über defense:true) ----
+    // wall: kein Warteschlangen-Eintrag, Platzierung über G.cmd.placeWall (sofort, 50 je Segment); zählt nicht für Sieg/Nähe-Regel.
+    wall:     { id: 'wall', name: 'Mauer', w: 1, h: 1, cost: 50, time: 0, power: 0, hp: 800, req: 'barracks', sight: 1, defense: true,
+                isWall: true, noQueue: true, buildAnim: 0.5, desc: 'Blockiert den Weg (50 je Segment)' },
+    // pbunker: baubarer Bunker – nur eigene Infanterie (garrisonOwn), Insassen +2 Reichweite; normales Basisgebäude.
+    pbunker:  { id: 'pbunker', name: 'Bunker', w: 2, h: 2, cost: 700, time: 14, power: 0, hp: 2200, req: 'barracks', sight: 7, defense: true,
+                kind2: 'garrison', cap: 4, rangeBonus: 2, garrisonOwn: true, desc: 'Eigene Infanterie besetzt ihn, +2 Reichweite' },
+    // laser/tesla: feuern bei Energiemangel gar nicht (noFireLowPower). Laser trifft sofort (Strahl);
+    // Blitz springt auf bis zu chain weitere Gegner im Umkreis chainR Kacheln vom Ziel mit je chainDmg Anteil.
+    laser:    { id: 'laser', name: 'Lasergeschütz', w: 2, h: 2, cost: 1500, time: 20, power: -80, hp: 1500, req: 'techcenter', sight: 9, defense: true,
+                faction: 'coalition', noFireLowPower: true, weapon: { type: 'laser', range: 8, dmg: 120, rof: 1.6, beam: true }, desc: 'Strahlwaffe, stark gegen Fahrzeuge' },
+    tesla:    { id: 'tesla', name: 'Blitzturm', w: 2, h: 2, cost: 1500, time: 20, power: -100, hp: 1700, req: 'techcenter', sight: 8, defense: true,
+                faction: 'syndicate', noFireLowPower: true, weapon: { type: 'lightning', range: 6.5, dmg: 200, rof: 2.5, beam: true, chain: 2, chainR: 2, chainDmg: 0.5 },
+                desc: 'Kettenblitz, springt auf weitere Gegner' }
+  };
+  var NEUTRAL_TYPES = ['house', 'block', 'bunker', 'oilrig', 'radar', 'hospital', 'workshop', 'artillery'];
+  var BUILD_ORDER = ['power', 'refinery', 'barracks', 'factory', 'turret', 'mg', 'techcenter', 'orbital', 'silo',
+                     'wall', 'pbunker', 'laser', 'tesla']; // Sidebar-Reihenfolge (v0.5: Verteidigung angehängt)
+
+  // Einheiten: pro Fraktion eigene Werte (null = nicht verfügbar).
+  // speed in Kacheln/s, range in Kacheln, rof in s.
+  function W(type, range, dmg, rof) { return { type: type, range: range, dmg: dmg, rof: rof }; }
+  function WX(type, range, dmg, rof, extra) { var w = W(type, range, dmg, rof); for (var k in extra) w[k] = extra[k]; return w; }
+  var UNITS = {
+    rifle: {
+      id: 'rifle', name: 'Schütze', cat: 'infantry', armor: 'inf', move: 'foot', radius: 6, sight: 5,
+      desc: 'Gut gegen Infanterie',
+      coalition: { cost: 98, time: 5, hp: 100, speed: 1.2, weapon: W('bullet', 4.25, 18, 1.0) },
+      syndicate: { cost: 80,  time: 4, hp: 110, speed: 1.0, weapon: W('bullet', 4, 15, 1.0) }
+    },
+    rocket: {
+      id: 'rocket', name: 'Raketentrupp', cat: 'infantry', armor: 'inf', move: 'foot', radius: 6, sight: 5,
+      desc: 'Gut gegen Fahrzeuge',
+      coalition: { cost: 285, time: 7, hp: 100, speed: 1.0, weapon: W('rocket', 6.25, 55, 2.4) },
+      syndicate: { cost: 250, time: 6, hp: 100, speed: 0.9, weapon: W('rocket', 5.5, 55, 2.8) }
+    },
+    scout: {
+      id: 'scout', name: 'Späher-Jeep', cat: 'vehicle', armor: 'light', move: 'wheel', radius: 10, sight: 6,
+      desc: 'Schnell, gegen Infanterie', turret: true,
+      coalition: { cost: 470, time: 8, hp: 270, speed: 3.2, weapon: W('bullet', 5.25, 22, 0.6) },
+      syndicate: null
+    },
+    raider: {
+      id: 'raider', name: 'Kampfbuggy', cat: 'vehicle', armor: 'light', move: 'wheel', radius: 10, sight: 6,
+      desc: 'Schnell, gegen Infanterie', turret: true,
+      coalition: null,
+      syndicate: { cost: 400, time: 6, hp: 280, speed: 2.8, weapon: W('bullet', 4.5, 18, 0.6) }
+    },
+    tank: {
+      id: 'tank', name: 'Kampfpanzer', cat: 'vehicle', armor: 'heavy', move: 'wheel', radius: 12, sight: 6,
+      desc: 'Schwer gepanzert', turret: true,
+      coalition: { cost: 895, time: 14, hp: 680, speed: 1.8, weapon: W('cannon', 5.5, 75, 1.5) },
+      syndicate: { cost: 800, time: 12, hp: 750, speed: 1.4, weapon: W('cannon', 5, 75, 1.8) }
+    },
+    harvester: {
+      id: 'harvester', name: 'Sammler', cat: 'vehicle', armor: 'heavy', move: 'wheel', radius: 13, sight: 6,
+      desc: 'Sammelt Erz', harvester: true, capacity: 700,
+      coalition: { cost: 1400, time: 18, hp: 1000, speed: 1.3, weapon: null },
+      syndicate: { cost: 1400, time: 18, hp: 1200, speed: 1.1, weapon: null }
+    },
+    // ---- v0.4 (SPEC_v04 §4): benötigen zusätzlich ein Tech-Zentrum (req) ----
+    // howitzer: schießt nur stehend (setup s Aufbauzeit), Mindestreichweite minRange, Flächenschaden splash (Kacheln),
+    //           Granate fliegt ballistisch auf die Zielposition (nicht zielsuchend).
+    howitzer: {
+      id: 'howitzer', name: 'Mobile Artillerie', cat: 'vehicle', armor: 'light', move: 'wheel', radius: 12, sight: 6, req: 'techcenter',
+      desc: 'Weitreichend, gegen Türme und Basen', turret: true, setup: 1,
+      coalition: { cost: 1100, time: 16, hp: 320, speed: 1.3, weapon: WX('cannon', 11, 90, 4.0, { minRange: 3, splash: 1 }) },
+      syndicate: { cost: 1100, time: 16, hp: 320, speed: 1.3, weapon: WX('cannon', 11, 90, 4.0, { minRange: 3, splash: 1 }) }
+    },
+    // engineer: unbewaffnet; enter → gegnerisches Basisgebäude übernehmen / eigenes reparieren / Spezialgebäude sofort erobern
+    engineer: {
+      id: 'engineer', name: 'Ingenieur', cat: 'infantry', armor: 'inf', move: 'foot', radius: 6, sight: 5, req: 'techcenter',
+      desc: 'Übernimmt Gebäude, repariert eigene', engineer: true,
+      coalition: { cost: 500, time: 8, hp: 80, speed: 1.0, weapon: null },
+      syndicate: { cost: 500, time: 8, hp: 80, speed: 1.0, weapon: null }
+    },
+    hunter: {
+      id: 'hunter', name: 'Jagdpanzer', cat: 'vehicle', armor: 'heavy', move: 'wheel', radius: 12, sight: 7, req: 'techcenter',
+      desc: 'Schnell, weitreichend', turret: true,
+      coalition: { cost: 1300, time: 16, hp: 450, speed: 2.4, weapon: W('cannon', 7, 85, 1.8) },
+      syndicate: null
+    },
+    // colossus: zwei Rohre feuern abwechselnd (je Rohr alle rof s → Schuss alle rof/2 s), Ereignis shot.barrel 0|1
+    colossus: {
+      id: 'colossus', name: 'Kolosspanzer', cat: 'vehicle', armor: 'heavy', move: 'wheel', radius: 15, sight: 6, req: 'techcenter',
+      desc: 'Extrem schwer gepanzert', turret: true,
+      coalition: null,
+      syndicate: { cost: 1800, time: 22, hp: 1500, speed: 1.0, weapon: WX('cannon', 5.5, 80, 2.0, { barrels: 2 }) }
+    },
+    // ---- v0.5 (SPEC_v05 §3): Mobiler Bauhof – G.cmd.deploy → HQ (3×3) zentriert auf der Fahrzeugkachel ----
+    mcv: {
+      id: 'mcv', name: 'Mobiler Bauhof', cat: 'vehicle', armor: 'heavy', move: 'wheel', radius: 15, sight: 6,
+      desc: 'Baut sich zu einem Hauptquartier auf', deploys: 'hq',
+      coalition: { cost: 3000, time: 30, hp: 1500, speed: 1.0, weapon: null },
+      syndicate: { cost: 3000, time: 30, hp: 1500, speed: 1.0, weapon: null }
+    },
+    // ---- v0.7 (SPEC_v07 §1): sieben neue Einheiten. faction = nur diese Fraktion (wie hunter/colossus über null-Werte) ----
+    // sniper: Soforttreffer (wie bullet), Sicht 9 (= Reichweite, sonst nutzt er sie untätig nie)
+    sniper: {
+      id: 'sniper', name: 'Scharfschütze', cat: 'infantry', armor: 'inf', move: 'foot', radius: 6, sight: 9, faction: 'coalition',
+      desc: 'Weitreichend, tödlich gegen Infanterie',
+      coalition: { cost: 750, time: 10, hp: 80, speed: 1.1, weapon: W('sniper', 9, 120, 3.0) },
+      syndicate: null
+    },
+    // apc: Transport für bis zu transport (5) Infanteristen – G.cmd.load / G.cmd.unload; Einheitenfelder gar (Insassen-IDs), cap
+    apc: {
+      id: 'apc', name: 'Schützenpanzer', cat: 'vehicle', armor: 'light', move: 'wheel', radius: 12, sight: 6, faction: 'coalition',
+      desc: 'Transportiert 5 Infanteristen', turret: true, transport: 5,
+      coalition: { cost: 800, time: 12, hp: 400, speed: 2.6, weapon: W('bullet', 5, 16, 0.5) },
+      syndicate: null
+    },
+    lasertank: {
+      id: 'lasertank', name: 'Laserpanzer', cat: 'vehicle', armor: 'heavy', move: 'wheel', radius: 12, sight: 7, req: 'techcenter', faction: 'coalition',
+      desc: 'Strahlwaffe, stark gegen Panzer', turret: true,
+      coalition: { cost: 1400, time: 18, hp: 500, speed: 2.0, weapon: WX('laser', 6.5, 90, 1.4, { beam: true }) },
+      syndicate: null
+    },
+    // flamer: Sofortwirkung auf die Zielposition mit Flächenschaden area (Kacheln), Rand 50 %
+    flamer: {
+      id: 'flamer', name: 'Flammenwerfer', cat: 'infantry', armor: 'inf', move: 'foot', radius: 6, sight: 5, faction: 'syndicate',
+      desc: 'Kurze Reichweite, verheerend gegen Infanterie',
+      coalition: null,
+      syndicate: { cost: 300, time: 7, hp: 130, speed: 1.0, weapon: WX('flame', 2.5, 35, 0.5, { area: 0.75 }) }
+    },
+    // mlrs: Salve aus salvo Raketen (Abstand salvoGap s), ballistisch auf die Zielposition (Streuung scatter Kacheln),
+    //       Flächenschaden splash; nur stehend (setup 1 s), Mindestreichweite minRange
+    mlrs: {
+      id: 'mlrs', name: 'Raketenwerfer-Lkw', cat: 'vehicle', armor: 'light', move: 'wheel', radius: 12, sight: 6, faction: 'syndicate',
+      desc: 'Raketensalven, gegen Türme und Gruppen', turret: true, setup: 1,
+      coalition: null,
+      syndicate: { cost: 1000, time: 14, hp: 300, speed: 1.8, weapon: WX('rocket', 9, 40, 6.0, { minRange: 2, splash: 0.75, salvo: 6, salvoGap: 0.12, scatter: 0.6 }) }
+    },
+    shocktank: {
+      id: 'shocktank', name: 'Blitzpanzer', cat: 'vehicle', armor: 'heavy', move: 'wheel', radius: 13, sight: 6, req: 'techcenter', faction: 'syndicate',
+      desc: 'Kettenblitz, springt auf ein weiteres Ziel', turret: true,
+      coalition: null,
+      syndicate: { cost: 1500, time: 18, hp: 650, speed: 1.6, weapon: WX('lightning', 5, 120, 2.2, { beam: true, chain: 1, chainR: 2, chainDmg: 0.5 }) }
+    },
+    // medic: unbewaffnet; heilt die am stärksten verletzte eigene Infanterie im Umkreis radius um rate HP/s (ein Ziel),
+    //        folgt untätig der nächsten verletzten Infanterie bis follow Kacheln
+    medic: {
+      id: 'medic', name: 'Sanitäter', cat: 'infantry', armor: 'inf', move: 'foot', radius: 6, sight: 5,
+      desc: 'Heilt eigene Infanterie', medic: { rate: 12, radius: 3, follow: 6 },
+      coalition: { cost: 400, time: 8, hp: 90, speed: 1.1, weapon: null },
+      syndicate: { cost: 400, time: 8, hp: 90, speed: 1.1, weapon: null }
+    }
+  };
+  var UNIT_ORDER = { infantry: ['rifle', 'rocket', 'engineer', 'sniper', 'flamer', 'medic'],
+                     vehicle: ['scout', 'raider', 'apc', 'tank', 'hunter', 'colossus', 'lasertank', 'shocktank', 'howitzer', 'mlrs', 'harvester', 'mcv'] };
+
+  // Zusammengeführte Werte einer Einheit für eine Fraktion (gecacht).
+  var statCache = {};
+  function unitStats(faction, type) {
+    var key = faction + ':' + type;
+    if (key in statCache) return statCache[key];
+    var base = UNITS[type], f = base && base[faction], r = null;
+    if (f) {
+      r = {};
+      for (var k in base) if (!FACTIONS[k]) r[k] = base[k];   // v1.0: alle Fraktions-Blöcke überspringen (auch kollektiv)
+      for (k in f) r[k] = f[k];
+      r.producer = base.producer || (base.cat === 'infantry' ? 'barracks' : 'factory');   // v0.8: air → airfield, naval → shipyard
+    }
+    statCache[key] = r;
+    return r;
+  }
+
+  G.DATA = {
+    TILE: TILE, TICK_HZ: TICK_HZ, TERRAIN: TERRAIN, T: T, FACTIONS: FACTIONS, DAMAGE: DAMAGE,
+    BUILDINGS: BUILDINGS, BUILD_ORDER: BUILD_ORDER, NEUTRAL_TYPES: NEUTRAL_TYPES, UNITS: UNITS, UNIT_ORDER: UNIT_ORDER,
+    unitStats: unitStats,
+    START_CREDITS: 4000,
+    ORE_RATE: 50,          // Erz pro Sekunde beim Sammeln
+    UNLOAD_RATE: 350,      // Erz pro Sekunde beim Abladen
+    ORE_REGROW: 1.5,       // (v0.8: verdoppelt, vorher 0.75) Erz pro Sekunde und Kachel Nachwachsen (nur Felder mit oreMax>0)
+    QUEUE_MAX: 5,
+    // v0.3 Spezialgebäude
+    CAPTURE_TIME: 4,       // s bis Eroberung abgeschlossen
+    OIL_INCOME: 12,        // Credits/s je Ölbohrturm
+    HEAL_RATE: 5,          // HP/s Infanterie am Feldlazarett
+    UNIT_REPAIR_RATE: 15,  // HP/s Fahrzeuge an der Werkstatt
+    SUPPORT_RADIUS: 5,     // Kacheln (Lazarett/Werkstatt)
+    // v0.4 Superwaffen: charge = Ladezeit s (bei Energiemangel halbe Geschwindigkeit), delay = Vorwarn-/Flugzeit s,
+    // radius in Kacheln, dmg in der Mitte → edge (Anteil) am Rand, bld = Faktor für Gebäude. Kein Schaden an eigenen Einheiten.
+    SW: { charge: 360,
+          orbital: { delay: 3, radius: 3, dmg: 600, edge: 0.5, bld: 0.6 },
+          missile: { delay: 5, radius: 4, dmg: 450, edge: 0.5, bld: 0.6 } },
+    ARTY: { charge: 180, range: 30, delay: 2, shells: 6, spread: 2, dmg: 110, weapon: 'cannon', splash: 0.8 },
+    RUIN_HP: 0.5,
+    APC_EJECT_HP: 0.5,     // v0.7: Insassen eines zerstörten Schützenpanzers steigen mit 50 % HP aus
+    PEACE_OPTIONS: [0, 5, 10, 15],   // v0.7: Friedenszeit in Minuten (S.settings.peace in Sekunden)
+    AI_FIRST_ATTACK: { easy: 480, medium: 360, hard: 240 },   // v0.7: frühester erster KI-Angriff (s)
+    HARV_HIDE: 8,
+    AI_UNIT_VALUE: 380,    // KI: Credits-Wert je „Einheit“ der Wellengröße (Wellenschwelle nach Wert statt Stückzahl)          // s Ruhe, bevor ein geflohener Sammler weitersammelt          // Insassen verlassen eine Ruine mit 50 % HP
+    PLACE_DIST: 3,         // max. Kachelabstand zu eigenem Gebäude
+    WALL_MAX: 30,          // v0.5: max. Mauersegmente je G.cmd.placeWall
+    WALL_PATH_COST: 300,   // v0.5: Zusatzkosten (A*-Einheiten, 10 = 1 Kachel) je gegnerischem Mauersegment im Durchbruchspfad
+    SELL_REFUND: 0.5,
+    REPAIR_RATE: 0.04,     // Anteil maxHp pro Sekunde
+    REPAIR_COST: 0.5,      // Anteil der Baukosten für volle Reparatur
+    SPEEDS: { slow: 0.75, normal: 1, fast: 1.5 },
+    SPEED_NAMES: { slow: 'Langsam', normal: 'Normal', fast: 'Schnell' },
+    DIFFS: { easy: 'Leicht', medium: 'Mittel', hard: 'Schwer' },
+    CAT_NAMES: { building: 'Gebäude', defense: 'Verteidigung', infantry: 'Infanterie', vehicle: 'Fahrzeuge' }
+  };
+})();
+
+/* ---- v0.8 (SPEC_v08): Luftwaffe & Marine – eigener Block, damit Zusammenführungen mit parallelen Änderungen sauber bleiben ----
+ * Neue Bewegungsklassen: 'air' (fliegt geradlinig, ignoriert Gelände/Gebäude) und 'naval' (nur Wasser + unter Brücken).
+ * Neue Panzerung 'air' (Luftfahrzeuge in der Luft); nur Waffen mit antiAir:true treffen fliegende Ziele, airOnly:true trifft nur Luftziele.
+ * Neue Produktionskategorien 'air' (Flugfeld) und 'naval' (Werft) mit eigener Warteschlange P.q.air / P.q.naval. */
+(function () {
+  'use strict';
+  var D = G.DATA, B = D.BUILDINGS, U = D.UNITS;
+  function W(type, range, dmg, rof, extra) { var w = { type: type, range: range, dmg: dmg, rof: rof }; for (var k in extra) w[k] = extra[k]; return w; }
+
+  // Gelände: Schiffe fahren auf Wasser und unter Brücken hindurch
+  D.TERRAIN[D.T.water].naval = true;
+  D.TERRAIN[D.T.bridge].naval = true;
+
+  // Schadenstabelle: Spalte 'air' für alle Waffen (zählt nur, wenn die Waffe das Ziel überhaupt treffen darf – gelandete Luftfahrzeuge
+  // gelten als Bodenziel mit Panzerung 'air'), neue Waffen flak (Flugabwehr) und bomb (Bombenteppich)
+  var AIR = { bullet: 0.5, rocket: 0.9, cannon: 0.5, laser: 1.0, lightning: 1.0, sniper: 0.1, flame: 0.8 };
+  for (var wt in AIR) if (D.DAMAGE[wt]) D.DAMAGE[wt].air = AIR[wt];
+  D.DAMAGE.flak = { inf: 0.3, light: 0.5, heavy: 0.2, building: 0.1, air: 1.0 };
+  D.DAMAGE.bomb = { inf: 1.0, light: 1.0, heavy: 0.85, building: 1.1, air: 0 };
+
+  // Bestehende Flugabwehr-fähige Waffen: Raketentrupp, Jagdpanzer, Raketenwerfer-Lkw (Salve fliegt gegen Luftziele zielsuchend)
+  [['rocket', 'coalition'], ['rocket', 'syndicate'], ['hunter', 'coalition'], ['mlrs', 'syndicate']].forEach(function (p) {
+    var f = U[p[0]] && U[p[0]][p[1]]; if (f && f.weapon) f.weapon.antiAir = true;
+  });
+
+  // ---- Gebäude
+  B.airfield = { id: 'airfield', name: 'Flugfeld', w: 4, h: 3, cost: 1500, time: 20, power: -40, hp: 1600, req: 'factory', sight: 6, produces: 'air',
+                 pads: 4, desc: 'Baut Luftfahrzeuge, 4 Landeplätze' };
+  // shore: Werft-Platzierungsregel (sim.js canPlaceShore): 3×3, jede Kachel Wasser oder bebaubares Land (ohne Erz), mind. shoreWater Wasserkacheln,
+  // an Land angrenzend, Wasser gehört zu einem schiffbaren Gewässer (≥ D.NAVAL_MIN_WATER Kacheln); Nähe-Regel placeDist statt PLACE_DIST
+  B.shipyard = { id: 'shipyard', name: 'Werft', w: 3, h: 3, cost: 1200, time: 18, power: -30, hp: 1800, req: 'factory', sight: 7, produces: 'naval',
+                 shore: true, shoreWater: 3, placeDist: 5, desc: 'Baut Schiffe – am Ufer, teils im Wasser' };
+  // Flak-Stellung: reine Flugabwehr (defense:true → Reiter „Verteidigung“ bzw. Verteidigungs-Warteschlange)
+  B.flak = { id: 'flak', name: 'Flak-Stellung', w: 1, h: 1, cost: 550, time: 12, power: -20, hp: 900, req: 'barracks', sight: 9, defense: true,
+             weapon: W('flak', 8, 28, 0.45, { antiAir: true, airOnly: true }), desc: 'Flugabwehr – nur gegen Luftziele' };
+  D.BUILD_ORDER.push('airfield', 'shipyard', 'flak');
+
+  // ---- Einheiten. Gemeinsame Felder: cat, move, producer, armor; Fraktionswerte wie bisher (Koalition schneller/teurer)
+  // flyer: fliegt (Feld e.alt 0..1), transport: Plätze (Infanterie 1, Fahrzeug 2, groß 3), carry: 'inf' | 'any'
+  U.transheli = {
+    id: 'transheli', name: 'Transporthubschrauber', cat: 'air', move: 'air', producer: 'airfield', armor: 'air', radius: 13, sight: 7, flyer: true,
+    desc: 'Fliegt 5 Infanteristen überallhin', transport: 5, carry: 'inf',
+    coalition: { cost: 900, time: 14, hp: 380, speed: 3.6, weapon: null },
+    syndicate: { cost: 800, time: 13, hp: 440, speed: 3.1, weapon: null }
+  };
+  U.gunship = {
+    id: 'gunship', name: 'Kampfhubschrauber', cat: 'air', move: 'air', producer: 'airfield', armor: 'air', radius: 13, sight: 7, flyer: true,
+    desc: 'Raketen gegen Bodenziele',
+    coalition: { cost: 1300, time: 16, hp: 420, speed: 3.2, weapon: W('rocket', 5.5, 40, 1.5) },
+    syndicate: { cost: 1150, time: 15, hp: 500, speed: 2.7, weapon: W('rocket', 5, 44, 1.7) }
+  };
+  // bomber: Bombenteppich aus bombs Bomben im Abstand spacing (Kacheln) entlang der Flugbahn, mittig über dem Ziel; danach zurück zum Flugfeld,
+  // landen, rearm s nachladen (bei Energiemangel doppelt so lange). Keine Wirkung gegen Luftziele.
+  U.bomber = {
+    id: 'bomber', name: 'Bomber', cat: 'air', move: 'air', producer: 'airfield', armor: 'air', radius: 15, sight: 6, flyer: true, bomber: true,
+    desc: 'Bombenteppich, danach Nachladen am Flugfeld',
+    coalition: { cost: 2000, time: 26, hp: 520, speed: 5.0, weapon: W('bomb', 1, 115, 0.2, { bombs: 6, spacing: 0.8, splash: 1.0, rearm: 40 }) },
+    syndicate: { cost: 1800, time: 26, hp: 620, speed: 4.4, weapon: W('bomb', 1, 125, 0.2, { bombs: 6, spacing: 0.85, splash: 1.05, rearm: 44 }) }
+  };
+  U.gunboat = {
+    id: 'gunboat', name: 'Kanonenboot', cat: 'naval', move: 'naval', producer: 'shipyard', armor: 'light', radius: 13, sight: 7, turret: true,
+    desc: 'Schnell, leicht bewaffnet',
+    coalition: { cost: 650, time: 10, hp: 380, speed: 3.2, weapon: W('cannon', 5.5, 32, 1.0) },
+    syndicate: { cost: 580, time: 9, hp: 440, speed: 2.8, weapon: W('cannon', 5, 34, 1.1) }
+  };
+  // destroyer: schwere Geschütze (weapon) + Flak (aa, eigener Feuertakt, nur Luftziele)
+  U.destroyer = {
+    id: 'destroyer', name: 'Zerstörer', cat: 'naval', move: 'naval', producer: 'shipyard', armor: 'heavy', radius: 17, sight: 8, turret: true,
+    desc: 'Schwere Geschütze, Flak gegen Luftziele',
+    coalition: { cost: 1800, time: 22, hp: 1300, speed: 1.9, weapon: W('cannon', 8, 85, 2.2), aa: W('flak', 6, 22, 0.5, { antiAir: true, airOnly: true }) },
+    syndicate: { cost: 1650, time: 22, hp: 1550, speed: 1.6, weapon: W('cannon', 7.5, 90, 2.4), aa: W('flak', 5.5, 24, 0.55, { antiAir: true, airOnly: true }) }
+  };
+  U.lander = {
+    id: 'lander', name: 'Landungsboot', cat: 'naval', move: 'naval', producer: 'shipyard', armor: 'light', radius: 16, sight: 6,
+    desc: 'Bringt Infanterie und Fahrzeuge an Land', transport: 6, carry: 'any',
+    coalition: { cost: 800, time: 12, hp: 650, speed: 2.4, weapon: null },
+    syndicate: { cost: 700, time: 12, hp: 760, speed: 2.1, weapon: null }
+  };
+  D.UNIT_ORDER.air = ['transheli', 'gunship', 'bomber'];
+  D.UNIT_ORDER.naval = ['gunboat', 'destroyer', 'lander'];
+  D.CAT_NAMES.air = 'Luftwaffe';
+  D.CAT_NAMES.naval = 'Marine';
+
+  D.MOVE_CLASS = { foot: 0, wheel: 1, air: 2, naval: 3 };   // e.mc
+  D.AIR_CLIMB = 0.8;          // s vom Boden auf Flughöhe (e.alt 0 → 1)
+  D.AIR_H = 2.2;              // Flughöhe in Kacheln (3D-Darstellung, Picking)
+  D.AIR_LIFT = 44;            // Flughöhe in Bildschirm-px bei Zoom 1 (2D-Darstellung)
+  D.NAVAL_MIN_WATER = 40;     // Mindestgröße eines Gewässers (Kacheln) für Werft/Schiffe
+  D.BEACH_RANGE = 2.2;        // Kacheln: so nah muss ein Landungsboot am Ufer liegen (Ein-/Aussteigen)
+  D.HELI_BOARD = 1.3;         // Kacheln: Einsteigeabstand am gelandeten Hubschrauber
+})();
+
+/* ---- v0.9 (SPEC_v08 §14): Schlachtschiff „Dreadnought“ – eigener Block (Zusammenführung mit parallelen Grafik-Änderungen) ----
+ * Schweres Raketenschiff aus der Werft (zusätzlich Tech-Zentrum): langsam, sehr robust, feuert Salven ballistischer Raketen weit ins
+ * Landesinnere (wie Haubitze/Raketenwerfer: nur stehend nach Aufbau, Mindestreichweite, Flächenschaden, nicht zielsuchend, braucht Sicht).
+ * Keine Flugabwehr (Waffe ohne antiAir → trifft keine Luftziele), schwach gegen nahe Schiffe (Mindestreichweite) und Bomber. */
+(function () {
+  'use strict';
+  var D = G.DATA, U = D.UNITS;
+  function W(type, range, dmg, rof, extra) { var w = { type: type, range: range, dmg: dmg, rof: rof }; for (var k in extra) w[k] = extra[k]; return w; }
+  // neue Waffe 'missile': stark gegen Gebäude, mäßig gegen Fahrzeuge, schwach gegen Infanterie, nie gegen Luftziele
+  D.DAMAGE.missile = { inf: 0.5, light: 0.9, heavy: 0.8, building: 1.25, air: 0 };
+  // salvo: Raketen je Salve (Abstand salvoGap s), scatter: Streuung (Kacheln), pspeed: Fluggeschwindigkeit (px/Tick), missile: Darstellungs-Flag
+  U.dreadnought = {
+    id: 'dreadnought', name: 'Schlachtschiff', cat: 'naval', move: 'naval', producer: 'shipyard', armor: 'heavy', radius: 20, sight: 7, turret: true,
+    setup: 1.5, req: 'techcenter',
+    desc: 'Raketen weit ins Landesinnere – braucht Aufklärung, keine Flugabwehr',
+    coalition: { cost: 2600, time: 34, hp: 2000, speed: 1.3,
+                 weapon: W('missile', 15, 150, 8.0, { minRange: 5, splash: 1.3, salvo: 2, salvoGap: 0.6, scatter: 0.6, pspeed: 7, missile: true }) },
+    syndicate: { cost: 2400, time: 34, hp: 2400, speed: 1.1,
+                 weapon: W('missile', 14, 160, 8.5, { minRange: 5, splash: 1.4, salvo: 2, salvoGap: 0.6, scatter: 0.7, pspeed: 7, missile: true }) }
+  };
+  D.UNIT_ORDER.naval.push('dreadnought');
+})();
+
+/* ---- v1.0 (SPEC_v10): dritte Fraktion „Kollektiv“ (Psi / Gedankenkontrolle / Zukunftstechnik) – eigener Block ----
+ * Fraktionsfarbe Dunkelblau (Indigo) – klar unterscheidbar vom hellen Koalitions-Blau #3b82f6.
+ * Gemeinsame Rollen (rifle, rocket, tank, harvester, …) bekommen einen kollektiv-Block mit eigenem Namen (unitStats übernimmt name/desc
+ * aus dem Fraktions-Block); eigene Mechaniken laufen über neue Typen (psiadept, brute, gatling, magnet, psitank, psitower, psidome).
+ * Gebäude sind für alle Fraktionen gleich (Werte), Kollektiv-Namen über NAMES_B (D.bName(type, fac)).
+ * Neue Waffen: psi (Gedankenkontrolle, kein Schaden), melee (Nahkampf), magnet (hält Fahrzeuge fest und zieht sie heran), torpedo (nur Schiffe),
+ * disc (Diskus-Strahl, entzieht Gebäuden Credits/Strom). Gatling-Feuer beschleunigt (weapon.spin). */
+(function () {
+  'use strict';
+  var D = G.DATA, U = D.UNITS, B = D.BUILDINGS;
+  function W(type, range, dmg, rof, extra) { var w = { type: type, range: range, dmg: dmg, rof: rof }; for (var k in extra) w[k] = extra[k]; return w; }
+
+  D.FACTIONS.kollektiv = { id: 'kollektiv', name: 'Kollektiv', color: '#3341c8', dark: '#1c2470', light: '#a5b4fc',
+                           desc: 'Psi-Kräfte, Gedankenkontrolle, Schwebetechnik' };
+  // v1.0: Ersatzfarbe für den zweiten Spieler, wenn beide dieselbe Fraktion spielen (Spiegelpartie)
+  D.FACTIONS.coalition.alt = '#06b6d4'; D.FACTIONS.syndicate.alt = '#f97316'; D.FACTIONS.kollektiv.alt = '#c026d3';
+  D.FACTION_IDS = ['coalition', 'syndicate', 'kollektiv'];
+
+  // Schadenstabelle (psi richtet keinen Schaden an; Werte nur als Zielvorliebe)
+  D.DAMAGE.psi = { inf: 0, light: 0, heavy: 0, building: 0, air: 0 };
+  D.DAMAGE.melee = { inf: 1.25, light: 0.9, heavy: 0.6, building: 0.5, air: 0 };
+  D.DAMAGE.magnet = { inf: 0, light: 1.0, heavy: 1.1, building: 0, air: 0 };
+  D.DAMAGE.torpedo = { inf: 0, light: 1.1, heavy: 1.0, building: 0, air: 0 };
+  D.DAMAGE.disc = { inf: 0.7, light: 0.8, heavy: 0.6, building: 0.8, air: 0 };
+
+  // Bewegungsklasse 'hover' = Fahrzeug (e.mc 1), Wegfindung Klasse 4 (Land für Fahrzeuge + Wasser/Brücken), Feld e.pc
+  D.MOVE_CLASS.hover = 1;
+  D.HOVER_PC = 4;
+
+  // Gedankenkontrolle (SPEC_v10 §3)
+  D.PSI = {
+    maxControls: 1,      // so oft kann eine Einheit insgesamt übernommen werden, danach Psi-resistent
+    reImmune: 10,        // s Schutz nach der Freigabe (kein sofortiges Zurückholen)
+    relink: 6,           // s Abklingzeit des Kontrolleurs, wenn eine kontrollierte Einheit stirbt/recycelt/freigegeben wird
+    overload: 25,        // HP/s Schaden je Einheit über psi.safe (Psi-Koloss)
+    recycle: 0.5         // Recycling am Erzwandler: Anteil der Baukosten
+  };
+  D.CLONE_EVERY = 6;     // Klonlabor (Kollektiv-Kaserne): jede 6. Infanterie-Einheit erscheint doppelt (Klon gratis, nicht Ingenieur/Sanitäter)
+  D.SW.psi = { delay: 2, radius: 3.5, dmg: 0, edge: 1, bld: 0, psi: true };   // Psi-Welle: übernimmt alle übernehmbaren Gegner im Radius dauerhaft
+
+  // ---- Kollektiv-Namen der gemeinsamen Gebäude
+  D.NAMES_B = { kollektiv: { hq: 'Psi-Zentrale', power: 'Psi-Reaktor', refinery: 'Erzwandler', barracks: 'Klonlabor', factory: 'Kriegsfabrik',
+                             turret: 'Strahlkanone', mg: 'Gatling-Stand', techcenter: 'Psi-Labor', wall: 'Kristallmauer', pbunker: 'Psi-Bunker',
+                             airfield: 'Diskus-Hangar', shipyard: 'U-Boot-Werft', flak: 'Abwehrspule' } };
+  D.DESC_B = { kollektiv: { refinery: 'Erz → Credits; Einheiten recyceln', barracks: 'Infanterie, jede 4. Einheit als Gratis-Klon' } };
+  D.bName = function (type, fac) { var n = fac && D.NAMES_B[fac] && D.NAMES_B[fac][type]; return n || (B[type] ? B[type].name : String(type)); };
+  D.bDesc = function (type, fac) { var n = fac && D.DESC_B[fac] && D.DESC_B[fac][type]; return n || (B[type] ? B[type].desc : ''); };
+  D.uName = function (type, fac) { var s = fac && D.unitStats(fac, type); return (s && s.name) || (U[type] ? U[type].name : String(type)); };
+
+  // ---- Fraktionsgebäude
+  B.psitower = { id: 'psitower', name: 'Psi-Turm', w: 2, h: 2, cost: 1500, time: 20, power: -80, hp: 1500, req: 'techcenter', sight: 8, defense: true,
+                 faction: 'kollektiv', noFireLowPower: true,
+                 weapon: W('psi', 6.5, 0, 4.0, { psi: { slots: 3, safe: 3 }, beam: true }), desc: 'Übernimmt bis zu 3 Angreifer (Gedankenkontrolle)' };
+  B.psidome = { id: 'psidome', name: 'Psi-Verstärker', w: 3, h: 2, cost: 3500, time: 40, power: -150, hp: 2500, req: 'techcenter', sight: 6,
+                faction: 'kollektiv', superweapon: 'psi', limit: 1, desc: 'Psi-Welle: übernimmt Gegner im Umkreis (Aufladung 6 min)' };
+  D.BUILD_ORDER.push('psidome', 'psitower');
+
+  // ---- Kollektiv-Blöcke gemeinsamer Rollen
+  U.rifle.kollektiv = { name: 'Initiand', cost: 90, time: 4.5, hp: 100, speed: 1.1, weapon: W('bullet', 4.25, 16, 1.0) };
+  U.rocket.kollektiv = { name: 'Plasmatrupp', cost: 270, time: 6.5, hp: 95, speed: 1.0, weapon: W('rocket', 6, 52, 2.5, { antiAir: true }) };
+  U.engineer.kollektiv = { name: 'Techniker', cost: 500, time: 8, hp: 80, speed: 1.0, weapon: null };
+  U.medic.kollektiv = { name: 'Heiler', cost: 400, time: 8, hp: 90, speed: 1.1, weapon: null };
+  U.harvester.kollektiv = { name: 'Erzsauger', cost: 1400, time: 18, hp: 1100, speed: 1.2, weapon: null };
+  U.mcv.kollektiv = { cost: 3000, time: 30, hp: 1500, speed: 1.0, weapon: null };
+  U.tank.kollektiv = { name: 'Schwebepanzer', desc: 'Schwebt über Land und Wasser', move: 'hover', cost: 850, time: 13, hp: 620, speed: 2.0,
+                       weapon: W('cannon', 5.25, 70, 1.6) };
+  U.transheli.kollektiv = { name: 'Transportgleiter', cost: 850, time: 14, hp: 400, speed: 3.4, weapon: null };
+  // Diskus (Rolle Kampfhubschrauber): Strahl gegen Bodenziele; trifft er Gebäude, entzieht er dem Besitzer Credits (drain.cr je Treffer),
+  // Kraftwerke liefern drain.pwr s lang keinen Strom
+  U.gunship.kollektiv = { name: 'Diskus', desc: 'Fliegende Untertasse – entzieht Gebäuden Credits und Strom', cost: 1400, time: 17, hp: 480, speed: 2.8,
+                          weapon: W('disc', 5, 34, 1.2, { beam: true }), drain: { cr: 8, pwr: 3 } };
+  U.gunboat.kollektiv = { name: 'Tauchboot', desc: 'Torpedos – nur gegen Schiffe', cost: 700, time: 10, hp: 420, speed: 2.8,
+                          weapon: W('torpedo', 6, 60, 1.6, { navalOnly: true }) };
+  U.destroyer.kollektiv = { name: 'Raketen-Tauchboot', desc: 'Raketen gegen Land- und Seeziele, Flugabwehr', cost: 1750, time: 22, hp: 1300, speed: 1.8,
+                            weapon: W('rocket', 8, 75, 2.3), aa: W('flak', 6, 22, 0.5, { antiAir: true, airOnly: true }) };
+  U.lander.kollektiv = { name: 'Schwebefähre', cost: 750, time: 12, hp: 700, speed: 2.3, weapon: null };
+
+  // ---- neue Kollektiv-Einheiten
+  // psi: { slots: max. gleichzeitig kontrollierte Einheiten, safe: davon ohne Überlastung }; psiImmune: nicht übernehmbar
+  U.psiadept = {
+    id: 'psiadept', name: 'Psi-Adept', cat: 'infantry', armor: 'inf', move: 'foot', radius: 6, sight: 7, faction: 'kollektiv', psiImmune: true,
+    desc: 'Übernimmt eine gegnerische Einheit (Gedankenkontrolle)',
+    kollektiv: { cost: 800, time: 11, hp: 90, speed: 1.1, weapon: W('psi', 6, 0, 3.5, { psi: { slots: 1, safe: 1 }, beam: true }) }
+  };
+  U.brute = {
+    id: 'brute', name: 'Mutant', cat: 'infantry', armor: 'inf', move: 'foot', radius: 7, sight: 5, faction: 'kollektiv',
+    desc: 'Zäher Nahkämpfer, zerschlägt Infanterie und Fahrzeuge',
+    kollektiv: { cost: 420, time: 8, hp: 400, speed: 1.15, weapon: W('melee', 1.1, 55, 1.2) }
+  };
+  U.gatling = {
+    id: 'gatling', name: 'Gatling-Panzer', cat: 'vehicle', armor: 'light', move: 'wheel', radius: 11, sight: 7, faction: 'kollektiv', turret: true,
+    desc: 'Dreht hoch – gegen Infanterie und Luftziele',
+    // spin: Feuertakt sinkt bei Dauerfeuer von rof auf min (spin 0 → 1 in etwa up s Dauerfeuer), kühlt ohne Feuer wieder ab
+    kollektiv: { cost: 650, time: 9, hp: 300, speed: 2.4, weapon: W('bullet', 5.5, 8, 0.6, { antiAir: true, spin: { min: 0.3, up: 3 } }) }
+  };
+  U.magnet = {
+    id: 'magnet', name: 'Magnet-Werfer', cat: 'vehicle', armor: 'light', move: 'wheel', radius: 12, sight: 8, faction: 'kollektiv', turret: true, req: 'techcenter',
+    desc: 'Hält Fahrzeuge und Schiffe fest und zieht sie heran',
+    // magnet: hold s Festhalten je Treffer, pull Kacheln/s Zug zum Werfer (bis stop Kacheln Abstand); vehicleOnly: nur Fahrzeuge/Schiffe
+    kollektiv: { cost: 1300, time: 16, hp: 420, speed: 1.5, weapon: W('magnet', 8, 30, 1.0, { beam: true, vehicleOnly: true, hold: 1.3, pull: 0.8, stop: 2.5 }) }
+  };
+  U.psitank = {
+    id: 'psitank', name: 'Psi-Koloss', cat: 'vehicle', armor: 'heavy', move: 'wheel', radius: 15, sight: 8, faction: 'kollektiv', turret: true, req: 'techcenter',
+    psiImmune: true, desc: 'Kontrolliert bis zu 2 Einheiten – mehr überlastet ihn',
+    kollektiv: { cost: 2200, time: 24, hp: 1000, speed: 1.1, weapon: W('psi', 6, 0, 5.0, { psi: { slots: 3, safe: 2 }, beam: true }) }
+  };
+  D.UNIT_ORDER.infantry.push('psiadept', 'brute');
+  D.UNIT_ORDER.vehicle.splice(D.UNIT_ORDER.vehicle.indexOf('harvester'), 0, 'gatling', 'magnet', 'psitank');
+})();
