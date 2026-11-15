@@ -22,8 +22,8 @@ var G = (typeof G !== 'undefined') ? G : {};
   function steps() { return X().FLAGS.map(function (f) { return f[1]; }); }
   function nm(l) { return X().name(l); }
   function el(tag, css, html) { var e = document.createElement(tag); if (css) e.style.cssText = css; if (html != null) e.innerHTML = html; return e; }
-  var BOX = 'position:fixed;left:50%;transform:translateX(-50%);z-index:60;background:#0f1720;border:2px solid #60a5fa;border-radius:10px;color:#f4f7fb;font:500 17px/1.45 system-ui,sans-serif;padding:12px 14px;';
-  var BTN = 'display:inline-block;min-height:48px;min-width:120px;margin:8px 6px 0 0;padding:8px 14px;font:700 17px system-ui,sans-serif;border-radius:8px;border:2px solid #93c5fd;background:#1d4ed8;color:#fff;';
+  var BOX = 'position:fixed;left:50%;transform:translateX(-50%);z-index:60;background:linear-gradient(180deg,rgba(24,32,42,.98),rgba(15,21,28,.98));border:1px solid rgba(147,197,253,.55);border-radius:18px;box-shadow:inset 0 1px 0 rgba(255,255,255,.06),0 24px 60px rgba(0,0,0,.6),0 2px 8px rgba(0,0,0,.5);color:#f4f7fb;font:500 17px/1.45 system-ui,sans-serif;padding:14px 16px;';
+  var BTN = 'display:inline-block;min-height:48px;min-width:120px;margin:10px 6px 0 0;padding:8px 16px;font:700 17px system-ui,sans-serif;border-radius:10px;border:1px solid #93c5fd;background:linear-gradient(180deg,#2563eb,#1d4ed8);color:#fff;box-shadow:inset 0 1px 0 rgba(255,255,255,.15),0 1px 2px rgba(0,0,0,.45);';
 
   // ------------------------------------------------------------------ Spielstand sichern / wiederherstellen
   function backupSave() {
@@ -179,7 +179,7 @@ var G = (typeof G !== 'undefined') ? G : {};
   function showBanner() {
     if (!running) return;
     if (!banner) {
-      banner = el('div', BOX + 'top:56px;width:min(92vw,420px);padding:8px 12px;text-align:center;border-color:#fbbf24;');
+      banner = el('div', BOX + 'top:56px;width:min(92vw,420px);padding:10px 14px;text-align:center;border-color:rgba(251,191,36,.62);border-radius:14px;');
       banner.id = 'gfxTestBanner';
       document.body.appendChild(banner);
     }
@@ -187,7 +187,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     var txt = phase === 'recover' ? 'Grafik-Test: Absturz bei „' + nm(t.lastBad || '?') + '“ – Grafik startet neu …'
       : 'Grafik-Test ' + n + '/' + S.length + ': ' + (L ? nm(L) + ' (' + L + ')' : '') + ' · ' + Math.max(0, Math.ceil(STEP_S - stepT)) + ' s';
     banner.innerHTML = '<div style="font-size:17px">' + txt + '</div><div style="font-size:16px;color:#cbd5e1">Stabil: ' + X().pretty(t.ok) + (t.bad ? ' · Aus: ' + X().pretty(t.bad) : '') +
-      '</div><button id="gfxTestAbort" style="' + BTN + 'min-height:44px;background:#7f1d1d;border-color:#f87171">Abbrechen</button>';
+      '</div><button id="gfxTestAbort" style="' + BTN + 'min-height:44px;background:rgba(127,29,29,.75);border-color:rgba(248,113,113,.66);color:#fee2e2">Abbrechen</button>';
     banner.querySelector('#gfxTestAbort').onclick = abort;
   }
   function hideBox() { if (box) { box.remove(); box = null; } }

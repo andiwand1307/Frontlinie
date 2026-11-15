@@ -552,7 +552,7 @@ var G = (typeof G !== 'undefined') ? G : {};
         var sb = bar.querySelector('.cb.sw');
         if (sb) {
           sb.classList.toggle('ready', swi.ready && !V.arty); sb.classList.toggle('on', !!V.arty && !!V.arty.sw);
-          sb.style.background = (swi.ready || V.arty) ? '' : 'linear-gradient(90deg,#9a3412 ' + (swi.c * 100) + '%,#1f2832 ' + (swi.c * 100) + '%)';
+          sb.style.background = (swi.ready || V.arty) ? '' : 'linear-gradient(90deg,rgba(234,88,12,.5) ' + (swi.c * 100) + '%,rgba(255,255,255,.035) ' + (swi.c * 100) + '%)';
           sb.querySelector('.lb').textContent = V.arty && V.arty.sw ? 'Abbrechen' : (swi.ready ? swi.go : 'Lädt ' + swi.txt);
         }
       }
@@ -560,7 +560,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       if (ab) {
         var rdy = c >= 1;
         ab.classList.toggle('ready', rdy && !V.arty); ab.classList.toggle('on', !!V.arty);
-        ab.style.background = rdy ? '' : 'linear-gradient(90deg,#9a3412 ' + (c * 100) + '%,#1f2832 ' + (c * 100) + '%)';
+        ab.style.background = rdy ? '' : 'linear-gradient(90deg,rgba(234,88,12,.5) ' + (c * 100) + '%,rgba(255,255,255,.035) ' + (c * 100) + '%)';
         ab.querySelector('.lb').textContent = V.arty ? 'Abbrechen' : (rdy ? 'Artillerieschlag' : 'Lädt ' + Math.ceil((1 - c) * 180) + ' s');
       }
     } else if (units.length) {
@@ -923,7 +923,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       st = (G.Render.is2D ? '2D-Grafik aktiv' : 'Funktionen: ' + X.pretty(X.code())) + (g.safe ? ' · Schonprofil (' + esc(String(g.name).slice(0, 28)) + ')' : '') +
         (p.lastTest ? ' · Test: ' + X.pretty(p.lastTest.ok) : '') + ((p.crashes || []).length ? ' · ' + p.crashes.length + ' Absturz/Abstürze' : '');
     } catch (e) { /* egal */ }
-    return '<div id="gfxActive" style="margin-top:8px;font-size:17px;font-weight:700;line-height:1.35;color:var(--text,#e8edf3)">' + gfxActive() + '</div>' +
+    return '<div id="gfxActive" style="margin-top:10px;font-size:17px;font-weight:700;line-height:1.35;color:var(--text,#e8edf3);font-variant-numeric:tabular-nums">' + gfxActive() + '</div>' +
       '<div class="help" id="gfxStatus" style="margin-top:4px">' + st + '</div>' +
       '<div class="seg" style="margin-top:6px"><button id="gfxTest" aria-label="Grafik-Test" style="min-width:140px">Grafik-Test</button><button id="gfxDiagBtn" aria-label="Grafik-Info" style="min-width:140px">Grafik-Info</button><button id="gfxReset" aria-label="Grafik zurücksetzen" style="flex-basis:100%">Grafik zurücksetzen</button></div>' +
       '<div class="help">Grafik-Test: prüft ca. 4 Minuten lang jede Grafik-Funktion einzeln und behält nur, was stabil läuft.</div>';
@@ -995,7 +995,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     h += '<div class="opt"><div class="lbl">Karte</div>' + mapCards() + '</div>';
     h += '<div class="optgrid"><div class="opt span2"><div class="lbl">Fraktion</div><div class="seg facs" data-opt="faction">' +
       D.FACTION_IDS.map(function (f) {   // v1.0: drei Fraktionen (Kollektiv: Dunkelblau)
-        return '<button data-v="' + f + '" class="fac ' + (opts.faction === f ? 'on' : '') + '" style="border-color:' + F[f].color + '"><span><i class="fdot" style="background:' + F[f].color + '"></i>' + F[f].name + '</span><small>' + F[f].desc + '</small></button>';
+        return '<button data-v="' + f + '" class="fac ' + (opts.faction === f ? 'on' : '') + '" style="--fc:' + F[f].color + '"><span><i class="fdot" style="background:' + F[f].color + '"></i>' + F[f].name + '</span><small>' + F[f].desc + '</small></button>';
       }).join('') + '</div></div>';
     h += '<div class="opt span2"><div class="lbl">Gegner-Fraktion</div>' + seg('aiFaction', [['random', 'Zufall']].concat(D.FACTION_IDS.map(function (f) { return [f, F[f].name]; })), opts.aiFaction || 'random') + '</div>';
     h += '<div class="opt span2" id="diffOpt"><div class="lbl">KI-Stärke: <b id="diffCur">' + esc(diffName(opts.diff)) + '</b></div>' + seg('diff', DIFFS, opts.diff) +   // v1.0.1 KI-Leicht
