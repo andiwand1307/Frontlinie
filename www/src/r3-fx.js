@@ -1688,4 +1688,13 @@ var G = (typeof G !== 'undefined') ? G : {};
     time: function () { return fx ? fx.time : 0; },
     debug: function () { return { heals: heals.map(function (h) { return [h.on, +(fx.time - h.t0).toFixed(2), h.x, h.y, h.z]; }), flames: flames.length, bolts: BM ? BM.n : -1, t: fx.time, q: BM ? Array.prototype.slice.call(BM.pos, Math.max(0, BM.n - 2) * 12, BM.n * 12).map(function (v) { return +v.toFixed(2); }).concat(Array.prototype.slice.call(BM.col, Math.max(0, BM.n - 1) * 12, BM.n * 12).map(function (v) { return +v.toFixed(2); })) : null, vdir: R.VDIR && [R.VDIR.x, R.VDIR.y, R.VDIR.z] }; }
   };
+  // GA (Gebäude): kleine Haken für Gebäude-Effekte – Flammenzunge/Funke als Sprite je Stufe, in Stufe 0 als Punkt-Partikel
+  G.R3F.bFlame = function (x, y, z, size) {
+    if (spTier) tng(x, y, z, 0.5 + rnd() * 0.4, 0.45 + rnd() * 0.3, size, 0.9);
+    else emit(0, x, y, z, (rnd() - 0.5) * 0.1, 0.55, (rnd() - 0.5) * 0.1, 0.45, size * 0.75, size * 0.2, 1, 0.7, 0.25, 1, 0.9, 0.25, 0.05, 0);
+  };
+  G.R3F.bSpark = function (x, y, z, vx, vy, vz) {
+    if (spTier) spk(x, y, z, vx, vy, vz, 0.45 + rnd() * 0.35, 0.05, 1, 0.78, 0.38, -5, 0.4);
+    else emit(0, x, y, z, vx, vy, vz, 0.5, 0.06, 0.02, 1, 0.9, 0.55, 1, 1, 0.45, 0.1, 0, -5);
+  };
 })();
