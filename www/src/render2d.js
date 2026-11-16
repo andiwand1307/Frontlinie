@@ -1548,14 +1548,17 @@ var G = (typeof G !== 'undefined') ? G : {};
     var ents = S.ents, pulse = 0.5 + 0.4 * Math.sin(fxTime * 5);
     for (var i = 0; i < ents.length; i++) {
       var e = ents[i];
-      if (!e.clk || e.dead || e.inside) continue;
-      var st = G.Sim.cloakState(pid, e);
-      if (st !== 1 && st !== 2) continue;
+      if (e.dead || e.inside) continue;
+      var mk12 = e.stunT > S.tick ? 'rgba(192,132,252,' : (e.offT > S.tick ? 'rgba(250,204,21,' : '');   // gelähmt (violett) / lahmgelegt (gelb)
+      if (!e.clk && !mk12) continue;
+      var st = e.clk ? G.Sim.cloakState(pid, e) : 0;
+      if (st === 3 || (!mk12 && st !== 1 && st !== 2)) continue;
+      if (!e.clk && e.owner !== pid && !S.settings.fogOff && !G.Sim.isVisible(pid, e)) continue;
       if (st === 2 && !S.settings.fogOff && !G.Sim.isVisible(pid, e)) continue;
-      var X = PX(e.x, e.y), Y = PY(e.x, e.y), rr = (e.kind === 'unit' ? (e.r || 8) * 1.6 : TILE * 0.55);
+      var X = PX(e.x, e.y), Y = PY(e.x, e.y), rr = (e.kind === 'unit' ? (e.r || 8) * 1.6 : Math.max(e.w, e.h) * TILE * 0.55);
       if (X < -60 || X > V.vw + 60 || Y < -60 || Y > V.vh + 60) continue;
       ctx.save(); ctx.setLineDash([5, 4]); ctx.lineWidth = 2;
-      ctx.strokeStyle = (st === 1 ? 'rgba(96,165,250,' : 'rgba(248,113,113,') + pulse.toFixed(2) + ')';
+      ctx.strokeStyle = (mk12 || (st === 1 ? 'rgba(96,165,250,' : 'rgba(248,113,113,')) + pulse.toFixed(2) + ')';
       groundEllipse(X, Y, rr * kx, rr * ky); ctx.stroke(); ctx.restore();
     }
   }

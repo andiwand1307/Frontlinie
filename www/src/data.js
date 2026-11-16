@@ -620,6 +620,56 @@ var G = (typeof G !== 'undefined') ? G : {};
   };
   D.UNIT_ORDER.infantry.push('saboteur');
   D.UNIT_ORDER.vehicle.splice(D.UNIT_ORDER.vehicle.indexOf('tank'), 0, 'radarcar');
+  // ---- U-Boot (Koalition, Syndikat; das Kollektiv hat bereits Tauchboot und Raketen-Tauchboot): getaucht getarnt, Torpedos nur gegen Schiffe.
+  // Aufgedeckt von Zerstörern (6), Radarwagen am Ufer (7), Türmen/HQ in Ufernähe und 3 s nach jedem Torpedo.
+  U.submarine = {
+    id: 'submarine', name: 'U-Boot', cat: 'naval', move: 'naval', producer: 'shipyard', armor: 'light', radius: 14, sight: 6, cloak: true, look: 'gunboat',
+    faction: 'both', desc: 'Getaucht getarnt – Torpedos nur gegen Schiffe',
+    coalition: { cost: 1000, time: 14, hp: 460, speed: 2.3, weapon: W('torpedo', 6.5, 95, 2.4, { navalOnly: true }) },
+    syndicate: { cost: 900, time: 14, hp: 540, speed: 2.0, weapon: W('torpedo', 6, 100, 2.6, { navalOnly: true }) }
+  };
+  // ---- TRÄGER-MECHANIK (sim.js „Träger/Drohnen“): Waffe mit hangar = { type (Drohnentyp), slots (Staffelplätze), ammo (Schüsse je Einsatz, 0 = unbegrenzt),
+  // life (s Einsatzdauer, 0 = unbegrenzt), rearm (s nach Rückkehr), rebuild (s nach Verlust) }. Die Trägerwaffe richtet keinen Schaden an: „Feuern“ startet
+  // je Takt (rof) eine bereite Drohne auf das Ziel. Drohnen (drone: true) sind echte Lufteinheiten (abschießbar), nicht baubar und nicht steuerbar; sie
+  // fliegen das Ziel an, kämpfen, kehren zurück (ammo/life verbraucht, Ziel weg) und landen. Abschüsse/Erfahrung zählen für den Träger.
+  D.DAMAGE.drone = { inf: 1, light: 1, heavy: 1, building: 1, air: 1 };
+  U.carrierjet = {
+    id: 'carrierjet', name: 'Trägerjäger', cat: 'air', move: 'air', producer: 'shipyard', armor: 'air', radius: 9, sight: 5, flyer: true, drone: true, look: 'gunship',
+    desc: 'Startet vom Flugzeugträger',
+    coalition: { cost: 250, time: 1, hp: 130, speed: 5.4, weapon: W('rocket', 3.5, 40, 0.45, { antiAir: true }) },
+    syndicate: { cost: 250, time: 1, hp: 150, speed: 4.8, weapon: W('rocket', 3.5, 44, 0.5, { antiAir: true }) }
+  };
+  U.carrier = {
+    id: 'carrier', name: 'Flugzeugträger', cat: 'naval', move: 'naval', producer: 'shipyard', armor: 'heavy', radius: 22, sight: 9, req: 'techcenter', look: 'dreadnought',
+    faction: 'both', desc: '3 Jägerstaffeln greifen Ziele in großer Reichweite an und kehren zurück',
+    coalition: { cost: 3000, time: 36, hp: 2200, speed: 1.2,
+                 weapon: W('drone', 12, 0, 1.2, { antiAir: true, hangar: { type: 'carrierjet', slots: 3, ammo: 4, life: 0, rearm: 6, rebuild: 16 } }) },
+    syndicate: { cost: 2800, time: 36, hp: 2600, speed: 1.0,
+                 weapon: W('drone', 11.5, 0, 1.3, { antiAir: true, hangar: { type: 'carrierjet', slots: 3, ammo: 4, life: 0, rearm: 6.5, rebuild: 17 } }) }
+  };
+  D.UNIT_ORDER.naval.push('submarine', 'carrier');
+  // ---- Kollektiv statt Träger: Psi-Drohne (Luft, lähmt) und Schwarm-Träger (Fahrzeug, kurzlebige Kampfdrohnen)
+  // Waffe mit stun: kein Schaden, das Ziel (Bodeneinheit/Schiff) ist stun s gelähmt (e.stunT), danach 3 s immun; fx = Darstellung wie die Psi-Strahlen.
+  D.DAMAGE.stun = { inf: 1, light: 1, heavy: 1, building: 0, air: 0 };
+  D.STUN_IMMUNE = 3;
+  U.psidrone = {
+    id: 'psidrone', name: 'Psi-Drohne', cat: 'air', move: 'air', producer: 'airfield', armor: 'air', radius: 10, sight: 10, flyer: true, faction: 'kollektiv', look: 'gunship',
+    psiImmune: true, desc: 'Schneller Aufklärer – lähmt eine gegnerische Einheit kurz',
+    kollektiv: { cost: 900, time: 12, hp: 260, speed: 4.4, weapon: W('stun', 5, 0, 10, { stun: 4, beam: true, fx: 'psi' }) }
+  };
+  U.swarmling = {
+    id: 'swarmling', name: 'Schwarmdrohne', cat: 'air', move: 'air', producer: 'factory', armor: 'air', radius: 6, sight: 4, flyer: true, drone: true, faction: 'kollektiv', look: 'gunship',
+    desc: 'Kurzlebige Kampfdrohne des Schwarm-Trägers',
+    kollektiv: { cost: 120, time: 1, hp: 55, speed: 4.6, weapon: W('laser', 2.5, 13, 0.7, { beam: true, antiAir: true }) }
+  };
+  U.swarmcarrier = {
+    id: 'swarmcarrier', name: 'Schwarm-Träger', cat: 'vehicle', armor: 'heavy', move: 'wheel', radius: 14, sight: 8, req: 'techcenter', faction: 'kollektiv', look: 'psitank',
+    desc: 'Setzt 4 kurzlebige Kampfdrohnen auf Ziele in mittlerer Reichweite aus',
+    kollektiv: { cost: 1400, time: 18, hp: 650, speed: 1.4,
+                 weapon: W('drone', 7, 0, 0.8, { antiAir: true, hangar: { type: 'swarmling', slots: 4, ammo: 0, life: 10, rearm: 7, rebuild: 9 } }) }
+  };
+  D.UNIT_ORDER.air.push('psidrone');
+  D.UNIT_ORDER.vehicle.splice(D.UNIT_ORDER.vehicle.indexOf('harvester'), 0, 'swarmcarrier');
   // ---- Minenfeld: getarntes 1×1-Feld ohne Kachelbelegung (noOcc: blockiert keine Wege). Löst aus, wenn eine gegnerische Bodeneinheit (nicht schwebend,
   // nicht fliegend) näher als trig Kacheln kommt: Flächenschaden dmg im Radius r, charges Ladungen, dann verbraucht. Höchstens D.MINE_MAX je Spieler.
   D.MINE_MAX = 8;

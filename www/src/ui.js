@@ -505,6 +505,19 @@ var G = (typeof G !== 'undefined') ? G : {};
     for (var i = R.length - 1; i > 0; i--) if (cnt[i]) parts.push(cnt[i] + '× ' + R[i].name);
     return parts.length ? parts.join(', ') : '';
   }
+  /** v1.2: Zusatzzeile der Auswahl-Info (Träger: Staffeln, Saboteur: Nachladen, Getarnt). */
+  function info12(units) {
+    var S = G.Sim.S, hgN = 0, hgR = 0, sabCd = 0, clk = 0, parts = [];
+    units.forEach(function (u) {
+      if (u.hg) { hgN += u.hg.length; hgR += G.Sim.hangarReady(u); }
+      if (u.type === 'saboteur' && u.cd > 0) sabCd = Math.max(sabCd, u.cd);
+      if (u.clk) clk++;
+    });
+    if (hgN) parts.push('Drohnen bereit ' + hgR + '/' + hgN);
+    if (sabCd) parts.push('lädt nach ' + Math.ceil(sabCd / D.TICK_HZ) + ' s');
+    if (clk) parts.push(units.some(function (u) { return u.clk && (u.revT > S.tick || u.revM); }) ? 'aufgedeckt!' : 'getarnt');
+    return parts.length ? (' · ' + parts.join(' · ')).replace(/^ · /, '') .replace(/^/, ' ') : '';
+  }
   /** v1.2: Zusatzknöpfe der Befehlsleiste für die Auswahl (Signatur für die Neuaufbau-Erkennung + HTML). */
   function ctx12(units) {
     var S = G.Sim.S, html = '', sig = '';
@@ -598,7 +611,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     } else if (units.length) {
       var tot = 0, mx = 0; units.forEach(function (u) { tot += u.hp; mx += u.maxHp; });
       var hp2 = box.querySelector('[data-dyn="hp"]'); if (hp2) hp2.style.width = (tot / mx * 100) + '%';
-      var rk2 = box.querySelector('[data-dyn="rank"]'); if (rk2) { var rt2 = rankText(units); rk2.textContent = rt2; rk2.style.display = rt2 ? '' : 'none'; }
+      var rk2 = box.querySelector('[data-dyn="rank"]'); if (rk2) { var rt2 = rankText(units) + info12(units); rk2.textContent = rt2; rk2.style.display = rt2 ? '' : 'none'; }
       var q = function (a) { return bar.querySelector('[data-act="' + a + '"]'); };
       if (q('am')) q('am').classList.toggle('on', V.amArmed);
       if (q('add')) q('add').classList.toggle('on', V.addMode);
@@ -1210,6 +1223,10 @@ var G = (typeof G !== 'undefined') ? G : {};
       li('Saboteur', 'Kaserne, braucht das Tech-Zentrum. Wehrlos. Gegnerisches Gebäude antippen = Sprengladung (700 Schaden nach 4 s). Mit dem Knopf „Sprengen / Lahmlegen“ den Modus wechseln: Lahmlegen schaltet das Gebäude 20 s ab (keine Produktion, kein Strom, kein Feuer). Danach 40 s Nachladen.') +
       li('Radarwagen', 'Fahrzeugwerk. Unbewaffnet, weite Sicht, deckt Getarntes und Minen im Umkreis von 7 Kacheln auf. Mit der Truppe mitschicken.') +
       li('Minenfeld', 'Reiter Verteidigung, höchstens 8, bis 7 Kacheln von der Basis. Unsichtbar für den Gegner; schädigt gegnerische Infanterie und Fahrzeuge, die darüberfahren (2 Ladungen). Eigene Einheiten lösen nicht aus.') +
+      li('U-Boot', 'Koalition und Syndikat, Werft. Getaucht getarnt, Torpedos nur gegen Schiffe; nach jedem Schuss 3 s sichtbar. Zerstörer decken U-Boote auf.') +
+      li('Flugzeugträger', 'Koalition und Syndikat, Werft + Tech-Zentrum. Startet bis zu 3 Jäger auf Ziele in 12 Kacheln Reichweite; sie kehren nach 4 Schüssen zurück und laden nach. Abgeschossene Jäger werden kostenlos nachgebaut. Die Jäger lassen sich nicht einzeln steuern – Ziel für den Träger antippen.') +
+      li('Psi-Drohne', 'Kollektiv, Diskus-Hangar. Schneller Aufklärer mit großer Sicht; lähmt alle 10 s eine gegnerische Bodeneinheit oder ein Schiff für 4 s.') +
+      li('Schwarm-Träger', 'Kollektiv, Kriegsfabrik + Psi-Labor. Setzt 4 Kampfdrohnen auf Ziele in 7 Kacheln aus; sie leben 10 s, kehren zurück und starten nach 7 s erneut.') +
       li('Erzsilo', 'Credits aus Erz passen nur ins Lager: Grundlager 5.000, jede Raffinerie +5.000, jedes Erzsilo +3.000. Ist es voll, warten die Sammler mit dem Abladen – die Credits-Anzeige wird orange (fast voll) bzw. rot (voll). Geht ein Lager verloren, verfällt der Überschuss.') +
       li('Tor', 'Reiter Verteidigung. Mauerstück, das eigene Bodeneinheiten durchlässt und für Gegner wie eine Mauer wirkt.') +
       li('Handelsposten', 'Neutrales Kartengebäude, mit Infanterie erobern: Fahrzeuge werden 10 % günstiger (bis zu 2 Posten zählen).') +

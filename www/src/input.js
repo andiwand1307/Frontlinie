@@ -74,7 +74,8 @@ var G = (typeof G !== 'undefined') ? G : {};
   // ------------------------------------------------------------------ Auswahl-Helfer
   function selUnits() { return V.mySel().filter(function (e) { return e.kind === 'unit'; }); }
   function selIds(arr) { return arr.map(function (e) { return e.id; }); }
-  function setSel(ids) { V.sel = ids.slice(); G.UI && G.UI.onSelection && G.UI.onSelection(); }
+  function setSel(ids) { V.sel = ids.filter(function (id) { var e = G.Sim.get(id); return !(e && e.host && e.owner === V.pid); });   // v1.2: eigene Träger-Drohnen sind nicht wählbar
+    G.UI && G.UI.onSelection && G.UI.onSelection(); }
   function marker(x, y, kind) { V.markers.push({ x: x, y: y, kind: kind, t0: now() }); }
   function isInfantry(u) { var d = D.UNITS[u.type]; return !!d && d.cat === 'infantry'; }
   function bcenter(b) { return { x: (b.tx + b.w / 2) * TILE, y: (b.ty + b.h / 2) * TILE }; }

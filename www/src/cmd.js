@@ -79,7 +79,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     if (!ids) return r;
     for (var i = 0; i < ids.length; i++) {
       var e = G.Sim.get(ids[i]);
-      if (e && !e.dead && e.kind === 'unit' && e.owner === pid && !e.inside && (!filter || filter(e))) r.push(e);
+      if (e && !e.dead && e.kind === 'unit' && e.owner === pid && !e.inside && !e.host && (!filter || filter(e))) r.push(e);   // v1.2: Träger-Drohnen (host) nehmen keine Befehle an
     }
     return r;
   }

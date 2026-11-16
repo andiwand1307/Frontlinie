@@ -828,7 +828,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     // Leicht: Armeegröße wächst nur langsam (für Gelegenheitsspieler schlagbar)
     if (cfg.armyCap) {
       var nArmy = 0;
-      for (var k = 0; k < S.ents.length; k++) { var ue = S.ents[k]; if (!ue.dead && ue.owner === pid && ue.kind === 'unit' && ue.type !== 'harvester') nArmy++; }
+      for (var k = 0; k < S.ents.length; k++) { var ue = S.ents[k]; if (!ue.dead && ue.owner === pid && ue.kind === 'unit' && ue.type !== 'harvester' && !ue.host) nArmy++; }   // v1.2: ohne Träger-Drohnen
       if (nArmy + iq.length + vq.length >= cfg.armyCap[0] + S.tick / 20 / 60 * cfg.armyCap[1]) return;
     }
     // v0.4: Einträge ohne Voraussetzung (Tech-Zentrum verloren) abbrechen
@@ -1810,7 +1810,7 @@ var G = (typeof G !== 'undefined') ? G : {};
   /** Flotte: verteidigt das eigene Ufer, greift ab canAttack mit navyWave Kriegsschiffen über das Wasser an (Ziel: Gegnergebäude in Ufernähe). */
   function fleet(X) {
     if (!A.navy || !A.navy.ok) return;
-    var ships = myUnits(function (e) { return (e.type === 'gunboat' || e.type === 'destroyer') && !reservedV08(e); });
+    var ships = myUnits(function (e) { return (e.type === 'gunboat' || e.type === 'destroyer' || e.type === 'submarine' || e.type === 'carrier') && !reservedV08(e); });   // v1.2: U-Boote und Träger fahren mit der Flotte
     if (!ships.length) return;
     var yard = mine('building', 'shipyard')[0], base = yard || { x: A.navy.x, y: A.navy.y };
     // Verteidigung: Gegner (sichtbar) nahe der Werft/des Ufers
@@ -2013,12 +2013,13 @@ var G = (typeof G !== 'undefined') ? G : {};
   //   silo = Erzsilos (wenn der Kontostand an die Lagerkapazität stößt)
   //   radar = Radarwagen (erst wenn Getarntes/Minen Schaden angerichtet haben: P.st.stealthHits), sab = Saboteure (ab Tech-Zentrum),
   //   mines/mineAt = Minenfelder gleichzeitig / frühestens ab s (insgesamt höchstens doppelt so viele)
+  //   subs/carrier = U-Boote/Flugzeugträger (nur mit Werft auf Seekarten; Träger ab Tech-Zentrum), psidrone/swarm = Kollektiv
   //   dock/dockAt = Reparaturdocks / frühestens ab s; gates = Tore in Mauer-Durchlässen
   var V12 = {
-    veryeasy: { flakT: 1, radar: 1, sab: 0, mines: 0, mineAt: 0, silo: 1, dock: 0, dockAt: 0, gates: 0 },
-    easy:     { flakT: 1, radar: 1, sab: 0, mines: 2, mineAt: 600, silo: 2, dock: 0, dockAt: 0, gates: 0 },
-    medium:   { flakT: 3, radar: 1, sab: 1, mines: 4, mineAt: 330, silo: 3, dock: 1, dockAt: 420, gates: 1 },
-    hard:     { flakT: 4, radar: 2, sab: 2, mines: 6, mineAt: 270, silo: 4, dock: 1, dockAt: 360, gates: 2 }
+    veryeasy: { subs: 0, carrier: 0, psidrone: 0, swarm: 0, flakT: 1, radar: 1, sab: 0, mines: 0, mineAt: 0, silo: 1, dock: 0, dockAt: 0, gates: 0 },
+    easy:     { subs: 1, carrier: 0, psidrone: 1, swarm: 1, flakT: 1, radar: 1, sab: 0, mines: 2, mineAt: 600, silo: 2, dock: 0, dockAt: 0, gates: 0 },
+    medium:   { subs: 2, carrier: 1, psidrone: 1, swarm: 2, flakT: 3, radar: 1, sab: 1, mines: 4, mineAt: 330, silo: 3, dock: 1, dockAt: 420, gates: 1 },
+    hard:     { subs: 2, carrier: 1, psidrone: 2, swarm: 3, flakT: 4, radar: 2, sab: 2, mines: 6, mineAt: 270, silo: 4, dock: 1, dockAt: 360, gates: 2 }
   };
   var SPOT12 = { gate: spotGate, minefield: spotMine };
   function X12() { return V12[P.ai] || V12.medium; }
@@ -2029,6 +2030,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     v12Repair(X);
     v12Radar(X);
     v12Sab(X);
+    v12AirSea(X);
   }
   /** Bauentscheidung (aus chooseInner): Reparaturdock, sobald eine Fahrzeugarmee steht. */
   function choose12(cnt, secs) {
@@ -2122,6 +2124,32 @@ var G = (typeof G !== 'undefined') ? G : {};
       G.cmd.sabMode(pid, [s.id], stun ? 1 : 0);
       G.cmd.sabotage(pid, [s.id], best.id);
     }
+  }
+  /** U-Boote/Flugzeugträger (Werft, nur wenn die Flotte den Gegner erreicht: A.navy.ok), Psi-Drohne (Flugfeld) und Schwarm-Träger (Fabrik, Tech).
+   *  U-Boote vor allem, wenn gegnerische Schiffe gesehen wurden; Träger erst mit Geldpolster. Die Schiffe fahren mit fleet(), Schwarm-Träger sind
+   *  gewöhnliche Kampffahrzeuge der Wellen, Psi-Drohnen begleiten die Welle bzw. kreisen über dem Sammelpunkt. */
+  function v12AirSea(X) {
+    var secs = S.tick / D.TICK_HZ, tech = G.Sim.hasBuilding(pid, 'techcenter'), i;
+    var ships = 0;
+    for (i = 0; i < S.ents.length; i++) { var e = S.ents[i]; if (!e.dead && e.kind === 'unit' && e.owner !== pid && e.owner >= 0 && e.mc === 3 && G.Sim.isVisible(pid, e)) ships++; }
+    A.seenShips = Math.max(ships, (A.seenShips || 0) * 0.995);
+    // (navyProduction() füllt die Werft-Schlange zuerst → hier ein zweiter Eintrag dahinter, höchstens einer je Typ)
+    if (A.navy && A.navy.ok && G.Sim.hasBuilding(pid, 'shipyard') && P.q.naval.length < 2 && !inQ('naval', 'submarine') && !inQ('naval', 'carrier') && armyValue() >= 2000 && P.credits > 400) {
+      if (cntU('submarine') < Math.min(X.subs, A.seenShips >= 1 ? X.subs : 1) && cntU('gunboat') >= 1 && G.Sim.canProduce(pid, 'submarine').ok) G.cmd.produce(pid, 'submarine');
+      else if (tech && cntU('carrier') < X.carrier && P.credits > 1500 && cntU('gunboat') + cntU('destroyer') >= 2 && G.Sim.canProduce(pid, 'carrier').ok) G.cmd.produce(pid, 'carrier');
+    }
+    if (P.faction !== 'kollektiv') return;
+    if (X.psidrone && G.Sim.hasBuilding(pid, 'airfield') && P.q.air.length < 2 && !inQ('air', 'psidrone') && cntU('psidrone') < X.psidrone && armyValue() >= 2500 && P.credits > 500 && G.Sim.canProduce(pid, 'psidrone').ok) G.cmd.produce(pid, 'psidrone');
+    if (X.swarm && tech && G.Sim.hasBuilding(pid, 'factory') && cntU('swarmcarrier') + inQ('vehicle', 'swarmcarrier') < X.swarm && P.q.vehicle.length < cfg.armyQ + 1 && P.credits > 700 &&
+        S.tick - (A.swarmT || -1e9) > 20 * 40 && G.Sim.canProduce(pid, 'swarmcarrier').ok) { A.swarmT = S.tick; G.cmd.produce(pid, 'swarmcarrier'); }
+    if ((S.tick + pid) % (cfg.interval * 3) >= cfg.interval) return;
+    var pds = myUnits(function (u) { return u.type === 'psidrone' && (u.ord === 'idle' || u.ord === 'move'); });
+    if (!pds.length) return;
+    var gx = A.rallyX, gy = A.rallyY;
+    if (A.attack && A.attack.length >= 3 && canAttack()) { var gc = centroid(A.attack); gx = gc.x; gy = gc.y; }
+    else if (A.defending) { gx = P.alert.x; gy = P.alert.y; }
+    var far = pds.filter(function (u) { return d2(u.x, u.y, gx, gy) > 5 * 5 * TILE * TILE && !u.tgt; });
+    if (far.length) G.cmd.attackMove(pid, ids(far), gx, gy);
   }
   /** Reparaturdock nutzen: angeschlagene, teure Fahrzeuge außerhalb des Gefechts fahren zur Reparaturstelle und sind bis zur Genesung
    *  für Wellen gesperrt (A.rep[id] = Tick des Auftrags). */

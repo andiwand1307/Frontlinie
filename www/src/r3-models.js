@@ -4073,6 +4073,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       else
       drawBuildingInst(e, M, e.owner, x, z, e.tdir || 0, sy, dk, dk, dk);
       if (selSet[e.id]) selSquare.put(x, 0.04, z, 0, e.w * 0.62 + 0.08, 1, e.h * 0.62 + 0.08, 0.6, 1, 0.6);
+      if (e.offT > tick) { var ok2 = 0.5 + 0.5 * Math.sin(R.t * 8); selSquare.put(x, 0.05, z, 0, e.w * 0.56, 1, e.h * 0.56, 1.0 * ok2, 0.8 * ok2, 0.1); }   // v1.2 lahmgelegt (vorläufig): gelb blinkender Rahmen
       if (M.act) actDraw(e, M, x, z, sy, inV5, dt);   // GA: Produktion, Tor, Kran, Andocken, Auslastung
       if (!inView(x, z)) continue;
       dmgFx(e, M, x, z, hf, dt);   // GA: Schaden – feste Brandstellen (Rauch, Funken, Flammen)
@@ -4115,6 +4116,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       Pm = S.players[e.owner]; M = model(e.type, e.fac || Pm.faction, Pm.color); s = SCALE[e.type] || 1;   // v1.0: Herkunftsfraktion, Farbe = Besitzer
       if (e.mcBy || e.magT > tick) k10Link(e, x, z, alpha, tick, selRing, pid, fogOff);   // v1.0 Gedankenkontrolle / Magnet (PLATZHALTER v1.0)
       if (e.clk) cloakMark(e, pid, x, (e.mc === 3 ? WL8 : groundAt(x, z)) + 0.04, z, (e.r || 8) / TILE * 1.5);   // v1.2 TARNUNG (vorläufig): Schimmer-Ring
+      if (e.stunT > tick) { var sk = 0.6 + 0.4 * Math.sin(R.t * 12); selRing.put(x, (e.mc === 3 ? WL8 : groundAt(x, z)) + 0.05, z, 0, (e.r || 8) / TILE * 1.2, 1, (e.r || 8) / TILE * 1.2, 0.8 * sk, 0.4 * sk, 1.0 * sk); }   // v1.2 gelähmt (vorläufig): violetter Ring
       if (M.v8u) { drawV8U(e, M, r, x, z, s, dt, tick, alpha, !!selSet[e.id], inView(x, z)); continue; }   // v0.8: Luftfahrzeuge (Flughöhe, Rotoren, Neigung) / Schiffe (Wasserlinie, Seegang, Türme)
       y = groundAt(x, z);
       if (e.pc === 4) y = Math.max(y, WL8 + 0.02) + 0.06 + 0.03 * Math.sin(R.t * 3 + e.id);   // v1.0 Schwebepanzer schwebt (auch über Wasser)

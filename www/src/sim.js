@@ -292,8 +292,8 @@ var G = (typeof G !== 'undefined') ? G : {};
     return addBuilding(-1, type, tx, ty, true);
   }
 
-  function spawnUnit(owner, type, x, y) {
-    var st = stats[owner][type];
+  function spawnUnit(owner, type, x, y, fac) {   // v1.2: fac (optional) = Herkunftsfraktion (Drohnen eines übernommenen Trägers)
+    var st = fac ? statsF[fac][type] : stats[owner][type];
     if (!st) return null;
     var e = {
       id: S.nextId++, kind: 'unit', type: type, owner: owner, x: x, y: y, px: x, py: y,
@@ -305,11 +305,12 @@ var G = (typeof G !== 'undefined') ? G : {};
       // v0.7
       salvoN: 0, salvoI: 0, salvoT0: 0, salvoX: 0, salvoY: 0, salvoTid: 0, htgt: 0, healT: -100, follow: 0, loadId: 0
     };
-    e.fac = S.players[owner].faction;                         // v1.0: Herkunftsfraktion (bleibt bei Gedankenkontrolle)
+    e.fac = fac || S.players[owner].faction;                  // v1.0: Herkunftsfraktion (bleibt bei Gedankenkontrolle)
     if (st.move === 'hover') e.pc = D.HOVER_PC;               // v1.0 Schwebepanzer: Wegfindung über Land und Wasser
     if (st.transport) { e.gar = []; e.cap = st.transport; }   // v0.7 Schützenpanzer (v0.8: alle Transporter)
     if (e.mc === 2) initFlyer(e, st);                         // v0.8 Luftfahrzeug
     if (st.cloak) e.clk = 1;                                  // v1.2 Tarnung
+    if (st.weapon && st.weapon.hangar) initHangar(e, st.weapon.hangar);   // v1.2 Träger
     S.ents.push(e); byId.set(e.id, e);
     return e;
   }
@@ -413,6 +414,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     }
     var st = stats[pid][type];
     if (!st) return { ok: false, reason: 'Nicht für ' + D.FACTIONS[P.faction].name };
+    if (st.drone) return { ok: false, reason: 'Nicht baubar' };   // v1.2 Drohnen starten nur vom Träger
     if (!hasBuilding(pid, st.producer)) return { ok: false, reason: 'Benötigt ' + D.BUILDINGS[st.producer].name };
     if (st.req && !hasBuilding(pid, st.req)) return { ok: false, reason: 'Benötigt ' + D.BUILDINGS[st.req].name };
     if (st.cat === 'air') { var pb = airPadBlock(pid); if (pb) return { ok: false, reason: pb }; }   // v0.8 Landeplätze
@@ -619,7 +621,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     var r = [], ax = Math.min(x0, x1), bx = Math.max(x0, x1), ay = Math.min(y0, y1), by = Math.max(y0, y1);
     for (var i = 0; i < S.ents.length; i++) {
       var e = S.ents[i];
-      if (!e.dead && e.kind === 'unit' && !e.inside && e.owner === pid && e.x >= ax && e.x <= bx && e.y >= ay && e.y <= by) r.push(e.id);
+      if (!e.dead && e.kind === 'unit' && !e.inside && !e.host && e.owner === pid && e.x >= ax && e.x <= bx && e.y >= ay && e.y <= by) r.push(e.id);   // v1.2: Drohnen (host) nicht wählbar
     }
     return r;
   }
@@ -1401,6 +1403,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     if (t.dead || t.inside || t.owner < 0) return;
     if (t.neutral && (t.ruin || D.BUILDINGS[t.type].invuln)) return;
     if (src && !(src.owner >= 0)) src = null;
+    if (src && src.host) { var hs0 = byId.get(src.host); if (hs0 && !hs0.dead && hs0.owner === src.owner) src = hs0; }   // v1.2: Treffer der Drohnen zählen für den Träger
     var xpSrc = src && src.kind === 'unit' && src.owner !== t.owner ? src : null;   // Erfahrung: nur Einheiten, nur gegen Feinde
     if (xpSrc) amount *= mods(xpSrc).dmg;
     if (t.kind === 'unit') amount /= mods(t).hp;
@@ -1435,7 +1438,7 @@ var G = (typeof G !== 'undefined') ? G : {};
         for (var oi = 0; oi < occ0.length; oi++) { var ou = byId.get(occ0[oi]); if (ou && !ou.dead) ou.hp = Math.max(1, Math.min(ou.hp, ou.maxHp * D.RUIN_HP)); }
       }
       emit('die', t.x, t.y, { owner: t.owner, type: t.type, kind: t.kind, id: t.id, w: t.w || 1, h: t.h || 1, src: src && src.id ? src.id : 0 });
-      if (t.kind === 'unit') P.st.unitsLost++; else P.st.buildingsLost++;
+      if (t.kind === 'unit') { if (!t.host) P.st.unitsLost++; } else P.st.buildingsLost++;   // v1.2: Träger-Drohnen zählen nicht als Verlust
       removeEntity(t);
     }
   }
@@ -1455,6 +1458,7 @@ var G = (typeof G !== 'undefined') ? G : {};
   function removeEntity(e) {
     if (e.dead) return;
     e.dead = true;
+    if (e.host) droneLost(e);   // v1.2 Träger: Staffelplatz wird neu aufgebaut
     if (e.mcList && e.mcList.length) releaseAll(e, 'lost');   // v1.0: Kontrolleur weg → Einheiten kehren zurück
     if (e.mcBy) unlinkMc(e);
     if (e.kind === 'building') {
@@ -1509,7 +1513,7 @@ var G = (typeof G !== 'undefined') ? G : {};
         if (sc < bestS) { bestS = sc; best = t; }
       }
     }
-    if (best || (WP && (WP.airOnly || WP.psi || WP.navalOnly || WP.vehicleOnly))) return best;   // v1.0: Psi/Torpedo/Magnet nie gegen Gebäude
+    if (best || (WP && (WP.airOnly || WP.psi || WP.navalOnly || WP.vehicleOnly || WP.stun))) return best;   // v1.0: Psi/Torpedo/Magnet nie gegen Gebäude
     // Gebäude
     for (var i0 = 0, nE = S.ents.length; i0 < nE; i0++) {
       var b = S.ents[tfl ? nE - 1 - i0 : i0];
@@ -1528,6 +1532,8 @@ var G = (typeof G !== 'undefined') ? G : {};
   // ------------------------------------------------------------------ Kampf
   function fire(e, t, wpn) {
     if (wpn.psi) { firePsi(e, t, wpn); return; }   // v1.0 Gedankenkontrolle (kein Schaden)
+    if (wpn.hangar) { hangarFire(e, t, wpn); return; }   // v1.2 Träger: startet eine Drohne
+    if (e.host && e.ammo > 0) e.ammo--;                  // v1.2 Drohne: Munition je Einsatz
     if ((wpn.vehicleOnly || wpn.navalOnly) && !canHit(wpn, t)) return;
     var dmg = wpn.dmg * D.DAMAGE[wpn.type][t.kind === 'building' ? 'building' : ust(t).armor];
     var aux = e.kind === 'unit' && ust(e).aa === wpn, inAir = airborne(t);   // v0.8: Zweitwaffe (Flak) dreht den Turm nicht
@@ -1559,7 +1565,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       });
     } else if (wpn.beam) {
       // v0.5 Laser/Blitz: Treffer sofort. Blitz springt auf bis zu wpn.chain weitere Gegner ≤ chainR Kacheln vom Ziel.
-      var ev = { tx: t.x, ty: t.y, w: wpn.type, owner: e.owner, src: e.id, tid: t.id, beam: true };
+      var ev = { tx: t.x, ty: t.y, w: wpn.fx || wpn.type, owner: e.owner, src: e.id, tid: t.id, beam: true };   // v1.2: fx = Darstellungstyp
       var extra = [];
       if (wpn.chain) {
         ev.chain = [];
@@ -1570,6 +1576,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       emit('shot', e.x, e.y, ev);
       damage(t, dmg, e);
       if (wpn.vehicleOnly && !t.dead) { t.magT = S.tick + Math.round((wpn.hold || 1) * HZ); t.magBy = e.id; }   // v1.0 Magnet hält fest
+      if (wpn.stun && !t.dead && t.kind === 'unit') { t.stunT = S.tick + Math.round(wpn.stun * HZ); t.stunFree = t.stunT + D.STUN_IMMUNE * HZ; S.players[e.owner].st.stuns = (S.players[e.owner].st.stuns || 0) + 1; emit('stun', t.x, t.y, { id: t.id, src: e.id, owner: e.owner, t2: t.stunT }); }   // v1.2 Psi-Drohne lähmt
       if (e.kind === 'unit' && ust(e).drain && t.kind === 'building' && !t.dead) drainBld(e, t, ust(e).drain);   // v1.0 Diskus
       for (ci = 0; ci < extra.length; ci++) {
         var c = extra[ci];
@@ -1848,9 +1855,11 @@ var G = (typeof G !== 'undefined') ? G : {};
     if (e.cd > 0) e.cd--;
     expRegen(e);                                                                 // Erfahrung: Selbstheilung (Held)
     if (e.magT > S.tick && tickHeld(e)) return;                                  // v1.0: vom Magnet-Werfer festgehalten
+    if (e.stunT > S.tick) { e.moving = false; if (e.gar) syncPassengers(e); return; }   // v1.2: von der Psi-Drohne gelähmt
     if (e.mcList && e.mcList.length && tickPsiCtl(e, st)) return;               // v1.0: Gedankenkontrolle (Überlastung)
     if (e.spin > 0 && S.tick - e.fireT > 20) e.spin = Math.max(0, e.spin - 0.025);   // v1.0 Gatling kühlt ab
     if (e.mc === 2) { if (st.bomber) { tickBomber(e, st); return; } airPre(e, st); }   // v0.8 Luftfahrzeuge
+    if (e.host && tickDrone(e, st)) return;                                            // v1.2 Träger-Drohne
     if (st.aa) tickAA(e, st);                                                          // v0.8 Flak (Zerstörer)
     if (st.harvester) {
       if (e.ord === 'recycle') { tickRecycle(e, st); return; }   // v1.0
@@ -2282,6 +2291,7 @@ var G = (typeof G !== 'undefined') ? G : {};
   function canHit(w, t) {
     if (!w || !t) return false;
     if (w.psi) return controllable(t);                                                     // v1.0 Gedankenkontrolle
+    if (w.stun) return t.kind === 'unit' && !airborne(t) && !(t.stunFree > S.tick);         // v1.2 Lähmung: nur Bodeneinheiten/Schiffe, nicht schon gelähmt/immun
     if (w.navalOnly) return t.kind === 'unit' && t.mc === 3;                               // v1.0 Torpedo: nur Schiffe
     if (w.vehicleOnly && (t.kind !== 'unit' || airborne(t) || !VEH_CAT[ust(t).cat])) return false;   // v1.0 Magnet: Fahrzeuge/Schiffe
     if (airborne(t)) return !!w.antiAir;
@@ -2311,7 +2321,7 @@ var G = (typeof G !== 'undefined') ? G : {};
   /** Begründung, warum kein weiteres Luftfahrzeug gebaut werden kann ('' = geht): je Flugfeld pads Luftfahrzeuge (lebende + in der Warteschlange). */
   function airPadBlock(pid) {
     var cap = airPads(pid), n = 0;
-    for (var i = 0; i < S.ents.length; i++) { var e = S.ents[i]; if (!e.dead && e.kind === 'unit' && e.owner === pid && e.mc === 2) n++; }
+    for (var i = 0; i < S.ents.length; i++) { var e = S.ents[i]; if (!e.dead && e.kind === 'unit' && e.owner === pid && e.mc === 2 && !e.host) n++; }   // v1.2: Träger-Drohnen brauchen keinen Landeplatz
     var q = S.players[pid].q.air; if (q) n += q.length;
     return n >= cap ? 'Alle Landeplätze belegt (' + cap + ')' : '';
   }
@@ -2859,6 +2869,71 @@ var G = (typeof G !== 'undefined') ? G : {};
   }
   var offEnd = -1;   // letzter Tick, an dem noch ein Gebäude lahmgelegt ist (Laufzeit-Cache wie drainEnd)
 
+  // ================================================================== TRÄGER / DROHNEN (Flugzeugträger, Schwarm-Träger)
+  // TRÄGER: hg = [{ id (Drohne im Einsatz oder 0), t (Tick, ab dem der Platz wieder startbereit ist) }], hgT (aktuelles Ziel), fireT (letzter Start).
+  // DROHNE: host (Träger-ID), slot (Platz), ammo (Schüsse übrig; 0 bei unbegrenzt), lifeT (Tick Einsatzende, 0 = unbegrenzt), ord 'attack' | 'dback' (Rückflug).
+  // Ereignisse: launch {id (Träger), drone, owner, slot, type}, dock {id (Träger), slot, owner}.
+  function initHangar(e, hg) { e.hg = []; for (var i = 0; i < hg.slots; i++) e.hg.push({ id: 0, t: 0 }); e.hgT = 0; }
+  /** Startbereite Staffeln (für Anzeige/Modelle). */
+  function hangarReady(e) { var n = 0; if (e.hg) for (var i = 0; i < e.hg.length; i++) if (!e.hg[i].id && e.hg[i].t <= S.tick) n++; return n; }
+  function hangarFire(e, t, wpn) {
+    var hg = wpn.hangar;
+    if (!e.hg) initHangar(e, hg);
+    e.hgT = t.id;
+    e.tdir = Math.atan2(t.y - e.y, t.x - e.x);
+    for (var i = 0; i < e.hg.length; i++) {
+      var s = e.hg[i];
+      if (s.id || s.t > S.tick) continue;
+      var a = e.tdir + (i - (e.hg.length - 1) / 2) * 0.5;
+      var d = spawnUnit(e.owner, hg.type, e.x + Math.cos(a) * e.r * 0.5, e.y + Math.sin(a) * e.r * 0.5, e.fac);
+      if (!d) return;
+      d.host = e.id; d.slot = i; d.alt = 0.35; d.dir = d.tdir = a; d.ammo = hg.ammo || 0; d.lifeT = hg.life ? S.tick + Math.round(hg.life * HZ) : 0;
+      d.rk = e.rk || 0;   // Drohnen kämpfen mit dem Rang des Trägers
+      clampMap(d);
+      orderAttack(d, t.id);
+      s.id = d.id; e.fireT = S.tick;
+      emit('launch', e.x, e.y, { id: e.id, drone: d.id, owner: e.owner, slot: i, type: hg.type });
+      return;   // eine Drohne je Feuertakt
+    }
+  }
+  function droneLost(d) {
+    var h = byId.get(d.host);
+    if (!h || !h.hg || !h.hg[d.slot] || h.hg[d.slot].id !== d.id) return;
+    var hw = ust(h).weapon, hg = hw && hw.hangar;
+    h.hg[d.slot].id = 0; h.hg[d.slot].t = S.tick + Math.round(((hg && hg.rebuild) || 10) * HZ);
+  }
+  /** Drohnen-Logik vor der normalen Einheiten-Logik. true = Tick erledigt (Rückflug/Absturz). */
+  function tickDrone(e, st) {
+    var h = byId.get(e.host);
+    if (!h || h.dead || h.owner !== e.owner) { e.host = 0; damage(e, 1e9, null); return true; }   // Träger verloren → Absturz
+    var hw = ust(h).weapon, hg = hw.hangar, w = st.weapon;
+    if (e.ord !== 'dback') {
+      var t = e.tgt ? byId.get(e.tgt) : null;
+      var spent = (e.lifeT && S.tick >= e.lifeT) || (hg.ammo && e.ammo <= 0);
+      var lost = !t || t.dead || e.ord !== 'attack' || !hostile(e.owner, t) || !canHit(w, t) || (t.clk && hidden(e.owner, t)) ||
+                 dist2(t.x, t.y, h.x, h.y) > Math.pow((hw.range + 4) * TILE, 2);
+      if (!spent && lost) {
+        // neues Ziel: das aktuelle des Trägers, sonst selbst eines in der Nähe des Trägers suchen
+        var nt = h.hgT ? byId.get(h.hgT) : null;
+        if (!nt || nt.dead || nt === t || !hostile(e.owner, nt) || !canHit(w, nt) || (nt.clk && hidden(e.owner, nt))) nt = (S.tick + e.id) % 5 === 0 ? findTarget(e, h.x, h.y, hw.range * TILE, w.type, 0, w) : null;
+        if (nt) { orderAttack(e, nt.id); return false; }
+        if ((S.tick + e.id) % 5 !== 0) { e.moving = false; return true; }
+      }
+      if (!spent && !lost) return false;   // normaler Angriff (engage)
+      e.ord = 'dback'; e.tgt = 0; e.path = null;
+    }
+    // Rückflug zum Träger und Landung
+    e.gx = h.x; e.gy = h.y;
+    if (flyStep(e, st) || dist2(e.x, e.y, h.x, h.y) <= (h.r + 8) * (h.r + 8)) {
+      var s = h.hg && h.hg[e.slot];
+      if (s && s.id === e.id) { s.id = 0; s.t = S.tick + Math.round(hg.rearm * HZ); }
+      emit('dock', h.x, h.y, { id: h.id, slot: e.slot, owner: e.owner, drone: e.id });
+      e.host = 0;
+      removeEntity(e);
+    }
+    return true;
+  }
+
   // ---- Minenfeld
   function tickMine(b, md) {
     if ((S.tick + b.id) % 3 !== 0 || b.cdT > S.tick) return;
@@ -2877,6 +2952,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     var AR = md.r * TILE;
     b.ch = (b.ch || 1) - 1; b.cdT = S.tick + Math.round(md.cd * HZ); b.revT = S.tick + D.CLOAK.actReveal * HZ;
     emit('mine', x, y, { id: b.id, owner: b.owner, r: AR, left: b.ch });
+    emit('hit', x, y, { w: 'cannon', owner: b.owner, splash: AR });   // sichtbare Explosion (vorhandener Effekt)
     S.players[b.owner].st.mineHits = (S.players[b.owner].st.mineHits || 0) + 1;
     areaDamage(b.owner, x, y, AR, { owner: b.owner, kind: 'x', stealth: true, type: 'minefield' }, function (tt, dd) {
       if (tt.kind !== 'unit' || tt.pc === 4) return 0;
@@ -2935,6 +3011,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       S.charges.splice(i, 1);
       var b = byId.get(c.bid), src = byId.get(c.src);
       emit('sabBoom', c.x, c.y, { id: c.bid, owner: c.owner });
+      emit('hit', c.x, c.y, { w: 'cannon', owner: c.owner, splash: 1.5 * TILE });   // sichtbare Explosion (vorhandener Effekt)
       if (b && !b.dead && b.owner !== c.owner) damage(b, c.dmg, src && !src.dead && src.owner === c.owner ? src : { owner: c.owner, kind: 'x', stealth: true, type: 'saboteur' });
     }
   }
@@ -3057,6 +3134,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     controllable: controllable, mcList: function (e) { return e && e.mcList ? mcList(e) : []; }, psiOf: psiOf, pcOf: pcOf, _recycle: orderRecycle, recycleBlock: recycleBlock,
     ust: function (e) { return ust(e); },
     // v1.2 Neue Einheiten:
+    hangarReady: hangarReady,
     hidden: hidden, cloakState: cloakState, sabBlock: sabBlock, _orderSab: orderSab, _sabMode: function (u, m) { u.sabMode = m ? 1 : 0; }, noOccAt: noOccAt,
     isRepairSite: isRepairSite, repairSite: repairSite, canRepairUnit: canRepairUnit, _orderRepair: function (u, site) { u.repId = site.id; },
     // nur für Tests/Debug (nicht von Spiellogik/KI/UI benutzen):
