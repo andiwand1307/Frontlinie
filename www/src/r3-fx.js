@@ -19,6 +19,8 @@
  *   overlay(S, alpha)          2D-Beschriftung der Superwaffen-Warnmarker (auf R.octx)
  *   shakeUpdate(), shakeOffset() → {x, z}, setShake(on), getShake(), addShake(a, dur)
  *   setMax(n), setPointScale(px je Einheit), setMaxPoint(px), particleCount()
+ *   Bewegung: terrK/dstC (Staub je Untergrund), mzJet (Mündungsstrahl), casing (Hülsen), fountain (Erd-/Sandfontäne), hitMark/hitNear (Trefferblitz + Ruck
+ *   über rs.hitT/hitK), Wrack-Felder pop/ox/oz/spin/ckT (abgesprengter Turm, Nachexplosion), Wrack-Art 'fall' (Infanterie); _counts() für Leck-Tests.
  * Leuchten/Bloom: siehe docs/RENDER_MODULES.md – additive Partikel/Strahlen mit Farbwerten > 1 leuchten in Modern über Bloom.
  */
 var G = (typeof G !== 'undefined') ? G : {};
@@ -274,6 +276,51 @@ var G = (typeof G !== 'undefined') ? G : {};
   function glw(x, y, z, s0, s1, r, g, b, life, a) { spn(0, 8, 0, x, y, z, 0, 0, 0, life, s0, s1, 0, 0, r * GN, g * GN, b * GN, a, r * 0.5 * GN, g * 0.4 * GN, b * 0.3 * GN, 0, 0, 0, 0, 0); }
   function star(x, y, z, s0, s1, r, g, b, life) { spn(0, 9, 0, x, y, z, 0, 0, 0, life, s0, s1, (rnd() - 0.5) * 1.2, 0, r * GN, g * GN, b * GN, 1, r * GN, g * 0.6 * GN, b * 0.3 * GN, 0, 0, 0, 0, 0); }
   function spk(x, y, z, vx, vy, vz, life, size, r, g, b, grav, drag) { spn(0, 10, 0, x, y, z, vx, vy, vz, life, size, size * 0.45, 0, 0, r * GN, g * GN, b * GN, 1, r * 0.7 * GN, g * 0.3 * GN, b * 0.1 * GN, 0, grav, drag || 0, 0, 0); }
+  // --- Bewegung: Untergrund-abhängiger Staub, Mündungsstrahl, Hülsen, Erdfontäne, Trefferblitz
+  /** Untergrund an Weltposition (Kacheln): 0 Gras/sonst, 1 Sand, 2 Straße/Brücke, 3 Wasser. */
+  function terrK(x, z) {
+    var S = G.Sim.S, m = S && S.map, tx = x | 0, tz = z | 0;
+    if (!m || tx < 0 || tz < 0 || tx >= m.w || tz >= m.h) return 0;
+    var id = D.TERRAIN[m.terrain[tz * m.w + tx]].id;
+    return id === 'sand' ? 1 : ((id === 'road' || id === 'bridge') ? 2 : (id === 'water' ? 3 : 0));
+  }
+  var DCOL = [[0.36, 0.33, 0.21, 0.8], [0.6, 0.5, 0.33, 1.3], [0.4, 0.4, 0.4, 0.3], [0.85, 0.9, 0.95, 1]];   // Staubfarbe (linear) + Menge je Untergrund
+  /** Staub in der Farbe des Untergrunds k (nur Sprite-Stufen). */
+  function dstC(x, y, z, vx, vy, vz, life, s0, s1, a, k) {
+    var c = DCOL[k];
+    spn(1, 4 + ((rnd() * 4) | 0), 0, x, y, z, vx, vy, vz, life, s0, s1, rnd() * 6.283, (rnd() - 0.5) * 0.6, c[0], c[1], c[2], a, c[0] * 0.8, c[1] * 0.8, c[2] * 0.8, 0, 0, 1.9, 0.55, 1);
+  }
+  /** Mündungsstrahl: n kurze Feuerzungen entlang (dx, dz) (nur Sprite-Stufen). */
+  function mzJet(x, y, z, dx, dz, k, n) {
+    for (var i = 0; i < n; i++) fbl(x + dx * 0.1 * i * k, y, z + dz * 0.1 * i * k, dx * (2.2 + i) * k, 0.1, dz * (2.2 + i) * k, 0.07 + 0.025 * i, 0.2 * k, (0.42 + 0.1 * i) * k, 1.0, 1.0, 0.82, 0.45);
+  }
+  /** Ausgeworfene Hülse (kleines Messing-Trümmerstück, quer zur Schussrichtung) – nur wenn der Trümmer-Vorrat reichlich frei ist. */
+  function casing(x, y, z, dx, dz) {
+    if (!DB || DB.n > DB.N * 0.35) return;
+    var sp = 0.9 + rnd() * 0.7;
+    chunk(x - dx * 0.12, y, z - dz * 0.12, -dz * sp - dx * 0.3, 1.6 + rnd() * 0.9, dx * sp - dz * 0.3, 0.03, 0.9, 0.66, 0.2, 0.75 + rnd() * 0.3);
+  }
+  /** Erd-/Sand-/Wasserfontäne bei Einschlägen in den Boden (k = Stärke). */
+  function fountain(x, gy, z, k) {
+    var tk = terrK(x, z), i, a, sp, n, c = DCOL[tk];
+    if (!spTier) return;
+    n = Math.max(2, Math.round(5 * k * spQ));
+    for (i = 0; i < n; i++) { a = rnd() * 6.283; sp = rnd() * 0.5; dstC(x + Math.cos(a) * 0.08, gy + 0.1, z + Math.sin(a) * 0.08, Math.cos(a) * sp, (2.4 + rnd() * 2.6) * Math.sqrt(k), Math.sin(a) * sp, 0.7 + rnd() * 0.5, 0.22 * k, 0.75 * k, 0.75, tk); }
+    if (tk === 2) return;
+    n = Math.round(3 * k * (spTier === 2 ? 1 : 0.5));
+    for (i = 0; i < n; i++) { a = rnd() * 6.283; sp = 0.5 + rnd() * 1.1; chunk(x, gy + 0.15, z, Math.cos(a) * sp, 3 + rnd() * 2.5, Math.sin(a) * sp, 0.045 + rnd() * 0.035, c[0] * 0.6, c[1] * 0.6, c[2] * 0.6, 0.9 + rnd() * 0.6); }
+  }
+  /** Trefferblitz + Ruck: Einheit id bzw. Einheiten im Umkreis rad (Sim-Pixel) um (px, py) – liest nur, schreibt den Render-Zustand rs. */
+  function hitMark(id, k) { var r = rs.get(id); if (r) { r.hitT = fx.time; r.hitK = k || 1; } }   // k: 1 = Granate/Rakete, klein = Kugeln
+  function hitNear(px, py, rad) {
+    var ents = G.Sim.S.ents, i, e, dx, dy, any = false;
+    for (i = 0; i < ents.length; i++) {
+      e = ents[i]; if (e.kind !== 'unit' || e.dead) continue;
+      dx = e.x - px; dy = e.y - py;
+      if (dx * dx + dy * dy < rad * rad) { hitMark(e.id); any = true; }
+    }
+    return any;
+  }
   /** Rauch/Staub-Puff, in allen Stufen (spTier 0: klassisches Punkt-Partikel). */
   function puff(x, y, z, vx, vy, vz, life, s0, s1, g, a, hot) {
     if (spTier) { if (room(0.97)) sm(x, y, z, vx, vy, vz, life, s0, s1, g, a, hot || 0); return; }
@@ -484,9 +531,14 @@ var G = (typeof G !== 'undefined') ? G : {};
             if (hf < 0.2 && rnd() < 0.5) tng(bx + (rnd() - 0.5) * 0.25, 0.35, bz + (rnd() - 0.5) * 0.25, 0.3 + rnd() * 0.3, 0.3 + rnd() * 0.2, 0.28 + rnd() * 0.15, 0.9);
           }
           accMap.set(e.id, acc);
-        } else if (e.moving) {
-          acc = (accMap.get(e.id) || 0) + dt * 3.2 * spQ;
-          while (acc >= 1) { acc -= 1; dstS(bx - Math.cos(e.dir) * 0.32 + (rnd() - 0.5) * 0.15, 0.05, bz - Math.sin(e.dir) * 0.32 + (rnd() - 0.5) * 0.15, -Math.cos(e.dir) * 0.15, 0.12 + rnd() * 0.15, -Math.sin(e.dir) * 0.15, 0.9 + rnd() * 0.5, 0.18, 0.62, 0.22, 0.85); }
+        } else if (e.moving) {   // Bewegung: Staubfahne je Untergrund (Sand viel/hell, Gras wenig/dunkel, Straße kaum), abwechselnd hinter beiden Ketten/Rädern, beim Anfahren ein Schwall
+          var rr = rs.get(e.id), tk = terrK(bx, bz), vf = rr ? Math.min(1.6, Math.abs(rr.vf) * 0.5) : 1, lat = (ud.radius || 11) / TILE * 0.6, gyv = groundAt(bx, bz), sdr, cdx = Math.cos(e.dir), sdz = Math.sin(e.dir);
+          acc = (accMap.get(e.id) || 0) + dt * 4.2 * spQ * DCOL[tk][3] * (0.35 + vf) * (rr && rr.pv > 0.04 ? 2.6 : 1);
+          while (acc >= 1) {
+            acc -= 1; sdr = rnd() < 0.5 ? -lat : lat;
+            if (tk === 3) puff(bx - cdx * 0.3 - sdz * sdr, M3.WL + 0.05, bz - sdz * 0.3 + cdx * sdr, -cdx * 0.3, 0.5 + rnd() * 0.5, -sdz * 0.3, 0.6 + rnd() * 0.3, 0.12, 0.5, 0.9, 0.5, 0);
+            else dstC(bx - cdx * 0.34 - sdz * sdr + (rnd() - 0.5) * 0.08, gyv + 0.05, bz - sdz * 0.34 + cdx * sdr + (rnd() - 0.5) * 0.08, -cdx * 0.25, 0.14 + rnd() * 0.2, -sdz * 0.25, 0.9 + rnd() * 0.6, 0.16, 0.66, tk === 1 ? 0.3 : 0.24, tk);
+          }
           accMap.set(e.id, acc);
         }
       }
@@ -617,6 +669,9 @@ var G = (typeof G !== 'undefined') ? G : {};
         if (src && !src.dead) M3.muzzleOf(src, tmpV, e.tx / TILE, e.ty / TILE, e.barrel, e.aux); else tmpV.set(x, 0.3, z);
         var tx = e.tx / TILE, tz = e.ty / TILE, ty = groundAt(tx, tz) + 0.18;
         if (e.air) ty = airY(e.tid, tx, tz);   // v0.8: Ziel in der Luft → Leuchtspur/Strahl in Flughöhe
+        // Bewegung: Schussrichtung (waagerecht, normiert) für Mündungsstrahl/Hülsen/Rückstrahl; Sofort-Treffer lassen das Ziel aufblitzen
+        var sdx = tx - tmpV.x, sdz = tz - tmpV.z, sdl = Math.sqrt(sdx * sdx + sdz * sdz) || 1; sdx /= sdl; sdz /= sdl;
+        if (e.tid && (e.w === 'bullet' || e.w === 'sniper' || e.w === 'flame' || e.w === 'laser' || e.w === 'lightning' || e.w === 'melee')) hitMark(e.tid, e.w === 'bullet' ? 0.3 : (e.w === 'flame' ? 0.2 : 0.7));
         if (e.w === 'psi') {               // v1.0 PLATZHALTER v1.0: Psi-Strahl (Blitz-Optik) + Ring am Ziel
           lightningShot(e, src, tx, ty, tz); wave(0, tx, tz, 0.15, 0.7, 0.45, 0.62, 0.68, 1.0, 0);
         } else if (e.w === 'magnet' || e.w === 'disc') {   // v1.0 PLATZHALTER v1.0: Magnet-/Diskus-Strahl (Laser-Optik)
@@ -633,11 +688,22 @@ var G = (typeof G !== 'undefined') ? G : {};
           missileLaunch(src, e, tx, tz);
         } else if (e.w === 'rocket' && e.salvo != null) {   // v0.7 MLRS-Salve: Rohrfeuer, Rückstoß-Rauch, Startrauch
           salvoLaunch(src, e, tx, tz);
-        } else if (e.w === 'bullet') {
-          sparkle(tmpV.x, tmpV.y, tmpV.z, 0.7);
-          tracer(tmpV.x, tmpV.y, tmpV.z, tx, ty, tz, 0.11, 0);
+        } else if (e.w === 'bullet') {   // Bewegung: Fahrzeug-MG (dicke Leuchtspur, größerer Blitz, Hülsen) ≠ Gewehr (dünn, kurz)
+          var vmg = src && src.kind === 'unit' && !M3.INF[src.type];
+          sparkle(tmpV.x, tmpV.y, tmpV.z, vmg ? 0.95 : 0.6);
+          tracer(tmpV.x, tmpV.y, tmpV.z, tx, ty, tz, vmg ? 0.13 : 0.1, vmg ? 1 : 0);
+          if (spTier && inViewT(tmpV.x, tmpV.z)) {
+            mzJet(tmpV.x, tmpV.y, tmpV.z, sdx, sdz, vmg ? 0.8 : 0.5, 1);
+            if (spTier === 2 && rnd() < (vmg ? 0.9 : 0.5)) casing(tmpV.x, tmpV.y, tmpV.z, sdx, sdz);
+          }
         } else if (e.w === 'cannon') {
           var bigGun = src && (src.type === 'howitzer' || src.type === 'colossus');
+          if (spTier && inViewT(tmpV.x, tmpV.z)) {   // Bewegung: Feuerstrahl aus dem Rohr, Lichtfleck + aufgewirbelter Staub am Boden unter der Mündung
+            var mgk = bigGun ? 1.7 : 1.15, mgy = groundAt(tmpV.x, tmpV.z), mtk = terrK(tmpV.x, tmpV.z);
+            mzJet(tmpV.x, tmpV.y, tmpV.z, sdx, sdz, mgk, spTier === 2 ? 3 : 2);
+            wave(1, tmpV.x + sdx * 0.2, tmpV.z + sdz * 0.2, 0.35 * mgk, 1.25 * mgk, 0.18, 0.85, 0.5, 0.2);
+            if (mtk !== 3) for (var mq = 0; mq < (spTier === 2 ? 4 : 2); mq++) { var msd = (mq & 1 ? 1 : -1) * (0.5 + rnd() * 0.7); dstC(tmpV.x + sdx * 0.15, mgy + 0.05, tmpV.z + sdz * 0.15, sdx * 0.7 - sdz * msd, 0.15 + rnd() * 0.2, sdz * 0.7 + sdx * msd, 0.6 + rnd() * 0.4, 0.2 * mgk, 0.6 * mgk, 0.3, mtk); }
+          }
           sparkle(tmpV.x, tmpV.y, tmpV.z, bigGun ? 2.2 : (src && src.type === 'hunter' ? 1.7 : 1.5));
           if (bigGun) { for (var bq = 0; bq < 6; bq++) puff(tmpV.x, tmpV.y, tmpV.z, (rnd() - 0.5) * 1.2, 0.2 + rnd() * 0.5, (rnd() - 0.5) * 1.2, 1.2 + rnd() * 0.8, 0.25, 0.9, 0.5, 0.5, 0); if (src.type === 'howitzer') dust(src.x / TILE, 0, src.y / TILE, 0.8); }
           for (var q = 0; q < 4; q++) puff(tmpV.x, tmpV.y, tmpV.z, (rnd() - 0.5) * 0.8, 0.2 + rnd() * 0.3, (rnd() - 0.5) * 0.8, 0.8 + rnd() * 0.4, 0.15, 0.45, 0.42, 0.4, 0);
@@ -648,6 +714,10 @@ var G = (typeof G !== 'undefined') ? G : {};
         } else {
           sparkle(tmpV.x, tmpV.y, tmpV.z, 1.1);
           for (var q2 = 0; q2 < 5; q2++) puff(tmpV.x, tmpV.y, tmpV.z, (rnd() - 0.5) * 0.6, 0.1 + rnd() * 0.3, (rnd() - 0.5) * 0.6, 0.9 + rnd() * 0.5, 0.12, 0.4, 0.55, 0.4, 0);
+          if (e.w === 'rocket' && spTier && inViewT(tmpV.x, tmpV.z)) {   // Bewegung: Rückstrahl des Raketenwerfers nach hinten
+            mzJet(tmpV.x - sdx * 0.3, tmpV.y, tmpV.z - sdz * 0.3, -sdx, -sdz, 0.9, 2);
+            for (var rb = 0; rb < 3; rb++) puff(tmpV.x - sdx * (0.35 + rb * 0.12), tmpV.y, tmpV.z - sdz * (0.35 + rb * 0.12), -sdx * (1.4 + rnd()) + (rnd() - 0.5) * 0.4, 0.2 + rnd() * 0.3, -sdz * (1.4 + rnd()) + (rnd() - 0.5) * 0.4, 0.7 + rnd() * 0.5, 0.14, 0.55, 0.6, 0.4, 0.2);
+          }
         }
       } else if (e.t === 'hit') {
         if (!visibleAt(e.x, e.y)) continue;
@@ -658,8 +728,11 @@ var G = (typeof G !== 'undefined') ? G : {};
           var ae = airAt(e.x, e.y, e.w === 'flak' ? 40 : 22);
           if (ae || e.w === 'flak') { var ah = gy + (ae ? airAlt(ae) : 1) * D.AIR_H + 0.15; flakBurst(x + (rnd() - 0.5) * 0.3, ah + (rnd() - 0.4) * 0.3, z + (rnd() - 0.5) * 0.3, e.w === 'flak' ? 1 : (e.w === 'rocket' ? 1.15 : 0.5)); continue; }
         }
+        // Bewegung: getroffene Einheiten blitzen kurz auf und rucken; Einschläge ins Wasser → Fontäne, in den Boden → Erd-/Sandfontäne
+        var hitU = (e.w === 'cannon' || e.w === 'rocket') ? hitNear(e.x, e.y, e.splash ? Math.min(e.splash, 40) : 20) : false;
+        if ((e.w === 'cannon' || e.w === 'rocket') && !hitU && terrK(x, z) === 3 && T3.heightAt(x, z) < -0.09) { splash(x, z, e.w === 'cannon' ? 0.9 : 0.75); continue; }
         if (e.w === 'laser' || e.w === 'lightning') { beamImpact(x, gy + 0.25, z, e.w === 'laser' ? 0 : 1, 0.8); decal(x, z, 0.4, 10); }
-        else if (e.w === 'cannon') { explosion(x, gy + 0.1, z, 0.65, true); decal(x, z, 0.7, 14); }
+        else if (e.w === 'cannon') { explosion(x, gy + 0.1, z, 0.65, true); decal(x, z, 0.7, 14); if (!hitU || e.splash) fountain(x, gy, z, e.splash ? 1 : 0.7); }
         else if (e.w === 'bullet') { var hte = e.tid ? G.Sim.get(e.tid) : null; impact(x, gy + 0.2, z, hte ? (hte.kind === 'building' ? 'building' : (D.UNITS[hte.type] ? D.UNITS[hte.type].armor : 'light')) : 'light'); }
         else { explosion(x, gy + 0.15, z, 0.55, false); decal(x, z, 0.55, 12); }
       } else if (e.t === 'die') {
@@ -683,8 +756,11 @@ var G = (typeof G !== 'undefined') ? G : {};
           for (var b = 0; b < 3; b++) explosion(x + (rnd() - 0.5) * e.w * 0.6, 0.3 + rnd() * 0.4, z + (rnd() - 0.5) * e.h * 0.6, 0.6 + 0.4 * k, true, BLD_DEB);
           if (spTier) { dust(x, 0, z, 1.2 + 0.5 * k); burn(x, z, 10 + 2 * k, 0.8 + 0.3 * k, 1); }
           decal(x, z, k * 1.5, 40);
+          if (inViewT(x, z)) addShake(0.035 + 0.012 * k, 0.32);   // Bewegung: leichtes Kamerawackeln bei Gebäude-Explosionen im Bild
           M3.addWreck({ kind: 'building', type: e.type, owner: e.owner, fac: Pd.faction, color: Pd.color, x: x, z: z, dir: 0, tdir: 0, t0: fx.time, life: 4 });
-        } else if (M3.DIE_SMALL[e.type]) {
+        } else if (M3.INF[e.type]) {   // Bewegung: alle Infanteristen fallen um (Wrack-Art 'fall') statt nur zu verpuffen
+          var rfi = rs.get(e.id);
+          M3.addWreck({ kind: 'fall', type: e.type, owner: e.owner, fac: Pd.faction, color: Pd.color, x: x, z: z, dir: rfi ? rfi.fc : 0, t0: fx.time, life: 4.2, side: rnd() < 0.7 ? 1 : -1 });
           if (spTier) { glw(x, g2 + 0.2, z, 0.4, 0.9, 1, 0.6, 0.3, 0.14, 0.8); for (var q4 = 0; q4 < 3; q4++) dstS(x + (rnd() - 0.5) * 0.2, g2 + 0.1, z + (rnd() - 0.5) * 0.2, (rnd() - 0.5) * 0.6, 0.3 + rnd() * 0.4, (rnd() - 0.5) * 0.6, 0.7, 0.15, 0.5, 0.5, 0.9); }
           else { for (var q3 = 0; q3 < 5; q3++) emit(1, x, g2 + 0.1, z, (rnd() - 0.5) * 0.6, 0.3 + rnd() * 0.4, (rnd() - 0.5) * 0.6, 0.8, 0.12, 0.3, 0.55, 0.5, 0.42, 0.6, 0.55, 0.5, 0.42, 0, 0, 2);
           emit(0, x, g2 + 0.15, z, 0, 0.3, 0, 0.15, 0.3, 0.1, 1, 0.6, 0.3, 0.8, 1, 0.3, 0.1, 0); }
@@ -694,7 +770,11 @@ var G = (typeof G !== 'undefined') ? G : {};
           if (spTier) burn(x, z, 6, 0.65, 1);
           decal(x, z, 1.1, 30);
           var r = rs.get(e.id);
-          M3.addWreck({ kind: 'unit', type: e.type, owner: e.owner, fac: Pd.faction, color: Pd.color, x: x, z: z, dir: r ? r.dir : 0, tdir: r ? r.tdir : 0, t0: fx.time, life: 9 });
+          // Bewegung: Turm wird (meist) abgesprengt und landet versetzt; gelegentlich späte Nachexplosion (Munition); leichtes Wackeln im Bild
+          var wpa = rnd() * 6.283, wpd = 0.12 + rnd() * 0.2;
+          M3.addWreck({ kind: 'unit', type: e.type, owner: e.owner, fac: Pd.faction, color: Pd.color, x: x, z: z, dir: r ? r.dir : 0, tdir: r ? r.tdir : 0, t0: fx.time, life: 9,
+            pop: rnd() < 0.7 ? 0.3 + rnd() * 0.4 : 0, ox: Math.cos(wpa) * wpd, oz: Math.sin(wpa) * wpd, spin: (rnd() - 0.5) * 5, ckT: rnd() < 0.5 ? 0.6 + rnd() * 1.4 : 0, landed: false });
+          if (inViewT(x, z)) addShake(0.03, 0.22);
         }
         rs.delete(e.id);
       } else if (e.t === 'enter' || e.t === 'exit') {
@@ -724,7 +804,7 @@ var G = (typeof G !== 'undefined') ? G : {};
         var ab = G.Sim.get(e.id);
         if (ab) artyLaunch(ab, e);
       } else if (e.t === 'artyHit') {
-        if (visibleAt(e.x, e.y)) { var ahy = groundAt(x, z); explosion(x, ahy + 0.1, z, 1.2, true); dust(x, 0, z, 1.2); decal(x, z, 1.2, 50); }
+        if (visibleAt(e.x, e.y)) { var ahy = groundAt(x, z); explosion(x, ahy + 0.1, z, 1.2, true); dust(x, 0, z, 1.2); decal(x, z, 1.2, 50); fountain(x, ahy, z, 1.3); hitNear(e.x, e.y, 40); if (inViewT(x, z)) addShake(0.06, 0.3); }
       } else if (e.t === 'swLaunch') {
         swLaunchEvt(e);
       } else if (e.t === 'swHit') {
@@ -1685,6 +1765,8 @@ var G = (typeof G !== 'undefined') ? G : {};
     shakeUpdate: shakeUpdate, shakeOffset: function () { return shk.off; }, setShake: setShake, getShake: function () { return shakeOn; }, addShake: addShake,
     setMax: function (n) { if (fx) fx.max = n; }, setPointScale: function (v) { if (fx) fx.uScale.value = v; }, setMaxPoint: function (v) { if (fx) fx.uMaxPt.value = v; },
     particleCount: function () { return fx ? fx.pools[0].n + fx.pools[1].n : 0; },
+    _counts: function () { var wv = 0, bn = 0, i; for (i = 0; i < waves.length; i++) if (waves[i].on) wv++; for (i = 0; i < burns.length; i++) if (burns[i].on) bn++;
+      return { pts: fx ? fx.pools[0].n + fx.pools[1].n : 0, spr: SP ? SP.pools[0].n + SP.pools[1].n : 0, deb: DB ? DB.n : 0, waves: wv, burns: bn, tracers: fx ? fx.tr.n : 0, acc: accMap.size, rs: rs.size, wrecks: M3._wreckCount ? M3._wreckCount() : -1, tier: spTier }; },
     time: function () { return fx ? fx.time : 0; },
     debug: function () { return { heals: heals.map(function (h) { return [h.on, +(fx.time - h.t0).toFixed(2), h.x, h.y, h.z]; }), flames: flames.length, bolts: BM ? BM.n : -1, t: fx.time, q: BM ? Array.prototype.slice.call(BM.pos, Math.max(0, BM.n - 2) * 12, BM.n * 12).map(function (v) { return +v.toFixed(2); }).concat(Array.prototype.slice.call(BM.col, Math.max(0, BM.n - 1) * 12, BM.n * 12).map(function (v) { return +v.toFixed(2); })) : null, vdir: R.VDIR && [R.VDIR.x, R.VDIR.y, R.VDIR.z] }; }
   };
