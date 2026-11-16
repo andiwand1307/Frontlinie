@@ -74,7 +74,7 @@ var G = (typeof G !== 'undefined') ? G : {};
   /** Verschiebung aller auf cfg.first bezogenen Zeitmarken. */
   function tShift() { return Math.max(0, atkFrom() - cfg.first); }
   /** Von einem Auftrag (APC-Fahrt) reservierte Einheiten. */
-  function reserved(e) { var J = A.apcJob; return (!!J && (e.id === J.apc || (J.units && J.units.indexOf(e.id) >= 0))) || reservedV08(e); }
+  function reserved(e) { var J = A.apcJob; return (!!J && (e.id === J.apc || (J.units && J.units.indexOf(e.id) >= 0))) || reservedV08(e) || (!!A.rep && A.rep[e.id] != null); }   // v1.2: A.rep = Fahrzeuge in Reparatur
 
   function initState() {
     var st = S.map.starts[pid], en = S.map.starts[1 - pid] || S.map.starts[0];
@@ -632,6 +632,8 @@ var G = (typeof G !== 'undefined') ? G : {};
       var swt = P.faction === 'coalition' ? 'orbital' : (P.faction === 'kollektiv' ? 'psidome' : 'silo');   // v1.0
       if (cnt(swt) < 1 && G.Sim.canProduce(pid, swt).ok) return swt;
     }
+    var b12 = choose12(cnt, secs);   // v1.2: Reparaturdock, Erzsilo
+    if (b12) return b12;
     var asb = chooseAirSea(cnt);   // v0.8: Flugfeld / Werft (Flak: chooseDefense)
     if (asb) return asb;
     // v0.5: Expansion (Mobiler Bauhof aufgebaut) → Raffinerie am neuen Standort
@@ -680,6 +682,8 @@ var G = (typeof G !== 'undefined') ? G : {};
     if (cfg.towers5 && !A.allIn && cnt(ft) < cfg.towers5 && secs >= cfg.techAt + 60 && P.credits > 700 && A.thrX != null && (A.defMax || 0) >= cfg.defNeed * 2 &&
         G.Sim.canProduce(pid, ft).ok &&
         (cnt(ft) === 0 || secs >= cfg.techAt + 360)) return ft;
+    var d12 = chooseDef12(cnt, secs);   // v1.2: Tor, Minenfeld
+    if (d12) return d12;
     if (cnt('turret') + cnt('mg') < cfg.turrets + 1 && P.credits > 1500) return (cnt('turret') <= cnt('mg')) ? 'turret' : 'mg';
     return null;
   }
@@ -705,7 +709,7 @@ var G = (typeof G !== 'undefined') ? G : {};
 
   function placeReady(type) {
     var b = D.BUILDINGS[type];
-    var spot = findSpot(type, b);
+    var spot = SPOT12[type] ? SPOT12[type]() : findSpot(type, b);   // v1.2: eigene Platzwahl (Tor, Minenfeld)
     if (spot) {
       var r = G.cmd.placeBuilding(pid, type, spot.tx, spot.ty);
       if (r.ok) { A.placeFails = 0; return; }
@@ -1333,6 +1337,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     if (r.ok) {
       A.wallsPlaced = (A.wallsPlaced || 0) + r.placed; A.wallLines = (A.wallLines || 0) + 1;
       A.wallK = (A.wallK || []).concat([plan.k]);
+      A.gateT = (plan.gates || []).filter(function (t) { return t != null; });   // v1.2: Tor in den Durchlass (chooseDef12)
     } else { A.wallFails = (A.wallFails || 0) + 1; if (A.wallFails >= 3) A.wallLines = cfg.wallLines; }
   }
   var bfsSeen = null, bfsQ = null;
@@ -1407,7 +1412,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       // Engstelle: wenig freie Breite, Mauer deckt einen großen Teil ab
       var cover = Math.min(tiles.length, maxSeg) / width;
       var sc = width * 2 - cover * 6 + Math.abs(dh - 9) * 0.5;
-      if (!best || sc < best.s) best = { s: sc, k: k, tiles: tiles, width: width };
+      if (!best || sc < best.s) best = { s: sc, k: k, tiles: tiles, width: width, gates: [side[0][1], side[1][1]] };   // v1.2: gates = Kacheln am Rand des Durchlasses
     }
     if (!best) return null;
     // die äußeren Segmente zuerst (an Fels/Wasser angelehnt), höchstens maxSeg
@@ -1417,7 +1422,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     // Nähe-Regel/Kette: mindestens ein Segment nahe der Basis, sonst würde placeWall alles verwerfen
     var pl = G.Sim.canPlaceWall(pid, sel);
     if (!pl.n) return null;
-    return { tiles: sel, k: best.k };
+    return { tiles: sel, k: best.k, gates: best.gates };
   }
   function nearOre(ti, r) {
     var w = S.map.w, x = ti % w, y = (ti - x) / w;
@@ -2005,17 +2010,69 @@ var G = (typeof G !== 'undefined') ? G : {};
   // ================================================================== v1.2 Neue Einheiten & Zusatzgebäude
   // V12[stufe]: Höchstzahlen/Schalter der neuen Mittel. „Sehr leicht/Leicht“ nutzen sie sparsamer.
   //   flakT = Flakpanzer (nur wenn gegnerische Luftfahrzeuge/Flugfeld gesehen)
+  //   silo = Erzsilos (wenn der Kontostand an die Lagerkapazität stößt)
+  //   dock/dockAt = Reparaturdocks / frühestens ab s; gates = Tore in Mauer-Durchlässen
   var V12 = {
-    veryeasy: { flakT: 1 },
-    easy:     { flakT: 1 },
-    medium:   { flakT: 3 },
-    hard:     { flakT: 4 }
+    veryeasy: { flakT: 1, silo: 1, dock: 0, dockAt: 0, gates: 0 },
+    easy:     { flakT: 1, silo: 2, dock: 0, dockAt: 0, gates: 0 },
+    medium:   { flakT: 3, silo: 3, dock: 1, dockAt: 420, gates: 1 },
+    hard:     { flakT: 4, silo: 4, dock: 1, dockAt: 360, gates: 2 }
   };
+  var SPOT12 = { gate: spotGate };
   function X12() { return V12[P.ai] || V12.medium; }
   function inQ(cat, t) { var q = P.q[cat] || [], n = 0; for (var i = 0; i < q.length; i++) if (q[i].type === t) n++; return n; }
   function v12() {
     var X = X12();
     v12Flak(X);
+    v12Repair(X);
+  }
+  /** Bauentscheidung (aus chooseInner): Reparaturdock, sobald eine Fahrzeugarmee steht. */
+  function choose12(cnt, secs) {
+    var X = X12();
+    // Erzsilo: Kontostand nahe der Lagerkapazität (oder Sammler mussten gerade warten) → Lager erweitern
+    if (P.oreCap && cnt('oresilo') < X.silo && (P.credits >= P.oreCap * 0.8 || S.tick - (P.capFullT || -9999) < 200) && G.Sim.canProduce(pid, 'oresilo').ok) return 'oresilo';
+    if (A.defending || A.allIn) return null;
+    if (X.dock && cnt('repairdock') < X.dock && secs >= X.dockAt && P.credits > 1300 && armyValue() >= 4500 && G.Sim.canProduce(pid, 'repairdock').ok) return 'repairdock';
+    return null;
+  }
+  /** Verteidigungs-Warteschlange (aus chooseDefenseInner): Tor in den Durchlass einer gesetzten Mauerlinie. */
+  function chooseDef12(cnt, secs) {
+    var X = X12();
+    if (A.allIn) return null;
+    if (X.gates && A.gateT && A.gateT.length && cnt('gate') < Math.min(X.gates, A.wallLines || 0) && P.credits > 500 && G.Sim.canProduce(pid, 'gate').ok) return 'gate';
+    return null;
+  }
+  function spotGate() {
+    var w = S.map.w, L = A.gateT || [];
+    while (L.length) {
+      var t = L.shift(), tx = t % w, ty = (t - tx) / w;
+      if (G.Sim.canPlace(pid, 'gate', tx, ty).ok) return { tx: tx, ty: ty };
+    }
+    return null;
+  }
+  /** Reparaturdock nutzen: angeschlagene, teure Fahrzeuge außerhalb des Gefechts fahren zur Reparaturstelle und sind bis zur Genesung
+   *  für Wellen gesperrt (A.rep[id] = Tick des Auftrags). */
+  function v12Repair(X) {
+    if (!A.rep) A.rep = {};
+    var id, u, n = 0;
+    for (id in A.rep) {
+      u = G.Sim.get(+id);
+      if (!u || u.dead || u.owner !== pid || u.hp >= u.maxHp * 0.95 || S.tick - A.rep[id] > 20 * 75) delete A.rep[id]; else n++;
+    }
+    if (A.allIn || n >= 4 || (S.tick + pid) % (cfg.interval * 3) >= cfg.interval) return;
+    var site = G.Sim.repairSite(pid, A.homeX, A.homeY);
+    if (!site || P.credits < 300) return;
+    for (var i = 0; i < S.ents.length && n < 4; i++) {
+      u = S.ents[i];
+      if (u.dead || u.owner !== pid || !G.Sim.canRepairUnit(u) || u.hp >= u.maxHp * 0.45 || A.rep[u.id] != null) continue;
+      var st = G.Sim.statsOf(u);
+      if (st.harvester || (st.cost || 0) < 600 || S.tick - (u.lastAtkT || -9999) < 60 || reserved(u)) continue;
+      if (d2(u.x, u.y, site.x, site.y) > 32 * 32 * TILE * TILE) continue;
+      if (G.cmd.repairAt(pid, [u.id], site.id).ok) {
+        A.rep[u.id] = S.tick; n++;
+        var k = A.attack ? A.attack.indexOf(u.id) : -1; if (k >= 0) A.attack.splice(k, 1);
+      }
+    }
   }
   /** Flakpanzer: sobald gegnerische Luftfahrzeuge (A.seenAir, gleitend) oder ein gegnerisches Flugfeld bekannt sind; fahren mit den Wellen. */
   function v12Flak(X) {

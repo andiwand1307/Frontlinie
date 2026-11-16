@@ -52,6 +52,10 @@
  *  bomb(pid, ids, x, y)            Bomber: Bombenteppich über (x, y); Grund „Bomber lädt nach“, wenn keiner Bomben an Bord hat
  *  attack(...)                     nur Einheiten, die das Ziel treffen können (Luftziele: antiAir); Bomber → Bombenteppich auf das Ziel
  *  move/attackMove/smart           Luftfahrzeuge in lockerer Formation (Gitter), Schiffe über Wasser-Slots
+ *  v1.2 (Neue Einheiten & Zusatzgebäude):
+ *  repairAt(pid, ids[, siteId])    Fahrzeuge fahren zur Reparaturstelle (eigenes Reparaturdock / eroberte Werkstatt; ohne siteId die nächste)
+ *                                  → {ok, reason, kind:'repair', n}
+ *  smart(...)                      Fahrzeuge + Tipp auf eigene Reparaturstelle → repairAt (res.kind = 'repair')
  */
 var G = (typeof G !== 'undefined') ? G : {};
 (function () {
@@ -304,6 +308,16 @@ var G = (typeof G !== 'undefined') ? G : {};
         if (other.length) formationOrder(other, x, y, 'move');
         return res;
       }
+      // v1.2: Fahrzeuge + Tipp auf eigene Reparaturstelle (Reparaturdock / eroberte Werkstatt) → zur Reparatur
+      if (t && t.kind === 'building' && G.Sim.isRepairSite(pid, t)) {
+        var rv = ownUnits(pid, ids, function (e) { return G.Sim.canRepairUnit(e); });
+        if (rv.length) {
+          var rres = cmd.repairAt(pid, rv.map(function (e) { return e.id; }), t.id);
+          var rrest = ownUnits(pid, ids, function (e) { return !G.Sim.canRepairUnit(e); });
+          if (rrest.length) formationOrder(rrest, x, y, 'move');
+          return rres;
+        }
+      }
       // v1.0 Kollektiv: Bodeneinheiten (außer Sammlern) + Tipp auf eigenen Erzwandler → recyceln
       if (t && t.kind === 'building' && t.type === 'refinery' && t.owner === pid && S.players[pid].faction === 'kollektiv') {
         var rec = ownUnits(pid, ids, function (e) { return !G.Sim.statsOf(e).harvester && !G.Sim.recycleBlock(pid, e, t); });
@@ -377,6 +391,22 @@ var G = (typeof G !== 'undefined') ? G : {};
       for (var i = 0; i < us.length; i++) { var w = G.Sim.recycleBlock(pid, us[i], ref); if (w) { why = w; continue; } G.Sim._recycle(us[i], ref); n++; }
       if (!n) return FAIL(why || 'Keine Einheiten');
       return { ok: true, reason: '', n: n };
+    },
+    /** v1.2: Fahrzeuge fahren zur Reparaturstelle (siteId oder die nächste eigene) und werden dort gegen Credits repariert. */
+    repairAt: function (pid, ids, siteId) {
+      if (!active(pid)) return FAIL('Nicht aktiv');
+      var us = ownUnits(pid, ids, function (e) { return G.Sim.canRepairUnit(e); });
+      if (!us.length) return FAIL('Nur Fahrzeuge können repariert werden');
+      var cx = 0, cy = 0, i;
+      for (i = 0; i < us.length; i++) { cx += us[i].x; cy += us[i].y; }
+      cx /= us.length; cy /= us.length;
+      var site = siteId ? G.Sim.get(siteId) : G.Sim.repairSite(pid, cx, cy);
+      if (!site || !G.Sim.isRepairSite(pid, site)) return FAIL(siteId ? 'Keine Reparaturstelle' : 'Kein Reparaturdock vorhanden');
+      // Stellplatz vor dem Gebäude, auf der Seite der anfahrenden Einheiten
+      var dx = cx - site.x, dy = cy - site.y, dl = Math.sqrt(dx * dx + dy * dy) || 1, off = (Math.max(site.w, site.h) / 2 + 1.4) * TILE;
+      formationOrder(us, site.x + dx / dl * off, site.y + dy / dl * off, 'move');
+      for (i = 0; i < us.length; i++) G.Sim._orderRepair(us[i], site);
+      return { ok: true, reason: '', kind: 'repair', n: us.length };
     },
     /** v0.7: Infanterie steigt in den Schützenpanzer. */
     load: function (pid, ids, apcId) {

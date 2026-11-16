@@ -572,4 +572,26 @@ var G = (typeof G !== 'undefined') ? G : {};
     kollektiv: { name: 'Spulenpanzer', cost: 660, time: 10, hp: 360, speed: 2.2, weapon: W('flak', 7, 22, 0.42, { antiAir: true }) }
   };
   D.UNIT_ORDER.vehicle.splice(D.UNIT_ORDER.vehicle.indexOf('tank'), 0, 'flaktank');
+
+  // ---- Reparaturdock: repariert eigene Fahrzeuge im Umkreis r Kacheln um rate HP/s; volle Reparatur kostet cost × Baukosten der Einheit.
+  // x12: Gebäude hat einen eigenen Tick in sim.js (tickBld12).
+  B.repairdock = { id: 'repairdock', name: 'Reparaturdock', w: 3, h: 2, cost: 900, time: 14, power: -30, hp: 1200, req: 'factory', sight: 5, look: 'silo',
+                   x12: true, repairPad: { r: 3, rate: 25, cost: 0.3 }, desc: 'Repariert eigene Fahrzeuge im Umkreis (gegen Credits)' };
+  // ---- Tor: Mauersegment (isWall: zählt nicht für Sieg/Nähe-Regel, wird nie automatisch beschossen), das eigene Bodeneinheiten durchlässt.
+  B.gate = { id: 'gate', name: 'Tor', w: 1, h: 1, cost: 200, time: 5, power: 0, hp: 1000, req: 'barracks', sight: 1, defense: true, look: 'wall',
+             isWall: true, gate: true, x12: true, buildAnim: 0.5, desc: 'Mauerstück, das nur eigene Einheiten durchlässt' };
+  // ---- Handelsposten: neutrales, einnehmbares Kartengebäude – je Posten discount Rabatt auf Fahrzeuge (höchstens max Posten zählen)
+  B.tradepost = { id: 'tradepost', name: 'Handelsposten', w: 3, h: 2, cost: 0, time: 0, power: 0, hp: 1000, req: null, sight: 5, sellable: false, look: 'workshop',
+                  neutral: true, kind2: 'special', special: 'trade', invuln: true, desc: 'Fahrzeuge 10 % günstiger' };
+  // ---- Erzsilo / Lagerkapazität: Credits aus Erz sind durch die Kapazität P.oreCap begrenzt = ORE_CAP.base + Summe store aller eigenen Gebäude.
+  // Ist das Lager voll, wartet der Sammler mit dem Abladen (nichts geht verloren). Andere Einnahmen (Öl, Verkauf, Recycling) sind nicht begrenzt.
+  // Geht Lager verloren (Raffinerie/Silo zerstört, verkauft, übernommen), verfällt der Überschuss über der neuen Kapazität.
+  D.ORE_CAP = { base: 5000, warn: 0.9 };
+  B.refinery.store = 5000;
+  B.oresilo = { id: 'oresilo', name: 'Erzsilo', w: 2, h: 2, cost: 400, time: 8, power: -5, hp: 700, req: 'refinery', sight: 3, look: 'power',
+                store: 3000, desc: 'Lager für 3000 Credits aus Erz' };
+  D.TRADE = { discount: 0.10, max: 2 };
+  D.NEUTRAL_TYPES.push('tradepost');
+  D.BUILD_ORDER.push('oresilo', 'repairdock', 'gate');
+  D.NAMES_B.kollektiv.repairdock = 'Regenerator'; D.NAMES_B.kollektiv.gate = 'Kristalltor'; D.NAMES_B.kollektiv.oresilo = 'Erzspeicher';
 })();

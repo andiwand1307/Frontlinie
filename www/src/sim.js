@@ -188,7 +188,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     for (i = 0; i < S.ents.length; i++) if (S.ents[i].drainT > S.tick) drainEnd = Math.max(drainEnd, S.ents[i].drainT);   // v1.0
     G.Path.init(S);
     // v0.5: Mauer-Belegung für Durchbruchspfade
-    for (i = 0; i < S.ents.length; i++) { var we = S.ents[i]; if (!we.dead && isWall(we)) G.Path.setWall(we.ty * S.map.w + we.tx, we.owner); }
+    for (i = 0; i < S.ents.length; i++) { var we = S.ents[i]; if (!we.dead && isWall(we)) { G.Path.setWall(we.ty * S.map.w + we.tx, we.owner); if (D.BUILDINGS[we.type].gate) G.Path.setGate(we.ty * S.map.w + we.tx, we.owner); } }   // v1.2: Tore
     recalcPower();
   }
 
@@ -266,6 +266,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     S.ents.push(e); byId.set(e.id, e);
     for (var y = ty; y < ty + b.h; y++) for (var x = tx; x < tx + b.w; x++) S.occ[y * S.map.w + x] = e.id;
     if (b.isWall) G.Path.setWall(ty * S.map.w + tx, owner);
+    if (b.gate) G.Path.setGate(ty * S.map.w + tx, owner);   // v1.2 Tor
     recalcPower();
     // Einheiten, die (durch Pfadänderung) über die Fläche wollen, planen neu
     for (var i = 0; i < S.ents.length; i++) {
@@ -334,6 +335,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       var pw = D.BUILDINGS[e.type].power, P = S.players[e.owner];
       if (pw > 0) { if (!(e.drainT > S.tick)) P.pwrProd += pw; } else P.pwrUse -= pw;   // v1.0: vom Diskus entzogen → kein Strom
     }
+    recalcCap();   // v1.2 Erzlager (gleiche Aufrufstellen wie die Energie: Bau, Verlust, Übernahme)
   }
   function lowPower(pid) { var P = S.players[pid]; return P.pwrUse > P.pwrProd; }
 
@@ -426,8 +428,18 @@ var G = (typeof G !== 'undefined') ? G : {};
       if (S.occ[i]) return { ok: false, reason: 'Belegt' };
     }
     if (unitsOnRect(tx, ty, b.w, b.h, 0)) return { ok: false, reason: 'Einheiten im Weg' };
-    if (!nearBase(pid, tx, ty, b.w, b.h)) return { ok: false, reason: 'Zu weit von der Basis' };
+    if (!nearBase(pid, tx, ty, b.w, b.h, b.placeDist) && !(b.gate && wallAdjacent(pid, tx, ty))) return { ok: false, reason: b.gate ? 'Zu weit von Basis und Mauer' : 'Zu weit von der Basis' };   // v1.2: placeDist; Tor auch direkt an eigener Mauer
     return { ok: true, reason: '' };
+  }
+  /** v1.2: Grenzt Kachel (tx,ty) (8 Nachbarn) an ein eigenes Mauersegment/Tor? */
+  function wallAdjacent(pid, tx, ty) {
+    for (var oy = -1; oy <= 1; oy++) for (var ox = -1; ox <= 1; ox++) {
+      var x = tx + ox, y = ty + oy;
+      if ((!ox && !oy) || x < 0 || y < 0 || x >= S.map.w || y >= S.map.h) continue;
+      var o = S.occ[y * S.map.w + x], we = o ? byId.get(o) : null;
+      if (we && we.owner === pid && isWall(we)) return true;
+    }
+    return false;
   }
   /** Steht eine (sichtbare, nicht eingestiegene) Einheit außer exceptId auf dem Kachelrechteck? */
   function unitsOnRect(tx, ty, w, h, exceptId) {
@@ -622,7 +634,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     G.Path.request(S, e);
   }
   function orderMove(e, x, y, ord) {
-    e.enterId = 0; e.loadId = 0; e.follow = 0;
+    e.enterId = 0; e.loadId = 0; e.follow = 0; e.repId = 0;   // v1.2: repId (Reparaturziel) verfällt mit jedem neuen Fahrbefehl
     if (e.mc === 2) { e.land = false; e.bdrop = 0; }   // v0.8: Luftfahrzeug startet
     e.ord = ord || 'move'; e.tgt = 0; e.chase = false; e.hs = '';
     setGoal(e, x, y);
@@ -1153,6 +1165,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     switch (d.special) {
       case 'oil': P.credits += D.OIL_INCOME / HZ; P.st.oil += D.OIL_INCOME / HZ; break;
       case 'radar': P.radar = true; break;
+      case 'trade': P.trade = (P.trade || 0) + 1; break;   // v1.2 Handelsposten
       case 'arty': b.charge = Math.min(1, (b.charge || 0) + DT / D.ARTY.charge); break;
       case 'heal': case 'repair':
         if ((S.tick + b.id) % 10 !== 0) break;
@@ -1230,7 +1243,12 @@ var G = (typeof G !== 'undefined') ? G : {};
     return false;
   }
 
-  function costOf(pid, type) { return D.BUILDINGS[type] ? D.BUILDINGS[type].cost : stats[pid][type].cost; }
+  function costOf(pid, type) {
+    if (D.BUILDINGS[type]) return D.BUILDINGS[type].cost;
+    var st = stats[pid][type], tr = S.players[pid].trade;
+    if (tr > 0 && st.cat === 'vehicle') return Math.round(st.cost * (1 - D.TRADE.discount * Math.min(tr, D.TRADE.max)));   // v1.2 Handelsposten: Rabatt auf Fahrzeuge
+    return st.cost;
+  }
   function timeOf(pid, type) { return D.BUILDINGS[type] ? D.BUILDINGS[type].time : stats[pid][type].time; }
 
   function tickProduction(P) {
@@ -1436,6 +1454,7 @@ var G = (typeof G !== 'undefined') ? G : {};
         var i = y * S.map.w + x; if (S.occ[i] === e.id) S.occ[i] = 0;
       }
       if (D.BUILDINGS[e.type].isWall) G.Path.setWall(e.ty * S.map.w + e.tx, -1);
+      if (D.BUILDINGS[e.type].gate) G.Path.setGate(e.ty * S.map.w + e.tx, -1);   // v1.2 Tor
       recalcPower();
     }
   }
@@ -1658,13 +1677,13 @@ var G = (typeof G !== 'undefined') ? G : {};
     if (e.pi < e.path.length - 1 && (S.tick + e.id) % 4 === 0) {
       for (var look = Math.min(e.path.length - 1, e.pi + 4); look > e.pi; look--) {
         var li = e.path[look];
-        if (G.Path.los(pcOf(e), e.x, e.y, (li % w + 0.5) * TILE, (Math.floor(li / w) + 0.5) * TILE, e.r * 0.8)) { e.pi = look; break; }
+        if (G.Path.los(pcOf(e), e.x, e.y, (li % w + 0.5) * TILE, (Math.floor(li / w) + 0.5) * TILE, e.r * 0.8, e.owner)) { e.pi = look; break; }
       }
     }
     if (e.pi >= e.path.length) { wx = e.gx; wy = e.gy; final = true; }
     else {
       var ti = e.path[e.pi];
-      if (!G.Path.passable(pcOf(e), ti)) {
+      if (!G.Path.passable(pcOf(e), ti, e.owner)) {
         // v0.5: Durchbruchspfad – gegnerische Mauer versperrt den Weg → bewaffnete Einheit beschießt das Segment
         var wb = S.occ[ti] ? byId.get(S.occ[ti]) : null;
         if (wb && isWall(wb) && hostile(e.owner, wb) && st.weapon) { e.breach = wb.id; e.moving = false; return false; }
@@ -1698,9 +1717,10 @@ var G = (typeof G !== 'undefined') ? G : {};
   function moveBy(e, mx, my) {
     var nx = e.x + mx, ny = e.y + my;
     var pc = pcOf(e);
-    if (G.Path.passablePx(pc, nx, ny)) { e.x = nx; e.y = ny; return true; }
-    if (G.Path.passablePx(pc, nx, e.y)) { e.x = nx; return true; }
-    if (G.Path.passablePx(pc, e.x, ny)) { e.y = ny; return true; }
+    var ow = e.owner;   // v1.2: eigene Tore sind passierbar
+    if (G.Path.passablePx(pc, nx, ny, ow)) { e.x = nx; e.y = ny; return true; }
+    if (G.Path.passablePx(pc, nx, e.y, ow)) { e.x = nx; return true; }
+    if (G.Path.passablePx(pc, e.x, ny, ow)) { e.y = ny; return true; }
     return false;
   }
 
@@ -2080,6 +2100,8 @@ var G = (typeof G !== 'undefined') ? G : {};
         var rr = byId.get(e.refId);
         if (!rr || rr.dead) { e.hs = 'ret'; startReturn(e); return; }
         var u = Math.min(e.cargo, D.UNLOAD_RATE / HZ);
+        // v1.2 Erzlager: nur so viel abladen, wie ins Lager passt – ist es voll, wartet der Sammler (P.capFullT = Tick, für Anzeige/KI)
+        if (!P.cheat) { var room = (P.oreCap || 0) - P.credits; if (u * P.oreMul > room) { u = Math.max(0, room / P.oreMul); P.capFullT = S.tick; P.st.capWait = (P.st.capWait || 0) + 1; } }
         e.cargo -= u;
         var gain = u * P.oreMul;
         P.credits += gain; P.st.ore += gain;
@@ -2152,7 +2174,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     G.Path.process(S, 3000, get);
     buildGrid();
     var i, e, n = S.ents.length;
-    for (var p0 = 0; p0 < S.players.length; p0++) S.players[p0].radar = false;
+    for (var p0 = 0; p0 < S.players.length; p0++) { S.players[p0].radar = false; S.players[p0].trade = 0; }   // v1.2: trade = eigene Handelsposten
     for (i = 0; i < n; i++) {
       e = S.ents[i];
       if (e.dead) continue;
@@ -2165,6 +2187,7 @@ var G = (typeof G !== 'undefined') ? G : {};
         else if (e.hp < e.maxHp && !e.neutral && !e.ruin && S.players[e.owner] && S.players[e.owner].autoRepair && S.players[e.owner].credits >= AUTO_REPAIR_MIN) e.repairing = true;   // v0.9.2 Reparatur
         if (bd.neutral) tickNeutral(e, bd);
         else if (bd.garrisonOwn && e.gar.length) tickGarrison(e, bd);   // v0.5
+        if (bd.x12) tickBld12(e, bd);   // v1.2 Reparaturdock, Tor, Minenfeld
       }
     }
     separation();
@@ -2762,7 +2785,91 @@ var G = (typeof G !== 'undefined') ? G : {};
   /** Altstände (S.version < D.SAVE_VERSION) um v1.2-Felder ergänzen; danach gilt der Stand als aktuell. */
   function migrateV12() {
     S.version = D.SAVE_VERSION;
+    for (var p = 0; p < S.players.length; p++) { var P = S.players[p]; if (P.trade == null) P.trade = 0; if (P.capFullT == null) P.capFullT = -9999; }
   }
+
+  // ---- Erzlager: P.oreCap = D.ORE_CAP.base + Summe store der eigenen Gebäude. Sinkt die Kapazität unter den Kontostand (Lager verloren),
+  // verfällt der Überschuss (P.st.capLost, Ereignis capLost {owner, lost}); steigende Kapazität und Altstände ohne oreCap ändern nichts.
+  function recalcCap() {
+    if (!D.ORE_CAP) return;
+    var cap = [], p, i;
+    for (p = 0; p < S.players.length; p++) cap.push(D.ORE_CAP.base);
+    for (i = 0; i < S.ents.length; i++) {
+      var e = S.ents[i];
+      if (e.kind !== 'building' || e.dead || e.owner < 0 || e.neutral) continue;
+      var st = D.BUILDINGS[e.type].store;
+      if (st) cap[e.owner] += st;
+    }
+    for (p = 0; p < S.players.length; p++) {
+      var P = S.players[p], old = P.oreCap;
+      P.oreCap = cap[p];
+      if (old != null && cap[p] < old && !P.cheat && !P.defeated && P.credits > cap[p]) {
+        var lost = P.credits - cap[p];
+        P.credits = cap[p]; P.st.capLost = (P.st.capLost || 0) + lost;
+        emit('capLost', 0, 0, { owner: p, lost: Math.round(lost) });
+      }
+    }
+  }
+
+  // ---- Gebäude-Tick der v1.2-Gebäude (Datenfeld x12)
+  function tickBld12(b, bd) {
+    if (bd.repairPad) tickRepairPad(b, bd.repairPad);
+    else if (bd.gate) { if ((S.tick + b.id) % 5 === 0) b.open = unitNear(b.owner, b.x, b.y, 1.7 * TILE); }
+  }
+  /** Steht eine eigene Bodeneinheit von pid im Umkreis R px um (x,y)? (räumliches Gitter) */
+  function unitNear(pid, x, y, R) {
+    var c0x = Math.max(0, Math.floor((x - R) / CELL)), c1x = Math.min(gw - 1, Math.floor((x + R) / CELL));
+    var c0y = Math.max(0, Math.floor((y - R) / CELL)), c1y = Math.min(gh - 1, Math.floor((y + R) / CELL));
+    for (var cy = c0y; cy <= c1y; cy++) for (var cx = c0x; cx <= c1x; cx++) {
+      for (var k = gHead[cy * gw + cx]; k !== -1; k = gNext[k]) {
+        var u = gEnts[k];
+        if (u.owner === pid && !u.dead && u.mc < 2 && dist2(u.x, u.y, x, y) <= R * R) return true;
+      }
+    }
+    return false;
+  }
+
+  // ---- Reparaturdock: repariert eigene Fahrzeuge im Umkreis gegen Credits (Mechanik der neutralen Werkstatt, aber kostenpflichtig).
+  // GEBÄUDE repT (Tick der letzten Reparatur – für die Darstellung). EINHEIT repId (Ziel-Dock von G.cmd.repairAt, 0 = keins).
+  function tickRepairPad(b, rp) {
+    if ((S.tick + b.id) % 10 !== 0) return;
+    var P = S.players[b.owner]; if (!P) return;
+    var heal = rp.rate * 10 / HZ * (lowPower(b.owner) ? 0.5 : 1), R = rp.r * TILE;
+    var x0 = b.tx * TILE - R, y0 = b.ty * TILE - R, x1 = (b.tx + b.w) * TILE + R, y1 = (b.ty + b.h) * TILE + R;
+    var c0x = Math.max(0, Math.floor(x0 / CELL)), c1x = Math.min(gw - 1, Math.floor(x1 / CELL));
+    var c0y = Math.max(0, Math.floor(y0 / CELL)), c1y = Math.min(gh - 1, Math.floor(y1 / CELL));
+    for (var cy = c0y; cy <= c1y; cy++) for (var cx = c0x; cx <= c1x; cx++) {
+      for (var k = gHead[cy * gw + cx]; k !== -1; k = gNext[k]) {
+        var u = gEnts[k];
+        if (u.owner !== b.owner || u.dead || u.hp >= u.maxHp || u.mc !== 1) continue;
+        var st = ust(u);
+        if (st.cat !== 'vehicle' || distTo(b, u.x, u.y) > R) continue;
+        var h = Math.min(heal, u.maxHp - u.hp), cost = h / u.maxHp * (st.cost || 0) * rp.cost;
+        if (P.credits < cost) continue;
+        P.credits -= cost; P.st.spent += cost; P.st.repaired = (P.st.repaired || 0) + h;
+        u.hp += h; b.repT = S.tick;
+        if (u.hp >= u.maxHp) { u.hp = u.maxHp; if (u.repId) { u.repId = 0; emit('repairFull', u.x, u.y, { id: u.id, owner: u.owner, type: u.type, unit: true }); } }
+      }
+    }
+  }
+  /** Reparaturstelle für Fahrzeuge? (eigenes Reparaturdock oder eroberte Werkstatt) */
+  function isRepairSite(pid, b) {
+    if (!b || b.dead || b.kind !== 'building' || b.owner !== pid) return false;
+    var d = D.BUILDINGS[b.type];
+    return !!d.repairPad || d.special === 'repair';
+  }
+  /** Nächste Reparaturstelle von pid zu (x,y) oder null. */
+  function repairSite(pid, x, y) {
+    var best = null, bd = 1e18;
+    for (var i = 0; i < S.ents.length; i++) {
+      var b = S.ents[i];
+      if (!isRepairSite(pid, b)) continue;
+      var d = dist2(b.x, b.y, x, y);
+      if (d < bd) { bd = d; best = b; }
+    }
+    return best;
+  }
+  function canRepairUnit(u) { return !!u && u.kind === 'unit' && !u.dead && !u.inside && u.mc === 1 && ust(u).cat === 'vehicle'; }
 
   function setState(st) { S = st; rebuild(); }
   /** v0.7: verbleibende Friedenszeit in Sekunden (0 = vorbei bzw. keine). */
@@ -2797,6 +2904,8 @@ var G = (typeof G !== 'undefined') ? G : {};
     // v1.0 Kollektiv:
     controllable: controllable, mcList: function (e) { return e && e.mcList ? mcList(e) : []; }, psiOf: psiOf, pcOf: pcOf, _recycle: orderRecycle, recycleBlock: recycleBlock,
     ust: function (e) { return ust(e); },
+    // v1.2 Neue Einheiten:
+    isRepairSite: isRepairSite, repairSite: repairSite, canRepairUnit: canRepairUnit, _orderRepair: function (u, site) { u.repId = site.id; },
     // nur für Tests/Debug (nicht von Spiellogik/KI/UI benutzen):
     _debugSpawn: function (owner, type, x, y) { return spawnUnit(owner, type, x, y); },
     _debugKill: function (id) { var e = byId.get(id); if (e) damage(e, 1e9, null); },

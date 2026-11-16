@@ -36,6 +36,7 @@ var G = (typeof G !== 'undefined') ? G : {};
                     medium: 'Fordernd: größere Wellen, Luftwaffe, Superwaffe.', hard: 'Für Erfahrene: schnelle, große Angriffe und mehr Erz.' };
   function diffName(d) { for (var i = 0; i < DIFFS.length; i++) if (DIFFS[i][0] === d) return DIFFS[i][1]; return 'Mittel'; }
   var peaceShown = null, peaceOverShown = false;
+  var capShown = -1, capToastT = -1e9;   // v1.2 Erzlager-Anzeige
   /** v0.7: Restzeit der Friedenszeit in Sekunden (0, wenn G.Sim.peaceLeft fehlt oder vorbei). */
   function peaceLeft() { try { return (G.Sim.peaceLeft && +G.Sim.peaceLeft()) || 0; } catch (e) { return 0; } }
 
@@ -95,7 +96,8 @@ var G = (typeof G !== 'undefined') ? G : {};
     radar: { name: 'Radarstation', fx: 'Sicht 14 Kacheln, Gegner auf der Minimap sichtbar' },
     hospital: { name: 'Feldlazarett', fx: 'Heilt eigene Infanterie im Umkreis (5 HP/s)' },
     workshop: { name: 'Werkstatt', fx: 'Repariert eigene Fahrzeuge im Umkreis (15 HP/s)' },
-    artillery: { name: 'Artilleriestellung', fx: 'Artillerieschlag: 6 Granaten, Reichweite 30 Kacheln' }
+    artillery: { name: 'Artilleriestellung', fx: 'Artillerieschlag: 6 Granaten, Reichweite 30 Kacheln' },
+    tradepost: { name: 'Handelsposten', fx: 'Fahrzeuge 10 % günstiger (höchstens 2 Posten zählen)' }   // v1.2
   };
   // v1.0: Namen je Fraktion (Kollektiv: „Psi-Reaktor“, „Klonlabor“ …); owner = Besitzer (Standard: eigener Spieler)
   function facOfOwner(owner) { var S = G.Sim.S, p = S && S.players[owner != null && owner >= 0 ? owner : V.pid]; return p ? p.faction : 'coalition'; }
@@ -252,6 +254,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       case 'desel': G.Input.deselect(); break;
       case 'exit': G.Input.exitSel(); break;
       case 'unload': G.Input.unloadSel(); break;
+      case 'repgo': G.Input.repairSel(); break;   // v1.2: zur Reparatur
       case 'deploy': G.Input.beginDeploy(); break;
       case 'arty': if (V.arty) G.Input.cancelArty(); else G.Input.beginArty(); break;
       case 'sw': swPress(id); break;
@@ -303,7 +306,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       var el = document.createElement('div');
       el.className = 'tile'; el.dataset.type = type;
       el.innerHTML = '<canvas class="icon" width="128" height="88"></canvas><canvas class="ring" width="96" height="96"></canvas>' +
-        '<div class="nm">' + esc(name) + '</div><div class="pr">₵ ' + G.Sim.costOf(V.pid, type) + (D.BUILDINGS[type] && D.BUILDINGS[type].isWall ? ' je' : '') + '</div><div class="cnt"></div><div class="rd">Bereit</div>';
+        '<div class="nm">' + esc(name) + '</div><div class="pr">₵ ' + G.Sim.costOf(V.pid, type) + (D.BUILDINGS[type] && D.BUILDINGS[type].noQueue ? ' je' : '') + '</div><div class="cnt"></div><div class="rd">Bereit</div>';
       try { G.Render.drawIcon(el.querySelector('canvas.icon').getContext('2d'), type, P.color, 128, 88); } catch (e) { /* Icon optional */ }
       pressable(el, function () { tileTap(type); }, function () { tileLong(type); });
       box.appendChild(el);
@@ -319,7 +322,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     var S = G.Sim.S, P = S.players[V.pid];
     if (!V.running || S.over) return;
     if (D.BUILDINGS[type]) {
-      if (D.BUILDINGS[type].isWall) {                                             // Mauer: kein Warteschlangen-Eintrag → Mauer-Modus (erneut antippen = beenden)
+      if (D.BUILDINGS[type].noQueue) {                                             // Mauer: kein Warteschlangen-Eintrag → Mauer-Modus (erneut antippen = beenden)
         if (V.placing && V.placing.wall) { G.Input.cancelPlacement(); return; }
         var cw = G.Sim.canProduce(V.pid, type);
         if (!cw.ok) { toast(cw.reason, true); return; }
@@ -336,7 +339,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     moneyTip(type);
   }
   function tileLong(type) {
-    if (D.BUILDINGS[type] && D.BUILDINGS[type].isWall) return;
+    if (D.BUILDINGS[type] && D.BUILDINGS[type].noQueue) return;
     var S = G.Sim.S, P = S.players[V.pid], q = D.BUILDINGS[type] ? bqOf(P, type) : P.q[D.UNITS[type].cat], refund = 0;
     for (var i = q.length - 1; i >= 0; i--) if (q[i].type === type) { refund = Math.floor(q[i].spent || 0); break; }
     if (G.cmd.cancel(V.pid, type).ok) {
@@ -361,10 +364,10 @@ var G = (typeof G !== 'undefined') ? G : {};
       var why = locked ? (cp.reason || '') : '';
       if (why !== t.lastWhy) {
         t.lastWhy = why;
-        t.pr.textContent = locked ? why.replace(/^Benötigt /, 'erst ') : '₵ ' + G.Sim.costOf(V.pid, type) + (D.BUILDINGS[type] && D.BUILDINGS[type].isWall ? ' je' : '');
+        t.pr.textContent = locked ? why.replace(/^Benötigt /, 'erst ') : '₵ ' + G.Sim.costOf(V.pid, type) + (D.BUILDINGS[type] && D.BUILDINGS[type].noQueue ? ' je' : '');
         t.pr.classList.toggle('why', locked);
       }
-      var wallOn = !!(D.BUILDINGS[type] && D.BUILDINGS[type].isWall && V.placing && V.placing.wall);
+      var wallOn = !!(D.BUILDINGS[type] && D.BUILDINGS[type].noQueue && V.placing && V.placing.wall);
       t.el.classList.toggle('sel', wallOn);
       var state = (locked ? 'x' : 'c') + (rdy ? 'r' : '');
       if (state !== t.lastState) { t.el.classList.toggle('off', locked); t.el.classList.toggle('ready', rdy > 0); t.lastState = state; }
@@ -462,6 +465,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       if (mine && G.Input.swKind(b)) h += '<div class="help" data-dyn="swtxt"></div><div class="bar chg"><div data-dyn="charge"></div></div>';
       if (mine && G.Input.isGarrison(b)) h += '<div class="help">Besetzt: ' + (b.gar || []).length + '/' + G.Input.capOf(b) + ' – Infanterie wählen, dann antippen = besetzen</div>';
       if (mine && d.produces) h += '<div class="help">Karte tippen = Sammelpunkt</div>';
+      if (mine && d.store) h += '<div class="help">Erzlager: +' + fmtNum(d.store) + ' (gesamt ' + fmtNum(G.Sim.S.players[V.pid].oreCap || 0) + ')</div>';   // v1.2
       if (mine && d.sellable !== false) h += '<div class="help">Verkaufen: ₵ ' + Math.floor(d.cost * D.SELL_REFUND) + '</div>';
       return h;
     }
@@ -496,6 +500,13 @@ var G = (typeof G !== 'undefined') ? G : {};
     for (var i = R.length - 1; i > 0; i--) if (cnt[i]) parts.push(cnt[i] + '× ' + R[i].name);
     return parts.length ? parts.join(', ') : '';
   }
+  /** v1.2: Zusatzknöpfe der Befehlsleiste für die Auswahl (Signatur für die Neuaufbau-Erkennung + HTML). */
+  function ctx12(units) {
+    var S = G.Sim.S, html = '', sig = '';
+    var veh = units.some(function (u) { return G.Sim.canRepairUnit(u); });
+    if (veh && G.Sim.repairSite(V.pid, units[0].x, units[0].y)) { html += cb('repgo', 'repair', 'Reparatur', '', ''); sig += 'r'; }
+    return { html: html, sig: sig };
+  }
   function refreshContext(force) {
     var sel = V.mySel(), box = $('selinfo'), bar = $('cmdbar');
     var units = sel.filter(function (e) { return e.kind === 'unit'; });
@@ -505,8 +516,9 @@ var G = (typeof G !== 'undefined') ? G : {};
     var sig;
     if (b) sig = 'b:' + b.id + ':' + b.owner + ':' + (b.gar ? b.gar.length : 0) + ':' + (b.repairing ? 1 : 0) + ':' + (b.hp < b.maxHp ? 1 : 0) + ':' + ((b.charge || 0) >= 1 ? 1 : 0) + ':' + (b.ruin ? 1 : 0) + ':' + ((b.capT > 0 && b.capT < 1) ? 1 : 0);
     var pas = 0; units.forEach(function (u) { if (G.Input.isTransport && G.Input.isTransport(u)) pas += G.Input.passengers(u); });   // v0.7 Schützenpanzer-Passagiere
+    var x12 = units.length ? ctx12(units) : null;   // v1.2: Zusatzknöpfe der neuen Einheiten/Gebäude
     if (b) { /* unten */ }
-    else if (units.length) sig = 'u:' + order.map(function (t) { return t + counts[t]; }).join(',') + '|p' + pas;
+    else if (units.length) sig = 'u:' + order.map(function (t) { return t + counts[t]; }).join(',') + '|p' + pas + '|' + x12.sig;
     else sig = 'n';
     if (sig !== lastSel || force) {
       lastSel = sig;
@@ -530,7 +542,7 @@ var G = (typeof G !== 'undefined') ? G : {};
         }).join('') + (order.length === 1 ? '<span class="nmx">' + esc(uName(order[0])) + '</span>' : '<span class="nmx"></span>') + '<button class="x chip" data-act="desel" aria-label="Abwählen">' + ic('close') + '</button></div>';
         hs += '<div class="bar"><div data-dyn="hp"></div></div><div class="help" data-dyn="rank" style="display:none"></div>';   // Erfahrung: Rang/Fortschritt
         var onlyMcv = order.length === 1 && order[0] === 'mcv';
-        hb = '<div class="row">' + (counts.mcv ? cb('deploy', 'building', 'Aufbauen', 'D', 'go') : '') + (pas > 0 ? cb('unload', 'exit', 'Aussteigen (' + pas + ')', 'E', 'go') : '') + cb('stop', 'stop', 'Stopp', 'S') + (onlyMcv ? '' : cb('am', 'attack', 'Angriff', 'A')) + (onlyMcv ? '' : cb('box', 'frame', 'Rahmen') + cb('add', 'plus', '', '', '', null, ' aria-label="Zur Auswahl hinzufügen"')) + groupBtns() + '</div>';
+        hb = '<div class="row">' + (counts.mcv ? cb('deploy', 'building', 'Aufbauen', 'D', 'go') : '') + (pas > 0 ? cb('unload', 'exit', 'Aussteigen (' + pas + ')', 'E', 'go') : '') + x12.html + cb('stop', 'stop', 'Stopp', 'S') + (onlyMcv ? '' : cb('am', 'attack', 'Angriff', 'A')) + (onlyMcv ? '' : cb('box', 'frame', 'Rahmen') + cb('add', 'plus', '', '', '', null, ' aria-label="Zur Auswahl hinzufügen"')) + groupBtns() + '</div>';
         if (counts.rifle || counts.rocket) { /* Hinweis nur im Panel */ }
       } else {
         hb = '<div class="row">' + cb('army', 'army', 'Armee') + cb('idle', 'idle', 'Idle') + cb('box', 'frame', 'Rahmen') + groupBtns() + '</div>';
@@ -800,6 +812,14 @@ var G = (typeof G !== 'undefined') ? G : {};
     var P = S.players[V.pid];
     var ch = !!P.cheat;
     $('credits').textContent = ch ? '₵ ∞' : '₵ ' + fmtNum(P.credits);   // v0.8: Cheat → ∞ (spart Platz in der schmalen Leiste)
+    // v1.2 Erzlager: dezente Warnfarbe, wenn das Lager fast voll (orange) bzw. voll (rot) ist; einmalige Meldung beim Volllaufen
+    var capK = (!ch && P.oreCap) ? (P.credits >= P.oreCap - 1 ? 2 : (P.credits >= P.oreCap * D.ORE_CAP.warn ? 1 : 0)) : 0;
+    if (capK !== capShown) {
+      capShown = capK;
+      $('credits').style.color = capK === 2 ? '#f87171' : (capK === 1 ? '#fb923c' : '');
+      $('credits').title = 'Credits' + (P.oreCap ? ' – Erzlager ' + fmtNum(P.oreCap) : '');
+    }
+    if (capK === 2 && S.tick - (P.capFullT || -9999) < 40 && S.tick - capToastT > 20 * 90) { capToastT = S.tick; toast('Erzlager voll (' + fmtNum(P.oreCap) + ') – Sammler warten. Erzsilo bauen oder Geld ausgeben.', true); }
     if (ch !== cheatShown) { cheatShown = ch; $('cheatTag').style.display = ch ? '' : 'none'; $('top').classList.toggle('cheat', ch); }
     $('pwrtxt').textContent = P.pwrUse + '/' + P.pwrProd;
     var ratio = P.pwrProd ? P.pwrUse / P.pwrProd : 1;
@@ -837,6 +857,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       if (ev.t === 'ready' && ev.owner === V.pid) toast(bName(ev.type) + ' fertig – antippen zum Platzieren');
       else if (ev.t === 'swBuilt' || ev.t === 'swLaunch' || ev.t === 'swReady') handleSwEvent(ev, S);
       else if (ev.t === 'mc') mcToast(ev);   // v1.0 Gedankenkontrolle
+      else if (ev.t === 'capLost' && ev.owner === V.pid) { toast('Lager verloren: ₵ ' + fmtNum(ev.lost) + ' Überschuss verfallen', true); }   // v1.2 Erzlager
       else if (ev.t === 'peaceOver') { if (!peaceOverShown) { peaceOverShown = true; toast('Friedenszeit vorbei – der Gegner kann angreifen', true); vib([120, 60, 120]); } }
       else if (ev.t === 'capture') {
         var cb2 = G.Sim.get(ev.id), nm = cb2 ? bName(cb2.type) : 'Gebäude';
@@ -872,7 +893,7 @@ var G = (typeof G !== 'undefined') ? G : {};
   function onGameStart() {
     ['startScreen', 'pauseScreen', 'endScreen', 'helpScreen'].forEach(function (id) { $(id).classList.remove('show'); });
     $('pausedTag').style.display = 'none';
-    moneyTipShown = false; peaceShown = null; peaceOverShown = false;
+    moneyTipShown = false; peaceShown = null; peaceOverShown = false; capShown = -1; capToastT = -1e9;
     curTab = 'building'; V.tab = curTab; tilesFor = ''; lastSel = ''; lastAlert = -9999; lastAlertSeen = G.Sim.S.players[V.pid].alert.tick;
     lastEvSeq = G.Sim.S.evSeq; artyReady = {};
     swFoes = {}; swAlert = null; swSig = ''; swEls = {}; qSig = ''; engTipShown = false; $('swalert').style.display = 'none'; $('swstack').innerHTML = '';
@@ -991,7 +1012,7 @@ var G = (typeof G !== 'undefined') ? G : {};
 
   // Vorschau einer Karte: Gelände aus den Zeilen, Strukturpunkte, Startpositionen
   var TCOL0 = { '.': '#5f8f3f', ',': '#bba76f', '#': '#6e6a64', '~': '#2f6ea3', 'T': '#2d5a2a', '=': '#77746c', 'H': '#9a7344', 'o': '#e0b030', 'O': '#ffd23f' };
-  var SCOL = { house: '#f1f5f9', block: '#f1f5f9', bunker: '#fb923c', oilrig: '#111827', radar: '#22d3ee', hospital: '#4ade80', workshop: '#f59e0b', artillery: '#f43f5e' };
+  var SCOL = { house: '#f1f5f9', block: '#f1f5f9', bunker: '#fb923c', oilrig: '#111827', radar: '#22d3ee', hospital: '#4ade80', workshop: '#f59e0b', artillery: '#f43f5e', tradepost: '#a3e635' };
   // Thema/Wetter/Tageszeit: Winter-Farben der Vorschau, Tönung für Dämmerung/Nacht, Kennzeichnung in der Kartenkarte
   var TCOL_W = { '.': '#d2d9e4', ',': '#b8c3d2', '#': '#64666c', '~': '#2a4c70', 'T': '#33504a', '=': '#7c7f87', 'H': '#7a5c40', 'o': '#e0b030', 'O': '#ffd23f' };
   var MOOD_TXT = { theme: { winter: 'Winter' }, time: { dusk: 'Dämmerung', night: 'Nacht' }, weather: { rain: 'Regen', snow: 'Schneefall', sand: 'Sandsturm' } };
@@ -1167,6 +1188,14 @@ var G = (typeof G !== 'undefined') ? G : {};
       li('Bomber', 'Gegner oder Boden antippen = Bombenteppich (6 Bomben) über dem Ziel. Danach fliegt er zum Flugfeld zurück und lädt nach.') +
       li('Werft', 'Braucht das Fahrzeugwerk. Mindestens 3 der 9 Kacheln müssen Wasser sein, der Rest bebaubares Ufer; bis zu 5 Kacheln von der Basis entfernt.') +
       li('Schiffe', 'Kanonenboot (schnell), Zerstörer (schwere Geschütze + Flak) und Landungsboot (Infanterie und Fahrzeuge; am Ufer einsteigen, „Aussteigen“ fährt ans nächste Ufer).') +
+      '</ul>';
+    // v1.2: neue Einheiten und Gebäude
+    h += '<h3>Neu in 1.2</h3><ul class="hl">' +
+      li('Flakpanzer', 'Alle Fraktionen, Fahrzeugwerk. Mobile Flugabwehr: stark gegen Luftziele, brauchbar gegen Infanterie, schwach gegen Panzer.') +
+      li('Reparaturdock', 'Braucht das Fahrzeugwerk. Repariert eigene Fahrzeuge im Umkreis von 3 Kacheln gegen Credits (volle Reparatur = 30 % der Baukosten). Fahrzeuge wählen und „Reparatur“ antippen oder das Dock antippen.') +
+      li('Erzsilo', 'Credits aus Erz passen nur ins Lager: Grundlager 5.000, jede Raffinerie +5.000, jedes Erzsilo +3.000. Ist es voll, warten die Sammler mit dem Abladen – die Credits-Anzeige wird orange (fast voll) bzw. rot (voll). Geht ein Lager verloren, verfällt der Überschuss.') +
+      li('Tor', 'Reiter Verteidigung. Mauerstück, das eigene Bodeneinheiten durchlässt und für Gegner wie eine Mauer wirkt.') +
+      li('Handelsposten', 'Neutrales Kartengebäude, mit Infanterie erobern: Fahrzeuge werden 10 % günstiger (bis zu 2 Posten zählen).') +
       '</ul>';
     h += '<h3>Kamera</h3><ul class="hl">' +
       li('Diagonal', 'Standard: Die Karte liegt schräg wie bei klassischen Strategiespielen, die Kacheln erscheinen als Rauten. Wischen, Tasten und Bildrand schieben immer in Bildschirmrichtung.') +

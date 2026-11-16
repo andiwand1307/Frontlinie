@@ -12,6 +12,9 @@
  *  - v0.8 (SPEC_v08): Klasse 2 = 'air' (überall passierbar, keine Pfadsuche – Luftfahrzeuge fliegen geradlinig),
  *    Klasse 3 = 'naval' (Wasser + Brücken, Gebäude blockieren). Gewässer-Komponenten (4-Nachbarschaft, nur Gelände) für
  *    Werft-Regel und KI: waterComp(i) → Komponenten-ID (−1 = kein Wasser), waterSize(c) → Kachelanzahl.
+ *  - v1.2 Tor (gate): Mauersegment, das für Einheiten des Besitzers passierbar ist. gateOwn[i] = Besitzer (−1 = kein Tor); die Abfragen
+ *    passable/passableXY/passablePx/los/find nehmen dazu optional den Besitzer der Einheit (own). Für alle anderen wirkt ein Tor wie eine Mauer
+ *    (auch im Durchbruchspfad, da zusätzlich als Mauer eingetragen).
  * Alle Puffer sind vorab allokiert (keine Allokation pro Knoten). Keine DOM-Zugriffe.
  */
 var G = (typeof G !== 'undefined') ? G : {};
@@ -27,6 +30,7 @@ var G = (typeof G !== 'undefined') ? G : {};
   var occ = null;             // Referenz auf S.occ (Gebäudebelegung)
   var wallOwn = null;         // v0.5: Besitzer des Mauersegments je Kachel (−1 = keine Mauer), Laufzeit-Cache aus sim.js
   var wallCnt = [0, 0, 0, 0, 0, 0, 0, 0];
+  var gateOwn = null;         // v1.2: Besitzer des Tors je Kachel (−1 = kein Tor), Laufzeit-Cache aus sim.js
 
   var DX = [1, -1, 0, 0, 1, 1, -1, -1];
   var DY = [0, 0, 1, -1, 1, -1, 1, -1];
@@ -63,6 +67,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     buildWaterComps();
     occ = S.occ;
     wallOwn = new Int8Array(N); wallOwn.fill(-1);
+    gateOwn = new Int8Array(N); gateOwn.fill(-1);   // v1.2
     for (i = 0; i < wallCnt.length; i++) wallCnt[i] = 0;
   }
   /** v0.8: Gewässer-Komponenten (4-Nachbarschaft über schiffbares Gelände, ohne Gebäude). */
@@ -99,15 +104,18 @@ var G = (typeof G !== 'undefined') ? G : {};
     return false;
   }
 
-  function passable(cls, i) { if (cls === 2) return i >= 0 && i < N; return passT[cls][i] === 1 && occ[i] === 0; }
-  function passableXY(cls, tx, ty) {
+  /** v1.2: Tor auf Kachel i setzen (owner ≥ 0) bzw. entfernen (−1). */
+  function setGate(i, owner) { if (gateOwn && i >= 0 && i < N) gateOwn[i] = owner; }
+  // v1.2: own (optional) = Besitzer der fragenden Einheit → dessen Tore sind passierbar
+  function passable(cls, i, own) { if (cls === 2) return i >= 0 && i < N; return passT[cls][i] === 1 && (occ[i] === 0 || (own >= 0 && gateOwn[i] === own)); }
+  function passableXY(cls, tx, ty, own) {
     if (tx < 0 || ty < 0 || tx >= W || ty >= H) return false;
     if (cls === 2) return true;   // v0.8 air: alles außer Kartenrand
     var i = ty * W + tx;
-    return passT[cls][i] === 1 && occ[i] === 0;
+    return passT[cls][i] === 1 && (occ[i] === 0 || (own >= 0 && gateOwn[i] === own));
   }
   /** Passierbar in Weltpixeln. */
-  function passablePx(cls, x, y) { return passableXY(cls, Math.floor(x / TILE), Math.floor(y / TILE)); }
+  function passablePx(cls, x, y, own) { return passableXY(cls, Math.floor(x / TILE), Math.floor(y / TILE), own); }
 
   // ---- Binärheap (min nach f) ----
   function hpush(n, f) {
@@ -144,8 +152,9 @@ var G = (typeof G !== 'undefined') ? G : {};
    * zum Knoten mit kleinster Heuristik. [] wenn Start == Ziel oder nichts besser ist.
    * maxNodes begrenzt die Expansionen (Teilpfad bei Überschreitung).
    */
-  function find(cls, sx, sy, gx, gy, maxNodes, breachOwner, rev) {
+  function find(cls, sx, sy, gx, gy, maxNodes, breachOwner, rev, own) {
     lastExpanded = 0; lastReached = false;
+    if (!(own >= 0)) own = -2;   // v1.2: eigene Tore passierbar
     if (sx === gx && sy === gy) { lastReached = true; return []; }
     var brk = breachOwner != null && breachOwner >= 0, wcost = brk ? (G.DATA.WALL_PATH_COST || 300) : 0;
     curStamp++;
@@ -170,14 +179,14 @@ var G = (typeof G !== 'undefined') ? G : {};
         if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
         var ni = ny * W + nx, extra = 0;
         if (pt[ni] === 0) continue;
-        if (occ[ni] !== 0) {
+        if (occ[ni] !== 0 && gateOwn[ni] !== own) {
           // v0.5: gegnerisches Mauersegment im Durchbruchsmodus (nur orthogonal) mit Zusatzkosten
           if (!brk || d >= 4 || wallOwn[ni] < 0 || wallOwn[ni] === breachOwner) continue;
           extra = wcost;
         }
         if (d >= 4) { // diagonal: keine Ecken schneiden
           var a = cy * W + nx, b = ny * W + cx;
-          if (pt[a] === 0 || occ[a] !== 0 || pt[b] === 0 || occ[b] !== 0) continue;
+          if (pt[a] === 0 || (occ[a] !== 0 && gateOwn[a] !== own) || pt[b] === 0 || (occ[b] !== 0 && gateOwn[b] !== own)) continue;
         }
         var ng = cg + COST[d] + extra;
         if (stamp[ni] === cs && ng >= gScore[ni]) continue;
@@ -252,13 +261,13 @@ var G = (typeof G !== 'undefined') ? G : {};
    * Sichtlinie für Bewegung von (x0,y0) nach (x1,y1) in Pixeln, mit Freiraum r (Pixel).
    * Prüft Stichproben alle 8 px inkl. seitlicher Versätze.
    */
-  function los(cls, x0, y0, x1, y1, r) {
+  function los(cls, x0, y0, x1, y1, r, own) {
     var dx = x1 - x0, dy = y1 - y0, len = Math.sqrt(dx * dx + dy * dy);
     if (len < 1) return true;
     var steps = Math.ceil(len / 8), nx = -dy / len * r, ny = dx / len * r;
     for (var i = 1; i <= steps; i++) {
       var t = i / steps, x = x0 + dx * t, y = y0 + dy * t;
-      if (!passablePx(cls, x, y) || !passablePx(cls, x + nx, y + ny) || !passablePx(cls, x - nx, y - ny)) return false;
+      if (!passablePx(cls, x, y, own) || !passablePx(cls, x + nx, y + ny, own) || !passablePx(cls, x - nx, y - ny, own)) return false;
     }
     return true;
   }
@@ -287,16 +296,16 @@ var G = (typeof G !== 'undefined') ? G : {};
       var gtx = Math.floor(e.gx / TILE), gty = Math.floor(e.gy / TILE);
       gtx = Math.max(0, Math.min(W - 1, gtx)); gty = Math.max(0, Math.min(H - 1, gty));
       var rv = flipOwner(S, e.owner);
-      if (!passableXY(cls, gtx, gty)) {
+      if (!passableXY(cls, gtx, gty, e.owner)) {
         var alt = nearestPassable(cls, gtx, gty, 4, rv);
         if (alt >= 0) { gtx = alt % W; gty = (alt - gtx) / W; }
       }
-      var p = find(cls, sx, sy, gtx, gty, MAXN, undefined, rv);
+      var p = find(cls, sx, sy, gtx, gty, MAXN, undefined, rv, e.owner);
       used += lastExpanded + 10; n++;
       PST.req++; PST.exp += lastExpanded; if (lastExpanded > PST.max) PST.max = lastExpanded; if (lastExpanded > MAXN) PST.cut++;   // v0.9 Messung
       // v0.5: Ziel nicht erreichbar, gegnerische Mauern vorhanden, Einheit bewaffnet → Durchbruchspfad versuchen
       if (!lastReached && enemyWalls(e.owner) && G.Sim && G.Sim.statsOf(e).weapon) {
-        var p2 = find(cls, sx, sy, gtx, gty, 6000, e.owner, rv);
+        var p2 = find(cls, sx, sy, gtx, gty, 6000, e.owner, rv, e.owner);
         used += lastExpanded + 10;
         if (lastReached) p = p2;
       }
@@ -311,7 +320,7 @@ var G = (typeof G !== 'undefined') ? G : {};
   G.Path = {
     init: init, find: find, nearestPassable: nearestPassable, flipOwner: flipOwner, slotTiles: slotTiles, los: los,
     request: request, process: process, passable: passable, passableXY: passableXY, passablePx: passablePx,
-    setWall: setWall, enemyWalls: enemyWalls, wallOwner: function (i) { return wallOwn ? wallOwn[i] : -1; },
+    setWall: setWall, setGate: setGate, gateOwner: function (i) { return gateOwn ? gateOwn[i] : -1; }, enemyWalls: enemyWalls, wallOwner: function (i) { return wallOwn ? wallOwn[i] : -1; },
     terrainPassable: function (cls, i) { return passT[cls][i] === 1; },
     // v0.8
     waterComp: function (i) { return wComp && i >= 0 && i < N ? wComp[i] : -1; }, waterSize: function (c) { return c >= 0 ? (wSize[c] || 0) : 0; },

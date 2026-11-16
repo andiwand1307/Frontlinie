@@ -159,6 +159,13 @@ var G = (typeof G !== 'undefined') ? G : {};
     if (lastRecall.n === n && now() - lastRecall.t < 400 && ids.length) { var e = G.Sim.get(ids[0]); V.centerOn(e.x, e.y); }
     lastRecall.n = n; lastRecall.t = now();
   }
+  /** v1.2: gewählte Fahrzeuge zur nächsten Reparaturstelle schicken (Knopf „Reparatur“). */
+  function repairSel() {
+    var u = selUnits(); if (!u.length) return;
+    var r = G.cmd.repairAt(V.pid, selIds(u));
+    if (!r.ok) { toast(r.reason || 'Nicht möglich', true); return; }
+    toast(r.n + (r.n === 1 ? ' Fahrzeug fährt' : ' Fahrzeuge fahren') + ' zur Reparatur');
+  }
   function stopSel() { var u = selUnits(); if (u.length) G.cmd.stop(V.pid, selIds(u)); V.amArmed = false; }
   function toggleAttackMove() { V.amArmed = !V.amArmed && selUnits().length > 0; }
   function toggleBoxMode() { V.boxMode = !V.boxMode; }
@@ -227,7 +234,7 @@ var G = (typeof G !== 'undefined') ? G : {};
   }
   function beginPlacement(type) {
     var b = D.BUILDINGS[type];
-    if (b && b.isWall) return beginWall();
+    if (b && b.noQueue) return beginWall();   // v1.2: Tor (isWall, aber mit Warteschlange) wird normal platziert
     V.placing = { type: type, tx: null, ty: null, ok: false, reason: '', set: false };
     V.amArmed = false; V.arty = null;
     setSel([]);
@@ -585,6 +592,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       var r = G.cmd.smart(V.pid, ids, wx, wy);
       if (r && r.ok === false) { toast(r.reason || 'Nicht möglich', true); return true; }
       marker(wx, wy, r && r.kind === 'attack' ? 'attack' : 'move');
+      if (r && r.kind === 'repair') toast('Zur Reparatur …');   // v1.2
       if (r && r.kind === 'enter') toast('Infanterie besetzt …'); else if (r && r.kind === 'capture') toast('Infanterie erobert …'); else if (r && r.kind === 'engineer') toast('Ingenieur übernimmt …');
       return true;
     }
@@ -651,6 +659,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       var mine = e.owner === V.pid, neutral = isNeutralType(e) || (mine && isGarrison(e));   // eigener Bunker verhält sich wie ein Haus
       // Touch mit Auswahl: Befehl (besetzen/erobern/angreifen/abladen)
       if (!mouseBtn && units.length) {
+        if (mine && G.Sim.isRepairSite(V.pid, e) && units.some(function (u) { return G.Sim.canRepairUnit(u); })) { command(w.x, w.y, false, e); return; }   // v1.2: zur Reparatur
         if (mine && e.type === 'refinery' && units.some(function (u) { return G.Sim.statsOf(u).harvester; })) { command(w.x, w.y, false, e); return; }
         if (neutral && hasInf && enterKind(e) && enterKind(e) !== 'full') { command(w.x, w.y, false, e); return; }
         if (neutral && enterKind(e) === 'full' && hasInf) { toast('Gebäude ist voll', true); return; }
@@ -869,6 +878,7 @@ var G = (typeof G !== 'undefined') ? G : {};
           else if (hasInf && ek === 'enter') { kind = 'enter'; text = 'Besetzen (' + (e.gar || []).length + '/' + capOf(e) + ')'; }
           else if (hasInf && ek === 'capture') { kind = 'capture'; text = 'Erobern'; }
           else if (hasInf && ek === 'full') { kind = 'no'; text = 'Voll (' + capOf(e) + '/' + capOf(e) + ')'; }
+          else if (e.kind === 'building' && G.Sim.isRepairSite(V.pid, e) && units.some(function (u) { return G.Sim.canRepairUnit(u); })) { kind = 'repair'; text = 'Zur Reparatur'; }   // v1.2
           else if (engKind(e) === 'takeover') { kind = 'capture'; text = 'Übernehmen'; }
           else if (engKind(e) === 'repair') { kind = 'repair'; text = 'Reparieren'; }
           else if (e.owner >= 0 && e.owner !== V.pid) { kind = 'attack'; text = isNeutralType(e) ? 'Besetztes Gebäude angreifen' : 'Angreifen'; }
@@ -961,6 +971,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     beginWall: beginWall, confirmWall: confirmWall, isWallMode: isWallMode, wallLine: wallLine,
     beginDeploy: beginDeploy, deployNow: deployNow, selMcv: selMcv, isGarrison: isGarrison, say: say,
     toggleRepairMode: toggleRepairMode, repairAll: repairAll,   // v0.9.2 Reparatur
+    repairSel: repairSel,   // v1.2
     isTransport: isTransport, passengers: passengers, transportCap: tcap, unloadSel: unloadSel, unitsInScreenRect: unitsInScreenRect
   };
 })();

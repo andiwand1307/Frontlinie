@@ -6,6 +6,7 @@
  * `structures` (Gegenstück einer w×h-Struktur bei (tx,ty) liegt bei (W−tx−w, H−ty−h)).
  * starts: linke obere Kachel des 3×3-Hauptquartiers je Spieler.
  * structures: neutrale Gebäude {type, tx, ty} (linke obere Kachel), Typen/Größen siehe SPEC_v03 §1.
+ *   v1.2: 'tradepost' (Handelsposten, 3×2) auf flussgabel, seenplatte, kueste, archipel, altstadt – nur Strukturen ergänzt, Gelände unverändert.
  * shipyardSpots (optional, nur Küstenkarten): Kandidaten für eine künftige 3×3-Werft. DEFINITION: {tx, ty} ist die
  *   linke obere Kachel eines 3×3-Blocks aus lauter WASSER-Kacheln (nicht Land!), der direkt an bebaubares Land
  *   (Gras/Sand) grenzt (mind. eine 4-Nachbarkachel des Blocks ist Land). Die Liste ist punktsymmetrisch (Spiegel von
@@ -23,6 +24,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       size: '64×64',
       starts: [{ tx: 7, ty: 7 }, { tx: 54, ty: 54 }],
       structures: [
+        { type: 'tradepost', tx: 37, ty: 17 }, { type: 'tradepost', tx: 24, ty: 45 },   // v1.2 Handelsposten (punktsymmetrisch, an den Flanken)
         { type: 'house', tx: 41, ty: 12 }, { type: 'house', tx: 51, ty: 12 }, { type: 'house', tx: 41, ty: 18 }, { type: 'house', tx: 51, ty: 18 },
         { type: 'house', tx: 22, ty: 31 }, { type: 'house', tx: 40, ty: 31 }, { type: 'house', tx: 11, ty: 44 }, { type: 'house', tx: 21, ty: 44 },
         { type: 'house', tx: 11, ty: 50 }, { type: 'house', tx: 21, ty: 50 }, { type: 'radar', tx: 31, ty: 31 }
@@ -178,6 +180,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       size: '56×72',
       starts: [{ tx: 19, ty: 4 }, { tx: 34, ty: 65 }],
       structures: [
+        { type: 'tradepost', tx: 50, ty: 24 }, { type: 'tradepost', tx: 3, ty: 46 },   // v1.2 Handelsposten (punktsymmetrisch, an den Flanken)
         { type: 'house', tx: 10, ty: 19 }, { type: 'house', tx: 4, ty: 20 }, { type: 'house', tx: 44, ty: 20 }, { type: 'house', tx: 51, ty: 21 },
         { type: 'house', tx: 3, ty: 49 }, { type: 'house', tx: 10, ty: 50 }, { type: 'house', tx: 50, ty: 50 }, { type: 'house', tx: 44, ty: 51 },
         { type: 'oilrig', tx: 45, ty: 10 }, { type: 'oilrig', tx: 27, ty: 32 }, { type: 'oilrig', tx: 27, ty: 38 }, { type: 'oilrig', tx: 9, ty: 60 }
@@ -264,6 +267,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       size: '64×64',
       starts: [{ tx: 4, ty: 4 }, { tx: 57, ty: 57 }],
       structures: [
+        { type: 'tradepost', tx: 43, ty: 9 }, { type: 'tradepost', tx: 18, ty: 53 },   // v1.2 Handelsposten (punktsymmetrisch, an den Flanken)
         { type: 'artillery', tx: 16, ty: 26 }, { type: 'artillery', tx: 46, ty: 36 }, { type: 'block', tx: 25, ty: 2 }, { type: 'block', tx: 34, ty: 3 },
         { type: 'block', tx: 6, ty: 28 }, { type: 'block', tx: 55, ty: 34 }, { type: 'block', tx: 27, ty: 59 }, { type: 'block', tx: 36, ty: 60 },
         { type: 'hospital', tx: 2, ty: 15 }, { type: 'hospital', tx: 59, ty: 47 }, { type: 'house', tx: 43, ty: 3 }, { type: 'house', tx: 37, ty: 8 },
@@ -419,6 +423,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       size: '68×68',
       starts: [{ tx: 6, ty: 6 }, { tx: 59, ty: 59 }],
       structures: [
+        { type: 'tradepost', tx: 12, ty: 37 }, { type: 'tradepost', tx: 53, ty: 29 },   // v1.2 Handelsposten (punktsymmetrisch, an den Flanken)
         { type: 'bunker', tx: 47, ty: 15 }, { type: 'bunker', tx: 52, ty: 19 }, { type: 'bunker', tx: 14, ty: 47 }, { type: 'bunker', tx: 19, ty: 51 },
         { type: 'house', tx: 32, ty: 13 }, { type: 'house', tx: 32, ty: 21 }, { type: 'house', tx: 64, ty: 21 }, { type: 'house', tx: 62, ty: 25 },
         { type: 'house', tx: 4, ty: 41 }, { type: 'house', tx: 2, ty: 45 }, { type: 'house', tx: 34, ty: 45 }, { type: 'house', tx: 34, ty: 53 },
@@ -1747,6 +1752,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       size: '100×100',
       starts: [{ tx: 11, ty: 11 }, { tx: 86, ty: 86 }],
       structures: [
+        { type: 'tradepost', tx: 21, ty: 66 }, { type: 'tradepost', tx: 76, ty: 32 },   // v1.2 Handelsposten (punktsymmetrisch, an den Flanken)
         { type: 'bunker', tx: 34, ty: 16 }, { type: 'bunker', tx: 34, ty: 24 }, { type: 'bunker', tx: 16, ty: 34 }, { type: 'bunker', tx: 24, ty: 34 },
         { type: 'bunker', tx: 45, ty: 45 }, { type: 'bunker', tx: 53, ty: 53 }, { type: 'bunker', tx: 74, ty: 64 }, { type: 'bunker', tx: 82, ty: 64 },
         { type: 'bunker', tx: 64, ty: 74 }, { type: 'bunker', tx: 64, ty: 82 }, { type: 'hospital', tx: 24, ty: 27 }, { type: 'hospital', tx: 73, ty: 71 },

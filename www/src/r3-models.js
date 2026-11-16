@@ -4308,7 +4308,10 @@ var G = (typeof G !== 'undefined') ? G : {};
         var l = T[t].look;
         if (!l || l === t || OWN12[t]) continue;
         LOOK12[t] = l;
-        for (var k = 0; k < tabs.length; k++) if (tabs[k] && (l in tabs[k]) && !(t in tabs[k])) tabs[k][t] = tabs[k][l];
+        for (var k = 0; k < tabs.length; k++) {
+          if ((tabs[k] === NEUT || tabs[k] === GARR) && !T[t].neutral) continue;   // Tabellen der neutralen Kartengebäude nur für neutrale Typen
+          if (tabs[k] && (l in tabs[k]) && !(t in tabs[k])) tabs[k][t] = tabs[k][l];
+        }
       }
     });
   }
