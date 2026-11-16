@@ -1340,13 +1340,13 @@ var G = (typeof G !== 'undefined') ? G : {};
   }
 
   // ------------------------------------------------------------------ Erfahrung (Rangstufen; Tabelle: D.EXP in data.js)
-  var MODS = { dmg: 1, hp: 1, rof: 1, regen: 0 };
+  var MODS = { dmg: 1, hp: 1, rof: 1, psi: 1, regen: 0 };
   /** ZENTRALE STELLE für wirksame Einheitenwerte: Schadensfaktor (dmg), Schadensminderung (hp: Treffer / hp), Nachladefaktor (rof, <1 = schneller),
    *  Selbstheilung (regen, Anteil maxHp/s). Gilt für Einheiten beider Seiten; Gebäude und Rekruten → neutrale Werte.
    *  Spätere Systeme (Forschung, Fähigkeiten) hier weitere Faktoren aufmultiplizieren. Gibt ein wiederverwendetes Objekt zurück: sofort auslesen. */
   function mods(e) {
     var r = D.EXP.ranks[e.rk || 0] || D.EXP.ranks[0];
-    MODS.dmg = r.dmg; MODS.hp = r.hp; MODS.rof = r.rof; MODS.regen = r.regen;
+    MODS.dmg = r.dmg; MODS.hp = r.hp; MODS.rof = r.rof; MODS.psi = r.psi; MODS.regen = r.regen;
     return MODS;
   }
   /** src hat dealt Lebenspunkte Schaden an t verursacht → Erfahrung nach Wert des Ziels (Schadensanteil × Kosten / costDiv). */
@@ -1355,7 +1355,12 @@ var G = (typeof G !== 'undefined') ? G : {};
     if (!(dealt > 0) || !(t.maxHp > 0) || src.rk == null || !D.expEligible(ust(src))) return;
     var val = t.kind === 'unit' ? (ust(t).cost || 0) : (isWall(t) ? 0 : (D.BUILDINGS[t.type].cost || 0) * E.bldWeight);
     if (!(val > 0)) return;
-    src.xp = (src.xp || 0) + dealt / t.maxHp * val / E.costDiv;
+    expAdd(src, dealt / t.maxHp * val / E.costDiv);
+  }
+  /** Punkte gutschreiben und ggf. befördern. */
+  function expAdd(src, pts) {
+    var E = D.EXP;
+    src.xp = (src.xp || 0) + pts;
     var r = D.expRank(src.xp);
     if (r > (src.rk || 0)) { src.rk = r; src.rankT = S.tick; if (r === E.ranks.length - 1) S.players[src.owner].st.heroes++; emit('rankup', src.x, src.y, { id: src.id, owner: src.owner, rank: r }); }
   }
@@ -1944,7 +1949,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     }
   }
   function minPx(st) { return st.weapon && st.weapon.minRange ? st.weapon.minRange * TILE : 0; }
-  function reloadT(w, e) { var rof = w.spin && e ? w.rof + (w.spin.min - w.rof) * (e.spin || 0) : w.rof; if (e && e.kind === 'unit') rof *= mods(e).rof; return Math.round(rof * HZ / (w.barrels || 1)); }   // v1.0: Gatling-Hochdrehen
+  function reloadT(w, e) { var rof = w.spin && e ? w.rof + (w.spin.min - w.rof) * (e.spin || 0) : w.rof; if (e && e.kind === 'unit') rof *= w.psi ? mods(e).psi : mods(e).rof; return Math.round(rof * HZ / (w.barrels || 1)); }   // v1.0: Gatling-Hochdrehen
   function dist2(ax, ay, bx, by) { return (ax - bx) * (ax - bx) + (ay - by) * (ay - by); }
 
   // ------------------------------------------------------------------ Sammler
@@ -2646,6 +2651,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     var prev = t.owner;
     t.owner = c.owner;
     t.mcN = perm ? D.PSI.maxControls : (t.mcN || 0) + 1;
+    if (c.kind === 'unit' && !perm && c.rk != null && D.expEligible(ust(c))) expAdd(c, (ust(t).cost || 0) / D.EXP.costDiv * D.EXP.psiWeight);   // Erfahrung: Psi-Einheit
     if (perm) { t.mcBy = 0; t.mcOrig = -1; }
     else { t.mcBy = c.id; t.mcOrig = prev; mcList(c).push(t.id); }
     resetOwned(t);
@@ -2659,7 +2665,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     var by = t.mcBy, o = t.mcOrig, cur = t.owner, c = byId.get(by);
     t.mcBy = 0; t.mcOrig = -1; t.mcFree = S.tick + Math.round(D.PSI.reImmune * HZ);
     if (c && c.mcList) { var k = c.mcList.indexOf(t.id); if (k >= 0) c.mcList.splice(k, 1); }
-    if (c && !c.dead && why !== 'lost') c.cd = Math.max(c.cd || 0, Math.round(D.PSI.relink * HZ));
+    if (c && !c.dead && why !== 'lost') c.cd = Math.max(c.cd || 0, Math.round(D.PSI.relink * HZ * mods(c).psi));
     if (t.dead) return;
     if (o >= 0 && S.players[o]) t.owner = o;
     resetOwned(t);
@@ -2674,7 +2680,7 @@ var G = (typeof G !== 'undefined') ? G : {};
   function unlinkMc(t) {
     var c = byId.get(t.mcBy);
     if (c && c.mcList) { var k = c.mcList.indexOf(t.id); if (k >= 0) c.mcList.splice(k, 1); }
-    if (c && !c.dead) c.cd = Math.max(c.cd || 0, Math.round(D.PSI.relink * HZ));   // Abklingzeit, bevor der Kontrolleur nachlegt
+    if (c && !c.dead) c.cd = Math.max(c.cd || 0, Math.round(D.PSI.relink * HZ * mods(c).psi));   // Abklingzeit, bevor der Kontrolleur nachlegt
   }
   /** Kontrolleur je Tick: Liste aufräumen; mehr als psi.safe Einheiten → Überlastung (Schaden). true = Einheit ist dabei gestorben. */
   function tickPsiCtl(e, st) {
