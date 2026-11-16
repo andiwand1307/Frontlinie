@@ -669,6 +669,9 @@ var G = (typeof G !== 'undefined') ? G : {};
     '  float sdf = (shT.r - 0.5) * 6.0;',
     '  vec3 gnT = normalize(vTN); float slopeT = 1.0 - gnT.y;',
     '  vec2 dxw = dFdx(tP); vec2 dyw = dFdy(tP);',
+    '#ifdef T_INK',
+    '  dxw *= 4.0; dyw *= 4.0;',          // INK: gröbere Mip-Stufe → ruhige, lasierte Flächen statt Texturkorn (und billigere Zugriffe)
+    '#endif',
     '  float wT[7];',
     '  wT[0] = sA.x; wT[1] = sA.y; wT[2] = sA.z; wT[3] = sA.w; wT[4] = sB.x; wT[5] = 0.0; wT[6] = sB.z;',
     '  float rsT = smoothstep(0.21, 0.46, slopeT) * (1.0 - smoothstep(0.0, 0.6, sdf + 0.3));',
@@ -712,6 +715,20 @@ var G = (typeof G !== 'undefined') ? G : {};
     '    }',
     '  }',
     '  float itT = 1.0 / max(totT, 0.001); colT *= itT; nrmT *= itT; rghT *= itT; aoT *= itT;',
+    '#ifdef T_INK',
+    // INK (Aquarell): Pigment sammelt sich wolkig (weltfeste, großflächige Schwankung) + dunklerer „nasser Rand“ dort, wo zwei Schichten
+    // ineinanderlaufen (totT > Einzel-Schicht-Wert); Normalen fast flach, matt
+    '  { float wcN = tV(tP * 0.43 + 1.7) * 0.6 + tV(tP * 1.6 + 5.3) * 0.4;',
+    '    colT *= 0.9 + 0.2 * wcN;',
+    '#ifdef T_LITE',
+    '    float wcB = 0.34;',
+    '#else',
+    '    float wcB = 0.26;',
+    '#endif',
+    '    float wcE = smoothstep(wcB * 1.05, wcB * 1.3, totT) * (1.0 - smoothstep(wcB * 1.45, wcB * 1.85, totT));',
+    '    colT *= 1.0 - 0.13 * wcE; nrmT *= 0.3; aoT = mix(1.0, aoT, 0.5);',
+    '    float wcL = dot(colT, vec3(0.2126, 0.7152, 0.0722)); colT = mix(vec3(wcL), colT, 0.7) * vec3(1.04, 1.02, 0.97); }',   // gedeckter Boden → Einheiten heben sich ab
+    '#endif',
     '  if (totT < 0.001) { colT = vec3(0.1, 0.2, 0.05); rghT = 0.9; aoT = 1.0; }',
     // Makro-Färbung (Gras/Erde) + Waldboden
     '  float kgT = sA.x + sA.y + sA.z + sA.w * 0.5;',
@@ -813,6 +830,7 @@ var G = (typeof G !== 'undefined') ? G : {};
 
   /** Modern/Lite: Standard-Material mit Splat-Überblendung der Bodenschichten */
   function terrainMaterialStd(fl, ly, texs, lite) {
+    var ink = !!R.ink;   // INK: Aquarell-Boden (T_INK)
     var mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, metalness: 0 });
     var U = {
       uAlb: { value: makeArrayTex(ly.alb, ly.S, true) }, uNrm: { value: makeArrayTex(ly.nrm, ly.S, false) },
@@ -825,12 +843,12 @@ var G = (typeof G !== 'undefined') ? G : {};
     mat.onBeforeCompile = function (sh) {
       for (var k in U) sh.uniforms[k] = U[k];
       sh.vertexShader = VS_TERRAIN + '\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vTW = position; vTN = normal;');
-      sh.fragmentShader = (lite ? '#define T_LITE\n' : '') + FS_HEAD + '\n' + sh.fragmentShader
+      sh.fragmentShader = (lite ? '#define T_LITE\n' : '') + (ink ? '#define T_INK\n' : '') + FS_HEAD + '\n' + sh.fragmentShader
         .replace('#include <map_fragment>', FS_MAP)
         .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = tRough;')
         .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\n  { vec3 tpn = (viewMatrix * vec4(tNrm.x, 0.0, tNrm.y, 0.0)).xyz; normal = normalize(normal + tpn * uNK); }');
     };
-    mat.customProgramCacheKey = function () { return 'r3t7' + (lite ? 'L' : 'F'); };
+    mat.customProgramCacheKey = function () { return 'r3t7' + (lite ? 'L' : 'F') + (ink ? 'I' : ''); };
     return fowify(mat);
   }
 
@@ -967,6 +985,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       : { S: 128, F: 4, RF: 8, N: 2, tuft: 0, wind: false, mode: 'classic' };
     // v0.8 Flags: grass (G) → Büschel, wind (L) → Wind-Vertex-Shader, hiPoly (V) → Baum-Detail, terrainArray (B) → Boden-Shader oder gebackene Textur
     if (std) { if (!FF.grass) cf.tuft = 0; cf.wind = !!FF.wind; }
+    if (R.ink) cf.tuft = 0;   // INK: keine Gras-Büschel – im Zeichenstil nur Unruhe (jedes Büschel bekäme eine Kontur); spart Dreiecke
     cf.hiPoly = std && !!FF.hiPoly;
     cf.array = std && FF.terrainArray !== false;
     // v0.9 große Turnierkarten (> 96 Kacheln Seite): Gelände-Gitter 1 Unterteilung weniger (128×128: 257² statt 385² Punkte),
@@ -1140,7 +1159,7 @@ var G = (typeof G !== 'undefined') ? G : {};
         uFow: SH.uFow, uFowScale: SH.uFowScale, uFowOn: SH.uFowOn, uHazeCol: SH.uHazeCol, uHaze: SH.uHaze, uEdge: SH.uEdge },
       vertexShader: 'varying vec3 vW; varying float vD; void main(){ vec4 w = modelMatrix * vec4(position,1.0); vW = w.xyz; vec4 mv = viewMatrix * w; vD = -mv.z; gl_Position = projectionMatrix * mv; }',
       fragmentShader: [
-        (lite ? '#define W_LITE' : ''),
+        (lite ? '#define W_LITE' : ''), (R.ink ? '#define W_INK' : ''),
         'uniform float uTime; uniform sampler2D uShore; uniform vec2 uInv; uniform vec3 uView; uniform vec3 uSun;',
         'uniform sampler2D uFow; uniform vec2 uFowScale; uniform float uFowOn; uniform vec3 uHazeCol; uniform vec3 uHaze; uniform vec2 uEdge;',
         'varying vec3 vW; varying float vD;',
@@ -1179,6 +1198,28 @@ var G = (typeof G !== 'undefined') ? G : {};
         '  float foam = clamp(rim + lines * 0.7, 0.0, 1.0);',
         '  col = mix(col, vec3(0.9, 0.94, 0.94), foam * 0.85);',
         '  float a = mix(0.32, 0.97, smoothstep(0.0, 0.55, dep)) + foam * 0.35;',
+        '#ifdef W_INK',
+        // INK: gezeichnetes Wasser – 3 klare Tonstufen nach Tiefe (statt Verlauf + Spiegelung + Glanz), weltfeste Wellen-Striche (kurze, leicht
+        // geschwungene helle Linien, die langsam treiben), harte Schaumkante am Ufer mit dunkler Tuschelinie an der Wasserlinie
+        '  { float aw = fwidth(dd) + 0.01;',
+        '    float s1 = smoothstep(0.22 - aw, 0.22 + aw, dd), s2 = smoothstep(0.58 - aw, 0.58 + aw, dd);',
+        '    col = mix(mix(vec3(0.17, 0.42, 0.45), vec3(0.075, 0.25, 0.36), s1), vec3(0.04, 0.14, 0.25), s2);',
+        '    vec2 fd = normalize(uView.xz + vec2(1e-4)), sd = vec2(fd.y, -fd.x);',                               // Bildschirm-oben / -rechts am Boden (dreht mit YAW)
+        '    vec2 wp = vec2(dot(vW.xz, sd), dot(vW.xz, fd));',
+        '    float wy = wp.y * 1.8 + sin(wp.x * 1.1 + t * 0.5) * 0.3 + vn(wp * 0.35) * 1.4 + t * 0.1;',            // Striche ≈ waagrecht, leicht geschwungen
+        '    float wl = abs(fract(wy) - 0.5), wf = fwidth(wy);',
+        '    float dash = smoothstep(0.72, 0.86, vn(vec2(wp.x * 1.6 - t * 0.2, floor(wy) * 3.7)));',
+        '    float stroke = (1.0 - smoothstep(0.035, 0.035 + wf * 1.2, wl)) * dash * smoothstep(0.15, 0.6, sdf) * (1.0 - smoothstep(0.25, 0.6, wf));',
+        '    col = mix(col, vec3(0.72, 0.84, 0.86), stroke * 0.75);',
+        '    float fw = fwidth(sdf) + 0.004, fb = 0.17 + 0.07 * fn;',
+        '    float rimI = 1.0 - smoothstep(fb - fw, fb + fw, sdf);',                                              // Schaumband (hart begrenzt)
+        '    col = mix(col, vec3(0.93, 0.93, 0.88), rimI * 0.92);',
+        '    float edgeL = 1.0 - smoothstep(fw * 0.6, fw * 2.2, abs(sdf - fb));',                                 // Tuschelinie an der Schaumkante
+        '    col = mix(col, vec3(0.06, 0.14, 0.18), edgeL * 0.55);',
+        '    float shoreL = 1.0 - smoothstep(fw * 0.8, fw * 2.6, abs(sdf + 0.03));',                              // und an der Wasserlinie
+        '    col = mix(col, vec3(0.08, 0.075, 0.07), shoreL * 0.8);',
+        '    a = mix(0.55, 0.97, smoothstep(0.0, 0.35, dep)); a = max(a, rimI * 0.95); a = max(a, shoreL * 0.85); }',
+        '#endif',
         '  a *= smoothstep(-0.16, -0.01, sdf);',
         '  vec2 fowUV = vW.xz * uFowScale; float fowV = mix(1.0, texture2D(uFow, fowUV).r, uFowOn);',
         '  vec2 edQ = min(fowUV, 1.0 - fowUV) / uFowScale; fowV *= clamp(min(edQ.x, edQ.y) * uEdge.x + uEdge.y, 0.0, 1.0);',
@@ -1693,7 +1734,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     return fowify(m);
   }
   function ensureDecals() {
-    if (dec && dec.std === !!R.std && dec.scene === R.scene) { resetDecals(); return; }
+    if (dec && dec.std === !!R.std && dec.ink === !!R.ink && dec.scene === R.scene) { resetDecals(); return; }   // INK: Stilwechsel → Material neu
     if (dec) { dec.meshes.forEach(function (b) { if (b.mesh.parent) b.mesh.parent.remove(b.mesh); b.mesh.dispose(); }); dec.mat.dispose(); trk.b.mesh.parent && trk.b.mesh.parent.remove(trk.b.mesh); trk.b.mesh.dispose(); }
     if (!decAtlas) decAtlas = drawAtlas();
     try { if (R.renderer && R.renderer.initTexture) R.renderer.initTexture(decAtlas); } catch (e) { /* egal */ }   // W11-look: beim Aufbau hochladen, nicht erst beim ersten Krater mitten im Spiel
@@ -1702,7 +1743,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     var tb = new Batch(cellGeo(1, 1, 1.0, 0.5), mat, 720, false);
     bs.forEach(function (b) { b.mesh.renderOrder = 1; b.mesh.receiveShadow = false; R.scene.add(b.mesh); });
     tb.mesh.renderOrder = 1; tb.mesh.receiveShadow = false; R.scene.add(tb.mesh);
-    dec = { b: bs, meshes: bs.concat([tb]), mat: mat, N: N, n: 0, used: 0, x: new Float32Array(N), z: new Float32Array(N), s: new Float32Array(N), r: new Float32Array(N), t0: new Float32Array(N), life: new Float32Array(N), kind: new Uint8Array(N), std: !!R.std, scene: R.scene };
+    dec = { b: bs, meshes: bs.concat([tb]), mat: mat, N: N, n: 0, used: 0, x: new Float32Array(N), z: new Float32Array(N), s: new Float32Array(N), r: new Float32Array(N), t0: new Float32Array(N), life: new Float32Array(N), kind: new Uint8Array(N), std: !!R.std, ink: !!R.ink, scene: R.scene };
     trk = { b: tb, N: 720, n: 0, used: 0, x: new Float32Array(720), z: new Float32Array(720), a: new Float32Array(720), w: new Float32Array(720), l: new Float32Array(720), t0: new Float32Array(720), life: 40, dirty: true, nextT: 0,
       ids: new Int32Array(512), lx: new Float32Array(512), lz: new Float32Array(512) };
   }

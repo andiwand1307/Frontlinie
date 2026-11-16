@@ -10,7 +10,7 @@
  *   miniToWorld(mx, my)        Minimap-CSS-Koordinaten → Weltpixel
  *   resize()                   Größen anpassen (setzt G.view.vw/vh), wird in draw() geprüft
  *   pickAt(sx, sy, slackPx)    Entität unter Bildschirmpunkt (Einheiten per Projektion, Gebäude per Strahl/Quader) oder null
- *   setQuality(q) / getQuality()   'pixel' | 'sharp' | 'low'  (localStorage 'frontlinie.gfx')
+ *   setQuality(q) / getQuality()   'ink' | 'modern' | 'pixel' | 'sharp' | 'low'  (localStorage 'frontlinie.gfx')
  *   QUALITIES                  [[id, Name], …] für das Menü
  *   2D-Fallback               useFallback(): ersetzt G.Render durch G.Render2D (render2d.js), wenn WebGL fehlt/gesperrt ist oder "2D (sicher)" gewählt wird
  *                              (localStorage 'frontlinie.gfx' = '2d' nur bei ausdrücklicher Wahl; dann startet das Spiel ohne WebGL-Zugriff)
@@ -31,6 +31,10 @@
  *   A2 Lichtstimmung: wärmere Sonne, kühleres/stärkeres Himmelslicht, Schatten 0.84, AO 0.65, Kontrast/Vignette, weniger Bildrand-Dunst;
  *      klassische Stufen: etwas mehr Richtungskontrast.
  *   A3 Kartenrand: SH.uEdge dunkelt die äußerste Kachelreihe ab (in fowify + Wasser), davor liegt das Vorland aus r3-terrain.js (buildApron).
+ * INK – Grafikstil „Gezeichnet“ (QUAL.ink, Standard; R.ink): Toon-Stufen + weltfeste Schraffur in allen beleuchteten Materialien (inkify über fowify),
+ *   Aquarell-Boden (T_INK) und gezeichnetes Wasser (W_INK) in r3-terrain.js, Abschluss makeInkPipe (Tuschekonturen aus der Tiefe + Palette, EIN
+ *   Durchgang statt AO/Bloom/FXAA). Ohne Nachbearbeitung → INK_LITE (gleiche Material-Stufen, Palette über uGrade). Einmalige Umstellung
+ *   'modern'/leer → 'ink' über den Merker 'frontlinie.gfxink'. Werte zentral in INK_LOOK (Test: G.Render._ink + _inkApply()).
  */
 var G = (typeof G !== 'undefined') ? G : {};
 (function () {
@@ -47,7 +51,10 @@ var G = (typeof G !== 'undefined') ? G : {};
   // ------------------------------------------------------------------ Qualität
   // v0.6: std = MeshStandardMaterial + Umgebungslicht (PMREM), post = Nachbearbeitung (AO, Bloom, AA), soft = weiche Schatten.
   var QKEY = 'frontlinie.gfx';
+  // INK: „Gezeichnet“ (Standard seit INK1) = Modern-Materialien mit Toon-Stufen + Schraffur (fowify), eigener Abschluss-Durchgang mit
+  // Tuschekonturen aus der Tiefe (makeInkPipe) statt AO/Bloom/FXAA; ohne Nachbearbeitung (Schonprofil/Flag post aus) → INK_LITE.
   var QUAL = {
+    ink: { name: 'Gezeichnet', aa: false, shadows: true, shadowSize: 2048, mode: 'modern', particles: 1400, std: true, post: true, soft: false, ink: true },
     modern: { name: 'Modern', aa: false, shadows: true, shadowSize: 2048, mode: 'modern', particles: 1400, std: true, post: true, soft: true },
     pixel: { name: 'Pixel-Look', aa: false, shadows: true, shadowSize: 1024, mode: 'pixel', particles: 1400 },
     sharp: { name: 'Scharf', aa: true, shadows: true, shadowSize: 2048, mode: 'sharp', particles: 1400 },
@@ -56,9 +63,21 @@ var G = (typeof G !== 'undefined') ? G : {};
   // v0.6: „Modern Lite“ – automatisch statt Modern auf PowerVR/Schonmodus: Standard-Materialien + Umgebungslicht + kleine weiche
   // Schatten, KEINE Nachbearbeitung (kein AO/Bloom, keine großen Render-Targets); Leuchten über additive Sprites.
   var MODERN_LITE = { name: 'Modern Lite', aa: false, shadows: true, shadowSize: 1024, mode: 'modern', particles: 1000, std: true, post: false, soft: true, lite: true };
-  var quality = 'modern';
+  // INK: „Gezeichnet (einfach)“ – Toon-Stufen, Schraffur, Palette im Material (uGrade), stilisiertes Wasser/Boden; KEIN Zusatz-Durchgang
+  var INK_LITE = Object.assign({}, MODERN_LITE, { name: 'Gezeichnet (einfach)', ink: true });
+  var quality = 'ink';
   var stored2d = false; // 2D-Fallback: gespeicherte Wahl "2D (sicher)" → beim Start gar kein WebGL anfassen
-  try { var qs = localStorage.getItem(QKEY); if (qs && QUAL[qs]) quality = qs; if (qs === '2d' || qs === 'sprite') stored2d = true; } catch (e) { /* egal */ }
+  // INK: einmalige Umstellung bestehender Installationen – gespeichertes 'modern' (bisheriger Standard) oder nichts → 'ink'; Merker
+  // 'frontlinie.gfxink' verhindert jede Wiederholung, danach gilt allein die Wahl des Spielers. Andere Wahlen (Pixel, 2D, …) bleiben.
+  var IKEY = 'frontlinie.gfxink';
+  try {
+    var qs = localStorage.getItem(QKEY);
+    if (!localStorage.getItem(IKEY)) {
+      if (!qs || qs === 'modern') { quality = 'ink'; if (qs) { qs = 'ink'; localStorage.setItem(QKEY, 'ink'); } }
+      localStorage.setItem(IKEY, '1');
+    }
+    if (qs && QUAL[qs]) quality = qs; if (qs === '2d' || qs === 'sprite') stored2d = true;
+  } catch (e) { /* egal */ }
   // Sprite-Modus: ohne gespeicherte Wahl auf PowerVR-GPUs (WebGL-Abstürze) gleich 'sprite' – Erkennung über den gemerkten Renderer-Namen
   // eines früheren Starts oder einen winzigen Wegwerf-Kontext (sofort wieder freigegeben); danach wird WebGL nicht mehr angefasst.
   try {
@@ -161,8 +180,8 @@ var G = (typeof G !== 'undefined') ? G : {};
   /** Wirksame Qualitäts-Einstellung aus Wahl (quality) + Flags. */
   function pickQ() {
     var q = QUAL[quality];
-    if (q.std && !F.std) q = Object.assign({}, QUAL.pixel, { name: 'Modern (einfach)' });           // klassisch (Lambert) – sicherste 3D-Stufe
-    else if (q.std && !F.post) q = MODERN_LITE;
+    if (q.std && !F.std) q = Object.assign({}, QUAL.pixel, { name: q.ink ? 'Gezeichnet (klassisch)' : 'Modern (einfach)' });   // klassisch (Lambert) – sicherste 3D-Stufe
+    else if (q.std && !F.post) q = q.ink ? INK_LITE : MODERN_LITE;   // INK: Schonprofil → Toon ohne Zusatz-Durchgang
     if (!F.shadows && q.shadows) q = Object.assign({}, q, { shadows: false, shadowSize: 0 });
     if (safeGPU && q.aa) q = Object.assign({}, q, { aa: false });
     return q;
@@ -201,8 +220,11 @@ var G = (typeof G !== 'undefined') ? G : {};
   function fowify(mat) {
     var prev = mat.onBeforeCompile, prevKey = mat.customProgramCacheKey;
     var hasPrev = prev && prev !== THREE.Material.prototype.onBeforeCompile;
+    // INK: Zeichenstil beim Anlegen festgelegt (Stufenwechsel ink ↔ andere baut die Materialien neu); nur beleuchtete Materialien
+    var ink = !!R.ink && (mat.type === 'MeshStandardMaterial' || mat.type === 'MeshLambertMaterial');
     mat.onBeforeCompile = function (sh, rr) {
       if (hasPrev) prev.call(mat, sh, rr);
+      if (ink) inkify(sh);
       sh.uniforms.uFow = SH.uFow; sh.uniforms.uFowScale = SH.uFowScale; sh.uniforms.uFowOn = SH.uFowOn;
       sh.uniforms.uHazeCol = SH.uHazeCol; sh.uniforms.uHaze = SH.uHaze;
       sh.uniforms.uEdge = SH.uEdge; sh.uniforms.uGrade = SH.uGrade; sh.uniforms.uWarm = SH.uWarm; sh.uniforms.uLift = SH.uLift; sh.uniforms.uRes = SH.uRes;   // W11-look
@@ -220,8 +242,43 @@ var G = (typeof G !== 'undefined') ? G : {};
           '  float hz = clamp((vFowW.z - uHaze.x) / (uHaze.y - uHaze.x), 0.0, 1.0) * uHaze.z * uFowOn;\n' +
           '  outgoingLight = mix(outgoingLight, uHazeCol, hz) * fowV;\n  if (uGrade.x > 0.5) outgoingLight = outgoingLight * uWarm + uLift;\n#include <opaque_fragment>');
     };
-    mat.customProgramCacheKey = function () { return 'fow3' + mat.type + (hasPrev && prevKey ? prevKey.call(mat) : ''); };
+    mat.customProgramCacheKey = function () { return 'fow3' + mat.type + (ink ? 'I' : '') + (hasPrev && prevKey ? prevKey.call(mat) : ''); };
     return mat;
+  }
+
+  /** INK (Zeichenstil, im Material – auch ohne Nachbearbeitung):
+   *  1. Toon-Stufen: Lichtfaktor = Helligkeit(Licht ohne Eigenleuchten) / Helligkeit(Grundfarbe) → 3 Tonstufen (Schatten / Halbton / Licht)
+   *     mit schmal geglätteten Übergängen (fwidth → kein Treppen-Flimmern). Schattenstufe kühl, Lichtstufe warm getönt.
+   *  2. Schraffur in der Schattenstufe: Linienschar s = dot(Weltpunkt, uInkN) mit uInkN ⟂ Blickrichtung → auf JEDER Fläche gleich schräge
+   *     Bildschirmlinien, die an der Welt hängen (wandern beim Scrollen exakt mit dem Boden mit, kein Kriechen); zu dicht (Fernzoom) → ausgeblendet.
+   *  3. Metall/Glanz gedämpft (gezeichnet = matt), Rauheit hoch.
+   *  Kosten: ~25 ALU je Pixel, keine Textur, kein Durchgang. Uniforms in SH (uInkB Schwellen, uInkL Stufen, uInkS/uInkW Tönung, uInkH Schraffur). */
+  function inkify(sh) {
+    sh.uniforms.uInkB = SH.uInkB; sh.uniforms.uInkL = SH.uInkL; sh.uniforms.uInkS = SH.uInkS; sh.uniforms.uInkW = SH.uInkW;
+    sh.uniforms.uInkH = SH.uInkH; sh.uniforms.uInkN = SH.uInkN;
+    sh.vertexShader = 'varying vec3 vInkP;\n' + sh.vertexShader.replace('#include <project_vertex>',
+      '#include <project_vertex>\n  { vec4 ip = vec4(transformed, 1.0);\n#ifdef USE_INSTANCING\n  ip = instanceMatrix * ip;\n#endif\n  vInkP = (modelMatrix * ip).xyz; }');
+    var fs = sh.fragmentShader;
+    if (fs.indexOf('#include <lights_physical_fragment>') >= 0)
+      fs = fs.replace('#include <lights_physical_fragment>', '  metalnessFactor *= 0.35; roughnessFactor = mix(roughnessFactor, 1.0, 0.55);\n#include <lights_physical_fragment>');
+    sh.fragmentShader = 'uniform vec2 uInkB; uniform vec3 uInkL; uniform vec3 uInkS; uniform vec3 uInkW; uniform vec4 uInkH; uniform vec3 uInkN; varying vec3 vInkP;\n' +
+      fs.replace('#include <opaque_fragment>', [
+        '  {',
+        '    vec3 iLit = max(outgoingLight - totalEmissiveRadiance, vec3(0.0));',
+        '    const vec3 iW = vec3(0.2126, 0.7152, 0.0722);',
+        '    float iLf = dot(iLit, iW) / max(dot(diffuseColor.rgb, iW), 0.006);',
+        '    float iAa = fwidth(iLf) * 0.6 + 0.015;',
+        '    float iB1 = smoothstep(uInkB.x - iAa, uInkB.x + iAa, iLf), iB2 = smoothstep(uInkB.y - iAa, uInkB.y + iAa, iLf);',
+        '    float iLv = mix(uInkL.x, mix(uInkL.y, uInkL.z, iB2), iB1);',
+        '    vec3 iT = mix(uInkS, vec3(1.0), iB1) * mix(vec3(1.0), uInkW, iB2);',
+        '    float iS = dot(vInkP, uInkN) * uInkH.y, iFw = fwidth(iS);',
+        '    float iTri = abs(fract(iS) - 0.5) * 2.0;',                                                  // 0 auf der Linie … 1 dazwischen
+        '    float iLn = 1.0 - smoothstep(uInkH.z - iFw, uInkH.z + iFw, iTri);',
+        '    float iHk = (1.0 - iB1) * uInkH.x * (1.0 - smoothstep(0.18, 0.36, iFw));',
+        '    outgoingLight = diffuseColor.rgb * iLv * iT * (1.0 - iHk * iLn) + totalEmissiveRadiance;',
+        '    if (uInkH.w > 0.5) outgoingLight = vec3(iLf * 0.5, iLv * 0.5, 0.0);',   // Test: Lichtfaktor (rot) / Stufe (grün)
+        '  }',
+        '#include <opaque_fragment>'].join('\n'));
   }
 
   /** v0.6: Kachel-Sichtbarkeit (Sim-Pixel) für den lokalen Spieler. */
@@ -247,6 +304,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     R.Q = Q; R.quality = quality; R.safeGPU = safeGPU; R.COS = COS; R.SIN = SIN;
     syncYaw();
     R.std = !!Q.std; R.post = !!(Q.std && Q.post); R.lite = !!(Q.std && !Q.post);
+    R.ink = !!(Q.std && Q.ink);   // INK: Materialien/Gelände/Wasser im Zeichenstil (beim Anlegen gelesen → Wechsel baut Materialien neu)
     R.octx = octx;
     R.F = F; R.mark = mark;   // v0.8: Feature-Flags + Nutzungsmeldung
   }
@@ -296,6 +354,17 @@ var G = (typeof G !== 'undefined') ? G : {};
     // für die fehlende Umgebungsverdeckung (AO dunkelt im Modern-Bild Flächen im Mittel ab) – abgestimmt mit tests/look-w11.js
     lite: { sunK: 1.0, hemiK: 0.9, envK: 0.9, exposure: 0.93, con: 1.1, sat: 1.0 }
   };
+  // INK: Stimmung „Gezeichnet“ – klare Sonne (scharfe, flächige Schlagschatten), kein Umgebungs-PMREM (billiger; Himmelslicht reicht für Toon),
+  // Toon-Schwellen/-Stufen (Lichtfaktor ≈ (Sonne·NdotL·Schatten + Himmel)/π), Schraffur, Tusche-Konturen und Palette im Abschluss-Durchgang.
+  var INK_LOOK = {
+    sun: '#fff0d8', sunI: 3.6, hemiSky: '#c9d6ee', hemiGround: '#6a604a', hemiI: 1.25, shadowRadius: 1.2, shadowIntensity: 0.9,
+    bands: [0.55, 0.92], levels: [0.5, 0.8, 1.04], shade: [0.86, 0.9, 1.1], warm: [1.05, 1.0, 0.92],
+    hatch: { k: 0.38, density: 2.4, width: 0.3 },
+    line: { css: 1.8, alpha: 1.0, col: [0.1, 0.085, 0.075] },     // Konturbreite (CSS-px, Halbmesser der Abtastung), Deckkraft, Tuschefarbe (sRGB)
+    exposure: 1.1, sat: 0.8, satKeep: 1.08, contrast: 1.04, lift: [0.012, 0.012, 0.016], warmG: [1.03, 1.0, 0.95], vignette: 0.14,
+    paper: [0.97, 0.94, 0.86], paperK: 0.05, grain: 0.035,
+    lite: { con: 1.06, sat: 0.84, exposure: 1.12 }                    // ohne Abschluss-Durchgang (INK_LITE): Palette über uGrade im Material
+  };
   var EDGE_DIM = [0.6, 0.46];             // A3: Helligkeit am Kartenrand 0.46 → voll nach 0.9 Kacheln (gleiche Werte im Rand-Vorland, r3-terrain.js)
   var pipe = null;                        // Nachbearbeitungs-Kette (nur Modern, nicht Lite)
   var dyn = { scale: 1, slowT: 0, fastT: 0, lock: false, avg: 16 };   // dynamische Render-Skalierung
@@ -313,12 +382,13 @@ var G = (typeof G !== 'undefined') ? G : {};
       sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.03;
       renderer.toneMapping = pipeWanted() ? THREE.NoToneMapping : MODERN_LOOK.tone;   // mit Nachbearbeitung: Tonwert im Abschluss-Shader
       renderer.toneMappingExposure = MODERN_LOOK.exposure;
-      if (F.env) buildEnv(); else if (envRT) { envRT.dispose(); envRT = null; }
+      if (F.env && !Q.ink) buildEnv(); else if (envRT) { envRT.dispose(); envRT = null; }   // INK: ohne PMREM
       scene.environment = envRT ? envRT.texture : null;
       scene.environmentIntensity = MODERN_LOOK.envI;
       // v0.8: ohne Umgebungslicht (Flag env aus) übernimmt das Himmelslicht dessen Anteil (sonst wirken Metall/Lack schwarz)
       if (!envRT) { hemi.intensity = MODERN_LOOK.hemiNoEnv; hemi.color.set(MODERN_LOOK.hemiSkyNoEnv); }
       scene.background = new THREE.Color('#0b0f14');
+      if (Q.ink) inkLook();
       liteGrade();
     } else {
       // A2: auch die klassischen Stufen (Pixel/Scharf/Spar) bekommen etwas mehr Richtungskontrast – Sonne wärmer/kräftiger, Himmelslicht kühler/schwächer
@@ -331,19 +401,39 @@ var G = (typeof G !== 'undefined') ? G : {};
     }
     R.env = envRT ? envRT.texture : null;
     disposePipe();
-    if (pipeWanted()) { try { pipe = makePipe(); } catch (e) { console.warn('Nachbearbeitung nicht verfügbar: ' + e); pipe = null; renderer.toneMapping = MODERN_LOOK.tone; } }
+    if (pipeWanted()) { try { pipe = Q.ink ? makeInkPipe() : makePipe(); } catch (e) { console.warn('Nachbearbeitung nicht verfügbar: ' + e); pipe = null; renderer.toneMapping = MODERN_LOOK.tone; } }
     R.post = !!pipe; R.pipe = pipe;
     if (!Q.std || pipe) SH.uGrade.value.x = 0;
+  }
+  /** INK: Licht/Toon-Werte setzen (nach den Modern-Werten, überschreibt sie). Umgebungs-PMREM aus (Toon braucht keine Reflexe). */
+  function inkLook() {
+    var L = INK_LOOK, U = SH;
+    sun.color.set(L.sun); sun.intensity = L.sunI;
+    hemi.color.set(L.hemiSky); hemi.groundColor.set(L.hemiGround); hemi.intensity = L.hemiI;
+    sun.shadow.radius = L.shadowRadius; sun.shadow.intensity = L.shadowIntensity;
+    if (envRT) { envRT.dispose(); envRT = null; }
+    scene.environment = null;
+    renderer.toneMappingExposure = L.exposure;
+    U.uInkB.value.fromArray(L.bands); U.uInkL.value.fromArray(L.levels); U.uInkS.value.fromArray(L.shade); U.uInkW.value.fromArray(L.warm);
+    U.uInkH.value.set(L.hatch.k, L.hatch.density, L.hatch.width, L.dbgLf ? 1 : 0);
   }
   /** W11-look: Modern ohne Nachbearbeitung + Flag liteLook → Abschluss-Farbkorrektur in den Materialien (SH.uGrade), Lichtfaktoren MODERN_LOOK.lite. */
   function liteGrade() {
     var on = !!(Q.std && !pipeWanted() && F.liteLook), L = MODERN_LOOK, k = L.lite;
+    if (Q.ink) {   // INK_LITE: gedeckte Palette über die Material-Farbkorrektur (immer an – billig, kein Durchgang)
+      var I = INK_LOOK;
+      on = !pipeWanted();
+      SH.uGrade.value.set(on ? 1 : 0, I.lite.sat, I.lite.con, I.vignette);
+      SH.uWarm.value.fromArray(I.warmG); SH.uLift.value.fromArray(I.lift);
+      if (on) renderer.toneMappingExposure = I.lite.exposure;
+      return;
+    }
     SH.uGrade.value.set(on ? 1 : 0, k.sat, k.con, L.grade.vignette);
     SH.uWarm.value.fromArray(L.grade.warm); SH.uLift.value.fromArray(L.grade.lift);
     if (!on) return;
     sun.intensity *= k.sunK; hemi.intensity *= k.hemiK; scene.environmentIntensity *= k.envK; renderer.toneMappingExposure = k.exposure;
   }
-  function pipeWanted() { return !!(Q.std && Q.post && F.post && THREE.GTAOPass && THREE.UnrealBloomPass); } // v0.8: Flag post (PowerVR: aus, außer der Grafik-Test hat es freigegeben)
+  function pipeWanted() { return !!(Q.std && Q.post && F.post && (Q.ink || (THREE.GTAOPass && THREE.UnrealBloomPass))); }   // INK: nur eigener Abschluss-Durchgang // v0.8: Flag post (PowerVR: aus, außer der Grafik-Test hat es freigegeben)
   function disposePipe() { if (pipe) { try { pipe.dispose(); } catch (e) { /* egal */ } pipe = null; } R.post = false; R.pipe = null; }
 
   /** Prozeduraler Himmel (Verlauf + Sonnenfleck + Bodenreflex) → PMREM. Klein gehalten (Lite: 32er Würfel). */
@@ -466,6 +556,103 @@ var G = (typeof G !== 'undefined') ? G : {};
     return P;
   }
 
+  /** INK: Nachbearbeitung „Gezeichnet“ – EIN Zusatz-Durchgang statt Bloom + GTAO + Abschluss + FXAA (Modern: ~9 Durchgänge, 3 Ziele):
+   *  Szene (HDR, HalfFloat + Tiefentextur, wie Modern) → Abschluss direkt auf den Bildschirm:
+   *   – Tuschekonturen aus der Tiefe: 5 Abtastungen (Mitte + 4 Nachbarn im Abstand r), Laplace der linearen Tiefe (Ortho-Kamera →
+   *     Tiefe linear in Welt-Einheiten), normiert auf r · Pixelgröße in der Welt → dimensionslos (Steigungsknick). Positiv = konvexe Kante /
+   *     Silhouette auf der VORDEREN Seite (Linie liegt am Objekt, nicht im Boden), negativ = Innenknick (Mauerfuß) schwächer.
+   *     r in CSS-Pixeln fest → gleiche Strichstärke bei dynamischer Auflösung / jedem DPR. Strichstärke + Deckkraft schwanken mit einem
+   *     WELTFESTEN Rauschen (Punkt aus Tiefe rekonstruiert) → „Pinselstrich“, der beim Scrollen/Zoomen an der Welt hängt (kein Kriechen).
+   *     Kanten glätten die Silhouetten zugleich (ersetzt FXAA).
+   *   – Palette: ACES, gedeckte Sättigung (kräftige Farben – Teamfarben – bleiben), warmes Papier in den Lichtern, feine Papierkörnung (fest
+   *     am Bildschirm wie Papier unter dem Bild), leichte Vignette, sRGB. */
+  function makeInkPipe() {
+    var L = INK_LOOK, IL = L.line, w = Math.max(2, bufW), h = Math.max(2, bufH);
+    var dt = new THREE.DepthTexture(w, h); dt.type = THREE.UnsignedIntType;
+    var rtScene = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, depthTexture: dt, depthBuffer: true, stencilBuffer: false });
+    var fin = new THREE.ShaderMaterial({
+      depthTest: false, depthWrite: false,
+      uniforms: { tScene: { value: rtScene.texture }, tDepth: { value: dt }, uTex: { value: new THREE.Vector2(1 / w, 1 / h) },
+        uRange: { value: 100 }, uPx: { value: 0.02 }, uR: { value: 2 }, uInk: { value: new THREE.Vector4().fromArray(IL.col.concat([IL.alpha])) },
+        uCam: { value: new THREE.Vector3() }, uRt: { value: new THREE.Vector3() }, uUp: { value: new THREE.Vector3() }, uFw: { value: new THREE.Vector3() },
+        uExp: { value: L.exposure }, uSat: { value: new THREE.Vector2(L.sat, L.satKeep) }, uCon: { value: L.contrast }, uLift: { value: new THREE.Vector3().fromArray(L.lift) },
+        uWarm: { value: new THREE.Vector3().fromArray(L.warmG) }, uVig: { value: L.vignette }, uPaper: { value: new THREE.Vector4().fromArray(L.paper.concat([L.paperK])) },
+        uGrain: { value: L.grain }, uDbg: { value: 0 } },
+      vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+      fragmentShader: [
+        'uniform sampler2D tScene; uniform sampler2D tDepth; uniform vec2 uTex; uniform float uRange; uniform float uPx; uniform float uR; uniform vec4 uInk;',
+        'uniform vec3 uCam; uniform vec3 uRt; uniform vec3 uUp; uniform vec3 uFw;',
+        'uniform float uExp; uniform vec2 uSat; uniform float uCon; uniform vec3 uLift; uniform vec3 uWarm; uniform float uVig; uniform vec4 uPaper; uniform float uGrain; uniform float uDbg;',
+        'varying vec2 vUv;',
+        'vec3 RRTAndODTFit(vec3 v){ vec3 a = v * (v + 0.0245786) - 0.000090537; vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081; return a / b; }',
+        'vec3 aces(vec3 c){',
+        '  const mat3 I = mat3(vec3(0.59719, 0.07600, 0.02840), vec3(0.35458, 0.90834, 0.13383), vec3(0.04823, 0.01566, 0.83777));',
+        '  const mat3 O = mat3(vec3(1.60475, -0.10208, -0.00327), vec3(-0.53108, 1.10813, -0.07276), vec3(-0.07367, -0.00605, 1.07602));',
+        '  c *= uExp / 0.6; c = I * c; c = RRTAndODTFit(c); c = O * c; return clamp(c, 0.0, 1.0); }',
+        'vec3 toSRGB(vec3 c){ return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c)); }',
+        'float hsh(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }',
+        'float vn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);',
+        '  return mix(mix(hsh(i), hsh(i + vec2(1.0, 0.0)), f.x), mix(hsh(i + vec2(0.0, 1.0)), hsh(i + vec2(1.0, 1.0)), f.x), f.y); }',
+        'float dep(vec2 uv){ return texture2D(tDepth, uv).r * uRange; }',
+        'void main(){',
+        '  vec3 c = texture2D(tScene, vUv).rgb;',
+        '  float d0 = dep(vUv);',
+        // Weltpunkt (Ortho): Kamera + Bildschirmachsen + Tiefe → weltfestes Rauschen für die Strichstärke
+        '  vec2 nd = vUv * 2.0 - 1.0; vec3 P = uCam + uRt * nd.x + uUp * nd.y + uFw * d0;',
+        '  float n1 = vn(P.xz * 1.7 + P.y * 2.3), n2 = vn(P.xz * 0.45 - P.y + 11.0);',
+        '  float r = uR * (0.7 + 0.6 * n1);',
+        '  vec2 o = uTex * r;',
+        '  float dl = dep(vUv - vec2(o.x, 0.0)), dr = dep(vUv + vec2(o.x, 0.0)), du = dep(vUv + vec2(0.0, o.y)), dd = dep(vUv - vec2(0.0, o.y));',
+        '  float k = 1.0 / (uPx * r);',
+        '  float lx = (dl + dr - 2.0 * d0) * k, ly = (du + dd - 2.0 * d0) * k;',
+        '  float cvx = max(lx, ly), ccv = max(-lx, -ly);',
+        '  float e = max(smoothstep(0.3, 0.8, cvx), smoothstep(0.9, 2.0, ccv) * 0.75);',
+        '  e *= uInk.w * (0.78 + 0.22 * n2) * step(d0, uRange * 0.999);',
+        // Palette
+        '  c = c * uWarm + uLift;',
+        '  c = aces(c);',
+        '  float l = dot(c, vec3(0.2126, 0.7152, 0.0722));',
+        '  float mxc = max(c.r, max(c.g, c.b)), sat = (mxc - min(c.r, min(c.g, c.b))) / max(mxc, 1e-3);',
+        '  c = mix(vec3(l), c, mix(uSat.x, uSat.y, smoothstep(0.5, 0.85, sat)));',      // gedeckt – kräftige Farben (Teams, Erz) bleiben
+        '  c = clamp((c - 0.5) * uCon + 0.5, 0.0, 1.0);',
+        '  c = mix(c, uPaper.rgb, uPaper.w * smoothstep(0.35, 1.0, l));',               // Lichter laufen ins warme Papier
+        '  c = mix(c, min(c, uInk.rgb * (0.6 + 0.4 * c)), e);',                         // Tusche (leicht farbig; nie heller als darunter → nichts leuchtet aus dem Nebel)
+        '  vec2 q = vUv - 0.5; c *= 1.0 - uVig * dot(q, q) * 2.0;',
+        '  float g = hsh(floor(gl_FragCoord.xy * 0.5)) + hsh(floor(gl_FragCoord.xy * 0.5) + 7.7) - 1.0;',
+        '  c *= 1.0 + g * uGrain;',
+        '  if (uDbg > 0.5) c = vec3(1.0 - e);',
+        '  gl_FragColor = vec4(toSRGB(clamp(c, 0.0, 1.0)), 1.0);',
+        '}'].join('\n')
+    });
+    var fq = new THREE.FullScreenQuad(fin), U = fin.uniforms;
+    var P = {
+      w: w, h: h, ms: 0, ink: true,
+      setSize: function (W, H) {
+        W = Math.max(2, W); H = Math.max(2, H);
+        if (W === P.w && H === P.h) return;
+        P.w = W; P.h = H; rtScene.setSize(W, H); U.uTex.value.set(1 / W, 1 / H);
+      },
+      render: function () {
+        renderer.setRenderTarget(rtScene);
+        renderer.render(scene, camera);
+        P.calls = renderer.info.render.calls; P.tris = renderer.info.render.triangles;
+        // Kamera-Daten für Tiefe → Welt (Ortho): Range, Pixelgröße, Achsen
+        var cm = camera, e = cm.matrixWorld.elements, hw = (cm.right - cm.left) / 2, hh = (cm.top - cm.bottom) / 2;
+        U.uRange.value = cm.far - cm.near; U.uPx.value = 2 * hh / P.h;
+        U.uRt.value.set(e[0], e[1], e[2]).multiplyScalar(hw); U.uUp.value.set(e[4], e[5], e[6]).multiplyScalar(hh);
+        U.uFw.value.set(-e[8], -e[9], -e[10]);
+        U.uCam.value.set(e[12], e[13], e[14]).addScaledVector(U.uFw.value, cm.near);
+        var css = V && V.vh ? P.h / V.vh : 1;            // Pufferpixel je CSS-Pixel (DPR × dynamische Skalierung)
+        U.uR.value = Math.max(1, IL.css * css);
+        renderer.setRenderTarget(null); fq.render(renderer);
+      },
+      info: function () { return { w: P.w, h: P.h, ao: false, bloom: false, aa: 'ink', ink: true }; },
+      dispose: function () { rtScene.dispose(); dt.dispose(); fin.dispose(); fq.dispose(); },
+      fin: fin
+    };
+    return P;
+  }
+
   /** Dynamische Auflösung (nur Modern): Bildzeit > 22 ms für 2 s → Skalierung −0.1 (min. 0.6); < 14 ms für 4 s → +0.1. */
   function dynRes(ms, dt) {
     if (dyn.lock || !dt || Q.lite || !F.dynRes) return;
@@ -495,7 +682,10 @@ var G = (typeof G !== 'undefined') ? G : {};
       // A3 (Kartenrand): Abdunklung der äußersten Kachelreihe = clamp(Randabstand · x + y); (0, 1) = aus (Symbol-Aufnahmen)
       uEdge: { value: new THREE.Vector2(EDGE_DIM[0], EDGE_DIM[1]) },
       // W11-look: Farbabstimmung ohne Nachbearbeitung (Flag liteLook): x an, y Sättigung, z Kontrast, w Vignette; Wärme/Anhebung wie der Abschluss-Shader
-      uGrade: { value: new THREE.Vector4(0, 1, 1, 0) }, uWarm: { value: new THREE.Vector3(1, 1, 1) }, uLift: { value: new THREE.Vector3(0, 0, 0) }, uRes: { value: new THREE.Vector2(1, 1) }
+      uGrade: { value: new THREE.Vector4(0, 1, 1, 0) }, uWarm: { value: new THREE.Vector3(1, 1, 1) }, uLift: { value: new THREE.Vector3(0, 0, 0) }, uRes: { value: new THREE.Vector2(1, 1) },
+      // INK: Toon-Stufen + Schraffur (Werte aus INK_LOOK in applyLook; uInkN je Bild aus der Kamera)
+      uInkB: { value: new THREE.Vector2(0.3, 0.7) }, uInkL: { value: new THREE.Vector3(0.4, 0.75, 1) }, uInkS: { value: new THREE.Vector3(1, 1, 1) },
+      uInkW: { value: new THREE.Vector3(1, 1, 1) }, uInkH: { value: new THREE.Vector4(0, 3, 0.3, 0) }, uInkN: { value: new THREE.Vector3(1, 0, 0) }
     };
     // 1×1-Platzhalter für den Nebel
     var ph = new THREE.DataTexture(new Uint8Array([255]), 1, 1, THREE.RedFormat, THREE.UnsignedByteType); ph.needsUpdate = true;
@@ -620,13 +810,13 @@ var G = (typeof G !== 'undefined') ? G : {};
       glOK = false; glFail = 'Die Grafik ist auch ganz einfach mehrfach abgestürzt.'; useFallback(true, true); return;
     }
     try {
-      var wasStd = R.std;
+      var wasStd = R.std, wasInk = R.ink;
       createRenderer();
       if (!glOK) return;   // gesperrt/fehlgeschlagen → drawNoGL (Hinweis: App ganz schließen) + Neuversuche
       if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }
       F3.setMax(Q.particles);
       resize();
-      if (wasStd !== R.std) { M3.makeMaterials(); iconCache = {}; }
+      if (wasStd !== R.std || wasInk !== R.ink) { M3.makeMaterials(); iconCache = {}; }
       if (pipe && !R.post) disposePipe();
       if (G.Sim.S) reset();
       recFrames = 0;
@@ -702,11 +892,11 @@ var G = (typeof G !== 'undefined') ? G : {};
     quality = q; Q = QUAL[q];
     try { localStorage.setItem(QKEY, q); } catch (e) { /* egal */ }
     if (!THREE || !mapEl) return;
-    var wasStd = R.std;
+    var wasStd = R.std, wasInk = R.ink;
     createRenderer();
     F3.setMax(Q.particles);
     resize();
-    if (wasStd !== R.std) { M3.makeMaterials(); if (G.Sim.S && world) reset(); iconCache = {}; } // v0.6: Materialklasse gewechselt → neu aufbauen
+    if (wasStd !== R.std || wasInk !== R.ink) { M3.makeMaterials(); if (G.Sim.S && world) reset(); iconCache = {}; } // v0.6: Materialklasse gewechselt → neu aufbauen (INK: auch Zeichenstil an/aus)
   }
 
   function resize() {
@@ -839,7 +1029,9 @@ var G = (typeof G !== 'undefined') ? G : {};
     camera.updateMatrixWorld();
     // Dunst: Tiefe des oberen Bildrands = weit
     var dTop = CAM_DIST + halfH / SIN * COS, dMid = CAM_DIST;
-    SH.uHaze.value.set(dMid - 2, dTop + 4, 0.15);   // A2: Dunst zum oberen Bildrand 0.28 → 0.15 (wusch die obere Bildhälfte grau aus)
+    SH.uHaze.value.set(dMid - 2, dTop + 4, 0.15);
+    // INK: Schraffur-Ebenen ⟂ Blickrichtung → Linien „/“ am Bildschirm (rechts − oben), weltfest
+    SH.uInkN.value.set(CY + SY * SIN, -COS, -SY + CY * SIN).normalize();   // A2: Dunst zum oberen Bildrand 0.28 → 0.15 (wusch die obere Bildhälfte grau aus)
     F3.setPointScale(bufH / (2 * halfH));
     return { cx: cx, cz: cz, halfW: halfW, halfH: halfH };
   }
@@ -1397,7 +1589,7 @@ var G = (typeof G !== 'undefined') ? G : {};
 
   function info() {
     var r = renderer ? renderer.info.render : { calls: 0, triangles: 0, points: 0, lines: 0 };
-    if (pipe) r = { calls: pipe.calls + 9, triangles: pipe.tris, points: r.points, lines: r.lines };   // + Nachbearbeitungs-Durchgänge
+    if (pipe) r = { calls: pipe.calls + (pipe.ink ? 1 : 9), triangles: pipe.tris, points: r.points, lines: r.lines };   // + Nachbearbeitungs-Durchgänge
     return { calls: r.calls, triangles: r.triangles, points: r.points, lines: r.lines, ms: frameMs, quality: quality, buf: [bufW, bufH],
       particles: F3 ? F3.particleCount() : 0, lite: !!Q.lite, scale: dyn.scale, pipe: pipe ? pipe.info() : null, flags: toCode(F), safe: safeGPU };
   }
@@ -1407,7 +1599,7 @@ var G = (typeof G !== 'undefined') ? G : {};
    *  Legt KEINEN neuen Renderer an (jeder neue Kontext erhöht auf Handys das Risiko der „blocked“-Sperre). */
   function refreshFlags() {
     if (!renderer || !glOK || glLost) { F = computeFlags(); R.F = F; return false; }
-    var oldStd = R.std;
+    var oldStd = R.std, oldInk = R.ink;
     F = computeFlags(); Q = pickQ(); F3.setMax(Q.particles);
     renderer.shadowMap.enabled = !!Q.shadows; sun.castShadow = !!Q.shadows;
     if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }
@@ -1415,7 +1607,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     if (glCv) glCv.style.imageRendering = Q.mode === 'pixel' ? 'pixelated' : '';
     if (!F.dynRes) dyn.scale = 1;
     syncCtx(); applyLook();
-    if (oldStd !== R.std) M3.makeMaterials();
+    if (oldStd !== R.std || oldInk !== R.ink) M3.makeMaterials();
     iconCache = {}; iconQ.length = 0;
     scene.traverse(function (o) { var m = o.material; if (!m) return; (Array.isArray(m) ? m : [m]).forEach(function (x) { x.needsUpdate = true; }); });
     sizeKey = ''; resize();
@@ -1426,11 +1618,11 @@ var G = (typeof G !== 'undefined') ? G : {};
   }
   /** „Grafik zurücksetzen“: Profil (alle GPUs), Selbstheilungs-Stufen, Grafik-Test und eine gespeicherte 2D/Spar-Wahl löschen → Modern. */
   function resetGfx() {
-    try { localStorage.removeItem(PKEY); localStorage.setItem(QKEY, 'modern'); } catch (e) { /* egal */ }
+    try { localStorage.removeItem(PKEY); localStorage.setItem(QKEY, 'ink'); } catch (e) { /* egal */ }   // INK: Standard ist „Gezeichnet“
     flagOverride = null; run = null; sessionChecked = false;
     if (usingFallback || !THREE || !mapEl) { try { location.reload(); } catch (e) { /* egal */ } return; }
     sessionStart();
-    setQuality('modern');
+    setQuality('ink');
   }
   var GFX = G.Gfx3D = {
     FLAGS: FLAGS, LADDER: LADDER, FULL: FULL_CODE, POWERVR: POWERVR_CODE, KEY: PKEY,
@@ -1456,11 +1648,11 @@ var G = (typeof G !== 'undefined') ? G : {};
     gfx: function () { return G.Gfx3D; },
     _glCreates: function () { return glCreates; }, gpu: function () { return { name: gpuName, safe: safeGPU }; }, _setSafe: function () { forceSafe = true; setQuality(quality); if (G.Sim.S) reset(); }, restartGL: restartGL, glOK: function () { return glOK; }, init: init, reset: reset, draw: draw, drawIcon: drawIcon, miniToWorld: miniToWorld, resize: resize,
     pickAt: pickAt, setQuality: setQuality, getQuality: function () { return quality; }, info: info,
-    QUALITIES: [['modern', QUAL.modern.name], ['pixel', QUAL.pixel.name], ['sharp', QUAL.sharp.name], ['low', QUAL.low.name]], // v0.6: Modern zuerst (Standard)
+    QUALITIES: [['ink', QUAL.ink.name], ['modern', QUAL.modern.name], ['pixel', QUAL.pixel.name], ['sharp', QUAL.sharp.name], ['low', QUAL.low.name]], // INK: Gezeichnet zuerst (Standard)
     setShake: function (on) { F3.setShake(on); }, getShake: function () { return F3.getShake() && !safeGPU; },
     _heightAt: function (x, z) { return T3.groundAt(x, z); }, _fxTime: function () { return R.t; },
     _debugPost: function (k) { if (pipe) pipe.fin.uniforms.uDbg.value = k || 0; }, // v0.6: 1 = AO-Puffer anzeigen
-    _look: MODERN_LOOK,
+    _look: MODERN_LOOK, _ink: INK_LOOK, _inkApply: function () { if (renderer) { applyLook(); sizeKey = ''; resize(); } },   // INK: Test – Werte live abstimmen
     _setLite: function (on) { forceLite = on !== false; setQuality(quality); if (G.Sim.S && world) reset(); }, // v0.6: Test – Modern Lite erzwingen
     _setScale: function (k) { dyn.scale = clamp(k, 0.6, 1); dyn.lock = true; sizeKey = ''; resize(); }      // v0.6: Test – Render-Skalierung festsetzen
   };

@@ -885,13 +885,13 @@ var G = (typeof G !== 'undefined') ? G : {};
       });
     });
   }
-  // 3D: Grafik-Auswahl (v0.6: Modern / Pixel-Look / Scharf / Sparmodus) – Wert liegt in G.Render (localStorage 'frontlinie.gfx')
+  // 3D: Grafik-Auswahl (INK: Gezeichnet (Standard) / v0.6: Modern / Pixel-Look / Scharf / Sparmodus) – Wert liegt in G.Render (localStorage 'frontlinie.gfx')
   function gfxOpt() {
     if (!G.Render.QUALITIES) return '';
     var cur = G.Render.getQuality();
     var qs = G.Render.QUALITIES.slice(); // 2D-Fallback: "2D (sicher)" immer anbieten
     // v0.8: Modern mit eingeschränkten Grafik-Funktionen (PowerVR-Profil / Selbstheilung / Grafik-Test) → Name mit Profil-Code
-    try { var X = G.Gfx3D, inf = G.Render.info && G.Render.info(); if (X && inf && inf.flags != null && inf.flags !== X.FULL) qs = qs.map(function (q) { return q[0] === 'modern' ? ['modern', 'Modern (' + X.pretty(inf.flags) + ')'] : q; }); } catch (e) { /* egal */ }
+    try { var X = G.Gfx3D, inf = G.Render.info && G.Render.info(); if (X && inf && inf.flags != null && inf.flags !== X.FULL) qs = qs.map(function (q) { return q[0] === 'modern' ? ['modern', 'Modern (' + X.pretty(inf.flags) + ')'] : (q[0] === 'ink' ? ['ink', 'Gezeichnet (' + X.pretty(inf.flags) + ')'] : q); }); } catch (e) { /* egal */ }
     if (!qs.some(function (q) { return q[0] === '2d'; })) qs.push(['2d', '2D (sicher)']);
     if (!qs.some(function (q) { return q[0] === 'sprite'; })) qs.push(['sprite', 'Sprite (stabil)']); // Sprite-Modus: vorgerenderte Grafik, kein WebGL
     return '<div class="opt"><div class="lbl">Grafik</div><select id="gfxSel" aria-label="Grafik" style="width:100%">' + qs.map(function (q) {
@@ -907,9 +907,10 @@ var G = (typeof G !== 'undefined') ? G : {};
         return 'Aktiv: ' + (q === 'sprite' ? 'Sprite (stabil)' : '2D (sicher)') + ' · ohne WebGL' + (c2 ? ' · Bild ' + c2.width + '×' + c2.height : '');
       }
       var inf = G.Render.info(), code = inf.flags || '', F = R3.F || {}, nm;
-      if (q !== 'modern') nm = { pixel: 'Pixel-Look', sharp: 'Scharf', low: 'Sparmodus' }[q] || q;
-      else if (X && code === X.FULL) nm = 'Modern (voll)';
-      else nm = 'Modern ' + (X ? X.pretty(code) : code) + (X && code === X.POWERVR ? ' (PowerVR-Start)' : '');
+      var base = q === 'ink' ? ((R3.Q && R3.Q.lite) ? 'Gezeichnet einfach' : 'Gezeichnet') : 'Modern';   // INK
+      if (q !== 'modern' && q !== 'ink') nm = { pixel: 'Pixel-Look', sharp: 'Scharf', low: 'Sparmodus' }[q] || q;
+      else if (X && code === X.FULL) nm = base + ' (voll)';
+      else nm = base + ' ' + (X ? X.pretty(code) : code) + (X && code === X.POWERVR ? ' (PowerVR-Start)' : '');
       var sh = (R3.Q && R3.Q.shadows) ? 'echt' : (G.R3S && G.R3S.wanted && G.R3S.wanted() ? 'Ersatz' : 'aus');
       return 'Aktiv: ' + nm + ' · Schatten ' + sh + ' · Bild ' + inf.buf[0] + '×' + inf.buf[1];
     } catch (e) { return ''; }
