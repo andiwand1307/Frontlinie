@@ -15,6 +15,10 @@
  *   NEUT, GARR, BH, SCALE, INF, neutralShown(e, P, fogOff), nst(id), rs (Map je Einheit), addWreck(w), muzzleOf(src, out, tx, tz, barrel)
  *   W11: Gebäude-Modelle (außer Mauer) sind an x gespiegelt (mirrorModel, M.mir/M.mirA) – Fronten zeigen nach Süd + West (Kamera YAW = −π/4)
  *   deployEvt(e), fill(S, alpha, dt, selSet), flush(), reset(), getFlagModel(), ruinModel(w, h)
+ *   Bewegung (Abschnitt „Bewegung“ vor fill()): Bodenfahrzeuge hängen an einer gefederten Basis (Nicken beim Anfahren/Bremsen, Wanken in Kurven,
+ *   Rückstoß, Trefferruck, Geländeneigung; vehDyn + Batch.putM/putMS), Infanterie hat das Zusatzteil 'leg' (M.xparts.leg, infLegs; Schritt/Knien/Fallen:
+ *   drawInf/drawFall, Wrack-Art 'fall'). Zustand je Einheit in rs (vf, yr, pv/pw, rl/rw, gp, steer, mv, kn, fc, hitT/hitK – hitT setzt r3-fx.js).
+ *   Alles nur aus lesbarem Sim-Zustand + dt abgeleitet; dt = 0 (Pause) → Stillstand.
  * Konventionen: siehe docs/RENDER_MODULES.md (Oberflächen/Metall, Glühen/Bloom, Teile-Namen).
  */
 var G = (typeof G !== 'undefined') ? G : {};
@@ -367,10 +371,17 @@ var G = (typeof G !== 'undefined') ? G : {};
     for (var i = 0; i < zs.length; i++) M.xp.push({ p: 'trk', x: 0, y: y, z: zs[i], k: 'trk', pitch: o.pitch || 0.065 });
   }
 
+  /** Bewegung: ein Bein (Hüfte im Ursprung, hängt nach unten) – als Zusatzteil 'leg' zweimal je Soldat gezeichnet (Schrittbewegung in fill()). */
+  function infLegs(M, P, k, colL, colB) {
+    k = k || 1;
+    var lb = new MB();
+    lb.pbox(colL || P.cloth, 0.055 * k, 0.13 * k, 0.058 * k, 0.003, -0.13 * k, 0).pbox(colB || P.dark, 0.085 * k, 0.035 * k, 0.066 * k, 0.027, -0.13 * k, 0);
+    M.xparts.leg = lb.geo(false); M.legY = 0.13 * k; M.legZ = 0.04 * k;
+    M.xp = [{ p: 'leg', k: 'leg', x: 0, y: M.legY, z: M.legZ }, { p: 'leg', k: 'leg', x: 0, y: M.legY, z: -M.legZ }];   // (auch für das Seitenleisten-Symbol)
+  }
   function soldier(b, P, T, fac, kind) {
     var syn = fac === 'syndicate', rocket = kind === 'rocket';
-    b.pbox(P.cloth, 0.055, 0.13, 0.058, -0.004, 0.0, 0.04).pbox(P.cloth, 0.055, 0.13, 0.058, 0.01, 0.0, -0.04);         // Beine
-    b.pbox(P.dark, 0.085, 0.035, 0.066, 0.02, 0, 0.04).pbox(P.dark, 0.085, 0.035, 0.066, 0.034, 0, -0.04);              // Stiefel
+    // Bewegung: Beine + Stiefel sind ein eigenes Teil (infLegs), damit sie laufen/knien können
     b.pbox(T.teamD, 0.07, 0.03, 0.15, 0.0, 0.115, 0);                                                                // Gürtel
     b.box(P.cloth, 0.1, 0.15, 0.15, 0, 0.125, 0).pbox(T.team, 0.104, 0.1, 0.12, 0.002, 0.15, 0);                      // Torso + Weste in Teamfarbe
     b.pbox(syn ? P.body2 : P.pan, 0.106, 0.02, 0.124, 0.002, 0.2, 0);                                               // Kragen/Streifen
@@ -410,7 +421,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     var b, t, r, g, i;
     if (type === 'rifle' || type === 'rocket') {
       b = new MB(); soldier(b, P, T, fac, type);
-      M.parts.hull = b.geo(false); M.muzzle = type === 'rocket' ? [0.3, 0.3] : [0.35, 0.215]; M.h = 0.36;
+      M.parts.hull = b.geo(false); M.muzzle = type === 'rocket' ? [0.3, 0.3] : [0.35, 0.215]; M.h = 0.36; infLegs(M, P);
     } else if (type === 'tank') {
       b = new MB(); t = new MB(); r = new MB(); g = new MB();
       if (!syn) {                                                      // Koalition: flacher, eckiger Kampfpanzer mit Seitenschürzen
@@ -570,7 +581,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       b.box('#c2410c', 0.14, 0.1, 0.07, 0.07, 0.04, 0.14).pbox(P.dark, 0.06, 0.016, 0.026, 0.07, 0.14, 0.14).pbox(T.teamL, 0.145, 0.02, 0.072, 0.07, 0.09, 0.14); // Werkzeugkoffer
       b.pbox(P.cloth, 0.12, 0.045, 0.045, 0.045, 0.21, 0.1, -0.2).pbox(P.cloth, 0.12, 0.045, 0.045, 0.05, 0.2, -0.08, 0.3);
       b.cyl('#c8ced3', 0.014, 0.014, 0.2, 5, -0.12, 0.2, -0.04).pbox('#c8ced3', 0.05, 0.026, 0.02, -0.12, 0.4, -0.04).cyl('#c8ced3', 0.02, 0.02, 0.03, 6, -0.12, 0.4, -0.04);   // Rucksack + Schraubenschlüssel
-      M.parts.hull = b.geo(false); M.muzzle = [0.1, 0.17]; M.h = 0.4;
+      M.parts.hull = b.geo(false); M.muzzle = [0.1, 0.17]; M.h = 0.4; infLegs(M, P);
       return M;
     }
     if (type === 'howitzer') {
@@ -1330,7 +1341,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       b.add(new THREE.CircleGeometry(0.016, 8), P.glass, 0.206, 0.252, 0.075, Math.PI / 2);
       b.pbox(P.dark, 0.012, 0.1, 0.012, 0.33, 0.11, 0.09, 0, 0, -0.35).pbox(P.dark, 0.012, 0.1, 0.012, 0.33, 0.11, 0.06, 0, 0, -0.35);                    // Zweibein (eingeklappt schräg)
       armsAim(b, P);
-      M.parts.hull = b.geo(false); M.muzzle = [0.43, 0.217]; M.h = 0.36;
+      M.parts.hull = b.geo(false); M.muzzle = [0.43, 0.217]; M.h = 0.36; infLegs(M, P);
       return M;
     }
     if (type === 'flamer') {                                           // Syndikat: Schutzmaske, zwei Brennstofftanks auf dem Rücken, Schlauch, Strahlrohr mit Zündflamme
@@ -1348,7 +1359,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       b.cylX(P.metal, 0.016, 0.02, 0.13, 6, 0.21, 0.2, 0.08).cylX(P.dark, 0.024, 0.024, 0.03, 6, 0.285, 0.2, 0.08);
       g.ico('#ffa230', 0.02, 0.31, 0.2, 0.08, 1.3, 0.8, 0.8).ico('#ffe08a', 0.011, 0.312, 0.2, 0.08);                                                       // Zündflamme
       armsAim(b, P);
-      M.parts.hull = b.geo(false); M.parts.glow = g.geo(false); M.muzzle = [0.32, 0.2]; M.h = 0.36; M.pilot = true;
+      M.parts.hull = b.geo(false); M.parts.glow = g.geo(false); M.muzzle = [0.32, 0.2]; M.h = 0.36; M.pilot = true; infLegs(M, P);
       return M;
     }
     if (type === 'medic') {                                            // beide Fraktionen: weißer Helm, weißer Sanitätsrucksack mit Kreuz, Verbandskoffer in der Hand
@@ -1362,7 +1373,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       b.pbox(wh, 0.08, 0.03, 0.03, 0.0, 0.228, 0.106).pbox(MEDX, 0.03, 0.03, 0.006, 0.0, 0.228, 0.122);                                                    // Armbinde
       b.pbox(P.cloth, 0.045, 0.12, 0.045, 0.01, 0.12, 0.1).pbox(P.cloth, 0.12, 0.045, 0.045, 0.06, 0.2, -0.07, 0.45);                                      // Arme
       b.box(wh, 0.09, 0.07, 0.04, 0.03, 0.05, 0.13).pbox(MEDX, 0.03, 0.01, 0.042, 0.03, 0.08, 0.13).pbox(MEDX, 0.01, 0.03, 0.042, 0.03, 0.07, 0.13).pbox(P.dark, 0.04, 0.012, 0.012, 0.03, 0.12, 0.13);
-      M.parts.hull = b.geo(false); M.muzzle = [0.1, 0.2]; M.h = 0.36;
+      M.parts.hull = b.geo(false); M.muzzle = [0.1, 0.2]; M.h = 0.36; infLegs(M, P);
       return M;
     }
     if (type === 'apc') {                                              // Koalition: 8×8-Radpanzer, kleiner MK-Turm, Heckrampe
@@ -2287,6 +2298,16 @@ var G = (typeof G !== 'undefined') ? G : {};
     e[o + 12] = x; e[o + 13] = y; e[o + 14] = z; e[o + 15] = 1;
     var ca = this.mesh.instanceColor.array; ca[i * 3] = r; ca[i * 3 + 1] = g; ca[i * 3 + 2] = b;
   };
+  /** Bewegung: wie putM, mit ungleichmäßiger Skalierung je lokaler Achse (Ladung des Sammlers auf geneigter Wanne). */
+  Batch.prototype.putMS = function (x, y, z, b9, sx, sy, sz, r, g, b) {
+    if (this.n >= this.cap) this.make(this.cap * 2);
+    var i = this.n++, e = this.mesh.instanceMatrix.array, o = i * 16;
+    e[o] = b9[0] * sx; e[o + 1] = b9[1] * sx; e[o + 2] = b9[2] * sx; e[o + 3] = 0;
+    e[o + 4] = b9[3] * sy; e[o + 5] = b9[4] * sy; e[o + 6] = b9[5] * sy; e[o + 7] = 0;
+    e[o + 8] = b9[6] * sz; e[o + 9] = b9[7] * sz; e[o + 10] = b9[8] * sz; e[o + 11] = 0;
+    e[o + 12] = x; e[o + 13] = y; e[o + 14] = z; e[o + 15] = 1;
+    var ca = this.mesh.instanceColor.array; ca[i * 3] = r; ca[i * 3 + 1] = g; ca[i * 3 + 2] = b;
+  };
   /** Teil mit eigenem Drehpunkt q (Rumpfkoordinaten, in Ruhestellung gebaut) und Endbasis bf; Rumpf (x, y, z, bh, s). */
   function putPiv(bt, x, y, z, bh, bf, qx, qy, qz, s, cr, cg, cb) {
     var ax = (bh[0] - bf[0]) * qx + (bh[3] - bf[3]) * qy + (bh[6] - bf[6]) * qz, ay = (bh[1] - bf[1]) * qx + (bh[4] - bf[4]) * qy + (bh[7] - bf[7]) * qz, az = (bh[2] - bf[2]) * qx + (bh[5] - bf[5]) * qy + (bh[8] - bf[8]) * qz;
@@ -2629,7 +2650,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     var M = { parts: {}, xparts: {}, xp: [], pivot: [0, 0], recoil: 0.05, muzzle: [0.45, 0.3], h: 0.5, k10: true };
     if (type === 'psiadept' || type === 'brute') {
       var k = type === 'brute' ? 1.35 : 1;
-      b.pbox(P.cloth, 0.06 * k, 0.13 * k, 0.06 * k, 0, 0, 0.04 * k).pbox(P.cloth, 0.06 * k, 0.13 * k, 0.06 * k, 0, 0, -0.04 * k);
+      infLegs(M, P, k);   // Bewegung: Beine als eigenes Teil
       b.box(T.team, 0.11 * k, 0.15 * k, 0.16 * k, 0, 0.12 * k, 0).ico(P.helm, 0.055 * k, 0.01, 0.31 * k, 0);
       if (type === 'psiadept') { b.add(new THREE.TorusGeometry(0.09, 0.012, 5, 14), K10_GLOWC, 0, 0.4, 0, 0, Math.PI / 2, 0); b.ico(K10_GLOWC, 0.022, 0.05, 0.31, 0); }
       else { b.ico(P.body2, 0.05, 0.03, 0.2 * k, 0.12 * k).ico(P.body2, 0.05, 0.03, 0.2 * k, -0.12 * k); }
@@ -3194,6 +3215,97 @@ var G = (typeof G !== 'undefined') ? G : {};
     void S; void i;
   }
 
+  // ================================================================== Bewegung: Fahrwerk (Nicken/Wanken/Rückstoß), Infanterie (Schritt/Knien/Fallen)
+  // Alles rein aus dem lesbaren Zustand abgeleitet: Positionsdifferenzen je Bild (→ Tempo, Beschleunigung, Gierrate), e.fireT (Schuss),
+  // r.hitT (Treffer, setzt r3-fx.js aus den hit-/shot-Ereignissen). Zustand je Einheit in rs (Felder vf, yr, pv/pw, rl/rw, gp, mv, kn, fc …).
+  // dt = 0 (Pause) → nichts ändert sich. Keine zusätzlichen Zeichenaufrufe außer dem Teil 'leg' je Infanterie-Typ/Besitzer.
+  var BVh = [1, 0, 0, 0, 1, 0, 0, 0, 1], BVt = [1, 0, 0, 0, 1, 0, 0, 0, 1], BVx = [1, 0, 0, 0, 1, 0, 0, 0, 1], BVy = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+  var VKICK = { cannon: 2.3, rocket: 1.0, bullet: 0.42, flak: 0.5, sniper: 0.5 };
+  var IKICK = { rocket: 0.2, sniper: 0.15, rifle: 0.08, brute: -0.3, flamer: 0.04 }, NOKNEEL = { brute: 1, psiadept: 1, engineer: 1, medic: 1 };
+  /** Einmal je Modell: Weichheit des Fahrwerks, Rückstoß-Stärke (aus Waffe/Radius der Daten). */
+  function dynInit(M, e, fac) {
+    var ud = D.UNITS[e.type] || {}, st = ud[fac] || ud.coalition || ud.syndicate || ud.kollektiv || {}, w = st.weapon, rad = ud.radius || 11;
+    M.soft = M.mcv ? 0.35 : (rad <= 10 ? 1.3 : (rad >= 13 ? 0.7 : 0.95));
+    M.kick = w ? (VKICK[w.type] || 0) * ((w.dmg >= 80 || w.range >= 7) ? 1.3 : 1) : 0;
+    M.wfreq = rad >= 13 ? 10 : 13;
+    M.dyn = true;
+  }
+  /** Rohrrücklauf: schlägt in ~0,6 Ticks zurück, läuft weich wieder vor (fa in Ticks seit dem Schuss, n = Dauer). */
+  function rcl(fa, n) { if (fa < 0.6) return fa / 0.6; var q = 1 - (fa - 0.6) / (n - 0.6); return q > 0 ? q * q : 0; }
+  function angd(a) { while (a > Math.PI) a -= 6.283185307; while (a < -Math.PI) a += 6.283185307; return a; }
+  /** Fahrwerk je Bild fortschreiben (dt > 0): Tempo/Beschleunigung/Gierrate aus der Bewegung, gedämpfte Federn für Nicken und Wanken. */
+  function vehDyn(e, r, M, x, z, cd, sd, dt, tick, hov) {
+    var ddx = x - r.lx, ddz = z - r.lz, dfw = ddx * cd + ddz * sd, sp = 0;
+    r.lx = x; r.lz = z;
+    if (ddx * ddx + ddz * ddz < 1) { r.trk += dfw; sp = dfw / dt; }
+    var v0 = r.vf; r.vf = v0 + (sp - v0) * Math.min(1, dt * 7);
+    var acc = (r.vf - v0) / dt, av = Math.min(1, Math.abs(r.vf));
+    r.yr += (angd(r.dir - r.ld) / dt - r.yr) * Math.min(1, dt * 6); r.ld = r.dir;
+    var soft = M.soft * (hov ? 1.5 : 1);
+    var pt = clamp(acc * 0.0115 * soft, -0.16, 0.16) + Math.sin(r.trk * 9 + r.p0) * 0.013 * av * soft;
+    var rt = clamp(-r.yr * r.vf * 0.022 * soft, -0.13, 0.13) + Math.sin(r.trk * 6.1 + r.p0 * 2) * 0.016 * av * soft;
+    if (hov) { pt += 0.035 * Math.sin(R.t * 1.6 + r.p0); rt += 0.04 * Math.sin(R.t * 1.25 + r.p0 * 1.7); }
+    if (e.fireT !== r.lf) {              // Schuss: Wanne nickt vom Rohr weg
+      r.lf = e.fireT;
+      if (tick - e.fireT < 4 && M.kick) { var da = (M.how ? r.dir + (r.tdir - r.dir) * r.dep : r.tdir) - r.dir, kj = M.kick * (0.6 + 0.4 * soft); r.pw += Math.cos(da) * kj; r.rw -= Math.sin(da) * kj * 1.2; }
+    }
+    if (r.hitT !== r.lh) { r.lh = r.hitT; r.pw += (rnd() - 0.5) * 1.3 * soft * r.hitK; r.rw += (rnd() - 0.5) * 1.9 * soft * r.hitK; }   // Treffer: kurzer Ruck
+    var n = dt > 0.034 ? 3 : 1, h = dt / n, w2 = M.wfreq * M.wfreq, dc = 0.8 * M.wfreq, i;
+    for (i = 0; i < n; i++) {
+      r.pw += ((pt - r.pv) * w2 - r.pw * dc) * h; r.pv += r.pw * h;
+      r.rw += ((rt - r.rl) * w2 - r.rw * dc) * h; r.rl += r.rw * h;
+    }
+    r.pv = clamp(r.pv, -0.17, 0.17); r.rl = clamp(r.rl, -0.15, 0.15);
+    r.steer += (clamp(r.yr * 0.3, -0.5, 0.5) * av - r.steer) * Math.min(1, dt * 10);
+    if (sp !== 0 || r.gp !== r.gp) {     // Geländeneigung (Brückenrampen, Ufer) entlang der Fahrtrichtung
+      var L = 0.32, gt = Math.atan2(groundAt(x + cd * L, z + sd * L) - groundAt(x - cd * L, z - sd * L), 2 * L);
+      r.gp = r.gp !== r.gp ? gt : r.gp + (clamp(gt, -0.3, 0.3) - r.gp) * Math.min(1, dt * 9);
+    }
+  }
+  /** Infanterist zeichnen: Rumpf lehnt sich in den Schritt, Beine schwingen (Schrittlänge = Weg), kniet beim Feuern im Stand, Rückstoß, Trefferblitz. */
+  function drawInf(e, M, r, x, y, z, s, dt, tick, alpha) {
+    var own = e.owner, type = e.type, fa = tick - e.fireT + alpha, firing = fa < 25;
+    if (dt > 0) {
+      var ddx = x - r.lx, ddz = z - r.lz, d2 = ddx * ddx + ddz * ddz, d = d2 < 0.25 ? Math.sqrt(d2) : 0, mt = d > dt * 0.12 ? 1 : 0;
+      r.lx = x; r.lz = z; r.ph += d * 11.5;
+      r.mv += (mt - r.mv) * Math.min(1, dt * 9);
+      var kt = (!mt && fa < 70 && !NOKNEEL[type]) ? 1 : 0;
+      r.kn += (kt - r.kn) * Math.min(1, dt * (kt ? 10 : 5));
+      r.fc = lerpAng(r.fc, firing ? r.tdir : r.dir, Math.min(1, dt * 13));
+    }
+    var mv = r.mv, kn = r.kn, idle = (1 - mv) * (1 - kn), sw = Math.sin(r.ph) * 0.72 * mv;
+    var ik = IKICK[type] == null ? 0.05 : IKICK[type], kick = fa < 6 ? ik * (1 - fa / 6) : 0;
+    var yaw = r.fc + idle * 0.2 * Math.sin(R.t * 0.55 + r.p0), pit = -0.14 * mv - 0.08 * kn + kick, roll = Math.sin(r.ph) * 0.06 * mv;
+    var by = y + (Math.abs(Math.cos(r.ph)) * 0.02 * mv - 0.068 * kn + idle * 0.004 * Math.sin(R.t * 2.1 + r.p0)) * s;
+    var hf = R.t - r.hitT, c = hf < 0.14 ? 1 + 0.6 * Math.min(1, r.hitK * 2) * (1 - hf / 0.14) : 1;
+    basis(BVh, yaw, pit, roll);
+    partBatch('u', type, own, 'hull', M).putM(x, by, z, BVh, s, c, c, c);
+    if (M.parts.glow) {   // W10: Zündflamme (Flammenwerfer) flackert, beim Feuern hell
+      var pg = M.pilot ? (firing && fa < 6 ? 2.2 : 0.9 + 0.35 * Math.sin(R.t * 23 + r.ph) * Math.sin(R.t * 7.1)) : 1;
+      partBatch('u', type, own, 'glow', M).putM(x, by, z, BVh, s, pg, pg, pg);
+    }
+    if (M.xparts.leg) {
+      var lb = partBatch('u', type, own, 'leg', M), a1 = sw * (1 - kn) + 0.95 * kn, a2 = -sw * (1 - kn) - 1.15 * kn;
+      basis(BVt, yaw, 0, 0);
+      lv(BVh, 0, M.legY, M.legZ, s); spinZ(BVx, BVt, a1); lb.putM(x + P8[0], by + P8[1], z + P8[2], BVx, s, c, c, c);
+      lv(BVh, 0, M.legY, -M.legZ, s); spinZ(BVx, BVt, a2); lb.putM(x + P8[0], by + P8[1], z + P8[2], BVx, s, c, c, c);
+    }
+  }
+  /** Gefallener Infanterist (Wrack-Art 'fall'): kippt um, bleibt kurz liegen, versinkt. */
+  function drawFall(w, wa) {
+    var M = model(w.type, w.fac, w.color), s = SCALE[w.type] || 1, f = Math.min(1, wa / 0.36), ang = 1.5 * f * f;
+    if (wa > 0.36 && wa < 0.6) ang -= 0.13 * Math.sin((wa - 0.36) / 0.24 * Math.PI);
+    var snk = wa > w.life - 1.3 ? (wa - (w.life - 1.3)) / 1.3 : 0, dk = 1 - 0.5 * Math.min(1, wa / 1.2);
+    var y = groundAt(w.x, w.z) + (0.05 * f * f - snk * 0.16) * s;
+    basis(BVh, w.dir, ang * (w.side || 1), 0);
+    partBatch('u', w.type, w.owner, 'hull', M).putM(w.x, y, w.z, BVh, s, dk, dk, dk);
+    if (M.xparts.leg) {
+      var lb = partBatch('u', w.type, w.owner, 'leg', M);
+      lv(BVh, 0, M.legY, M.legZ, s); spinZ(BVx, BVh, 0.3 * f); lb.putM(w.x + P8[0], y + P8[1], w.z + P8[2], BVx, s, dk, dk, dk);
+      lv(BVh, 0, M.legY, -M.legZ, s); spinZ(BVx, BVh, -0.2 * f); lb.putM(w.x + P8[0], y + P8[1], w.z + P8[2], BVx, s, dk, dk, dk);
+    }
+  }
+
   // ------------------------------------------------------------------ Szene füllen
   var scaffold = null;
   function ensureAux() {
@@ -3210,7 +3322,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     if (bt && bt.mesh.parent) return bt;
     // v0.8 PowerVR (fixedBuf): großzügige Startkapazität, damit Batches im Spiel praktisch nie wachsen (jedes Wachstum = neuer GPU-Puffer)
     var fb = (R.F || {}).fixedBuf;
-    bt = batch(kind + (M.mkey || type + (M.lo ? '~' : '')) + ':' + owner + ':' + part, function () { return M.parts[part] || M.xparts[part]; }, partMat(part), kind === 'u' ? (fb ? 96 : 24) : (fb ? 24 : 8));
+    bt = batch(kind + (M.mkey || type + (M.lo ? '~' : '')) + ':' + owner + ':' + part, function () { return M.parts[part] || M.xparts[part]; }, partMat(part), kind === 'u' ? (fb ? 96 : 24) : (fb ? 24 : 8), part === 'leg' ? false : undefined);   // Bewegung: Beine werfen keinen eigenen Schatten (spart den Zeichenaufruf im Schattendurchgang)
     by[part] = bt;
     return bt;
   }
@@ -3309,7 +3421,12 @@ var G = (typeof G !== 'undefined') ? G : {};
       if (e.owner !== pid && !fogOff && !G.Sim.isVisible(pid, e)) continue;
       x = (e.px + (e.x - e.px) * alpha) / TILE; z = (e.py + (e.y - e.py) * alpha) / TILE;
       var r = rs.get(e.id);
-      if (!r) { r = { dir: e.dir || 0, tdir: e.tdir || 0, dust: 0, ph: hash(e.id, 1, 2) * 6.28, dep: e.moving ? 0 : 1, wasDep: 1, b0: -1e9, b1: -1e9, trk: 0, lx: x, lz: z }; rs.set(e.id, r); }
+      if (!r) {
+        r = { dir: e.dir || 0, tdir: e.tdir || 0, dust: 0, ph: hash(e.id, 1, 2) * 6.28, dep: e.moving ? 0 : 1, wasDep: 1, b0: -1e9, b1: -1e9, trk: 0, lx: x, lz: z,
+          // Bewegung: Fahrwerk/Schritt (siehe vehDyn/drawInf)
+          p0: hash(e.id, 4, 9) * 6.28, vf: 0, yr: 0, ld: e.dir || 0, pv: 0, pw: 0, rl: 0, rw: 0, gp: NaN, steer: 0, lf: e.fireT, hitT: -1e9, hitK: 1, lh: -1e9, mv: 0, kn: 0, fc: e.dir || 0 };
+        rs.set(e.id, r);
+      }
       r.dir = lerpAng(r.dir, e.dir, kr); r.tdir = lerpAng(r.tdir, e.tdir || 0, Math.min(1, dt * 14));
       Pm = S.players[e.owner]; M = model(e.type, e.fac || Pm.faction, Pm.color); s = SCALE[e.type] || 1;   // v1.0: Herkunftsfraktion, Farbe = Besitzer
       if (e.mcBy || e.magT > tick) k10Link(e, x, z, alpha, tick, selRing, pid, fogOff);   // v1.0 Gedankenkontrolle / Magnet (PLATZHALTER v1.0)
@@ -3318,82 +3435,91 @@ var G = (typeof G !== 'undefined') ? G : {};
       if (e.pc === 4) y = Math.max(y, WL8 + 0.02) + 0.06 + 0.03 * Math.sin(R.t * 3 + e.id);   // v1.0 Schwebepanzer schwebt (auch über Wasser)
       if (e.magT > tick) y += 0.25 + 0.06 * Math.sin(R.t * 9);                             // v1.0 vom Magnet angehoben
       var hfu = e.hp / e.maxHp;
-      if (INF[e.type]) {
-        var firing = tick - e.fireT < 25, face = firing ? r.tdir : r.dir, bob = 0, sq = 1;
-        if (e.moving) { r.ph += dt * 13; bob = Math.abs(Math.sin(r.ph)) * 0.035; sq = 1 + Math.sin(r.ph * 2) * 0.04; }
-        partBatch('u', e.type, e.owner, 'hull', M).put(x, y + bob, z, face, s, s * sq, s, 1, 1, 1);
-        if (M.parts.glow) {   // W10: Zündflamme (Flammenwerfer) flackert, beim Feuern hell
-          var pg = M.pilot ? (firing && tick - e.fireT < 6 ? 2.2 : 0.9 + 0.35 * Math.sin(R.t * 23 + r.ph) * Math.sin(R.t * 7.1)) : 1;
-          partBatch('u', e.type, e.owner, 'glow', M).put(x, y + bob, z, face, s, s * sq, s, pg, pg, pg);
-        }
+      if (INF[e.type]) {   // Bewegung: Schritt, Knien, Rückstoß (drawInf)
+        drawInf(e, M, r, x, y, z, s, dt, tick, alpha);
         if (selSet[e.id]) selRing.put(x, y + 0.03, z, 0, 0.24, 1, 0.24, 0.6, 1, 0.6);
         continue;
       }
-      partBatch('u', e.type, e.owner, 'hull', M).put(x, y, z, r.dir, s, s, s, 1, 1, 1);
-      if (M.mcv) craneDraw(M, e.owner, x, y, z, r.dir, 0);
-      var cd = Math.cos(r.dir), sd = Math.sin(r.dir);
-      if ((M.xp && M.xp.length) || M.parts.glow) {   // Räder drehen, Kettenstollen laufen (zurückgelegter Weg entlang der Fahrtrichtung), Lichter
-        var ddx = x - r.lx, ddz = z - r.lz, dfw = ddx * Math.cos(r.dir) + ddz * Math.sin(r.dir);
-        if (ddx * ddx + ddz * ddz < 1) r.trk += dfw;
-        r.lx = x; r.lz = z;
-        if (M.parts.glow) partBatch('u', e.type, e.owner, 'glow', M).put(x, y, z, r.dir, s, s, s, 1, 1, 1);
-        for (var xi = 0; M.xp && xi < M.xp.length; xi++) {
-          var xe = M.xp[xi], xbt = partBatch('u', e.type, e.owner, xe.p, M), xl = xe.x, wxp, wzp;
-          if (xe.k === 'trk') { var pch = xe.pitch * s; xl = xe.x + ((((r.trk % pch) + pch) % pch) / s); }
-          wxp = x + (cd * xl - sd * xe.z) * s; wzp = z + (sd * xl + cd * xe.z) * s;
-          if (xe.k === 'wheel') xbt.putPS(wxp, y + xe.y * s, wzp, r.dir, -r.trk / (xe.r * s), s, 1, 1, 1);
-          else xbt.put(wxp, y + xe.y * s, wzp, r.dir, s, s, s, 1, 1, 1);
-        }
-      }
-      var pxp = x + (cd * M.pivot[0] - sd * M.pivot[1]) * s, pzp = z + (sd * M.pivot[0] + cd * M.pivot[1]) * s;
+      // Bewegung: Wanne auf gefedertem Fahrwerk (Basis BVh = Gieren + Nicken + Wanken), alle Teile hängen an dieser Basis
+      var cd = Math.cos(r.dir), sd = Math.sin(r.dir), own = e.owner, typ = e.type, hov = e.pc === 4;
+      if (!M.dyn) dynInit(M, e, e.fac || Pm.faction);
+      if (dt > 0) vehDyn(e, r, M, x, z, cd, sd, dt, tick, hov);
+      var fa = tick - e.fireT + alpha, hfl = R.t - r.hitT, hc = hfl < 0.14 ? 1 + 0.5 * r.hitK * (1 - hfl / 0.14) : 1;
+      var pitv = r.pv + (r.gp === r.gp ? r.gp : 0), rolv = r.rl;
+      if (M.exhaust && r.vf < 0.05 && r.vf > -0.05) { y += 0.005 * Math.sin(R.t * 41 + r.p0) * s; rolv += 0.006 * Math.sin(R.t * 37 + r.p0); }   // Leerlauf: Motor zittert
+      y += (Math.abs(r.pv) * 0.3 + Math.abs(rolv) * 0.2) * s;
       var tyaw = r.tdir;
       if (M.how) {            // Haubitze: stehend aufbauen (Rohr hebt sich, Sporne senken sich), in Fahrt einklappen
         if (e.moving) r.dep = Math.max(0, r.dep - dt * 2.2); else r.dep = Math.min(1, r.dep + dt);
         var dpS = r.dep * r.dep * (3 - 2 * r.dep);
         tyaw = lerpAng(r.dir, r.tdir, dpS);
+      }
+      if (fa < 12 && M.kick) { var ko = M.kick * 0.022 * s * Math.exp(-fa * 0.45) * Math.min(1, fa * 2); x -= Math.cos(tyaw) * ko; z -= Math.sin(tyaw) * ko; }   // Rückstoß schiebt das Fahrzeug kurz zurück
+      basis(BVh, r.dir, pitv, rolv);
+      partBatch('u', typ, own, 'hull', M).putM(x, y, z, BVh, s, hc, hc, hc);
+      if (M.mcv) craneDraw(M, own, x, y, z, r.dir, 0);
+      if (M.parts.glow) partBatch('u', typ, own, 'glow', M).putM(x, y, z, BVh, s, 1, 1, 1);
+      for (var xi = 0; M.xp && xi < M.xp.length; xi++) {   // Räder drehen (und lenken vorn), Kettenstollen laufen (zurückgelegter Weg entlang der Fahrtrichtung)
+        var xe = M.xp[xi], xbt = partBatch('u', typ, own, xe.p, M), xl = xe.x;
+        if (xe.k === 'trk') { var pch = xe.pitch * s; xl = xe.x + ((((r.trk % pch) + pch) % pch) / s); }
+        lv(BVh, xl, xe.y, xe.z, s);
+        if (xe.k === 'wheel') {
+          if (xe.x > 0.1 && r.steer) { spinY(BVy, BVh, -r.steer); spinZ(BVx, BVy, -r.trk / (xe.r * s)); } else spinZ(BVx, BVh, -r.trk / (xe.r * s));
+          xbt.putM(x + P8[0], y + P8[1], z + P8[2], BVx, s, hc, hc, hc);
+        } else xbt.putM(x + P8[0], y + P8[1], z + P8[2], BVh, s, hc, hc, hc);
+      }
+      lv(BVh, M.pivot[0], 0, M.pivot[1], s);
+      var pxp = x + P8[0], pyp = y + P8[1], pzp = z + P8[2];
+      spinY(BVt, BVh, r.dir - tyaw);
+      if (M.how) {
         if (r.dep >= 1 && r.wasDep < 1 && inView(x, z)) { dust(x - cd * 0.55, y, z - sd * 0.55, 0.9); }
         r.wasDep = r.dep;
-        partBatch('u', e.type, e.owner, 'turret', M).put(pxp, y, pzp, tyaw, s, s, s, 1, 1, 1);
-        var hfa = tick - e.fireT + alpha, hrc = hfa < 9 ? M.recoil * s * (1 - hfa / 9) : 0, hpit = HOW_TRAVEL + (HOW_EL - HOW_TRAVEL) * dpS, hcp = Math.cos(hpit), cty = Math.cos(tyaw), sty = Math.sin(tyaw);
-        partBatch('u', e.type, e.owner, 'barrel', M).putP(pxp + cty * M.trun[0] * s - cty * hcp * hrc, y + M.trun[1] * s - Math.sin(hpit) * hrc, pzp + sty * M.trun[0] * s - sty * hcp * hrc, tyaw, hpit, 1, 1, 1);
-        partBatch('u', e.type, e.owner, 'spades', M).putP(x + cd * M.spadeAt[0] * s, y + M.spadeAt[1] * s, z + sd * M.spadeAt[0] * s, r.dir, -1.0 * (1 - dpS), 1, 1, 1);
+        partBatch('u', typ, own, 'turret', M).putM(pxp, pyp, pzp, BVt, s, hc, hc, hc);
+        var hrc = fa < 11 ? M.recoil * s * rcl(fa, 11) * 1.25 : 0, hpit = HOW_TRAVEL + (HOW_EL - HOW_TRAVEL) * dpS;
+        spinZ(BVx, BVt, hpit); lv(BVt, M.trun[0], M.trun[1], 0, s);
+        partBatch('u', typ, own, 'barrel', M).putM(pxp + P8[0] - BVx[0] * hrc, pyp + P8[1] - BVx[1] * hrc, pzp + P8[2] - BVx[2] * hrc, BVx, s, hc, hc, hc);
+        spinZ(BVx, BVh, -1.0 * (1 - dpS)); lv(BVh, M.spadeAt[0], M.spadeAt[1], 0, s);
+        partBatch('u', typ, own, 'spades', M).putM(x + P8[0], y + P8[1], z + P8[2], BVx, s, hc, hc, hc);
       } else {
-        if (M.parts.turret) partBatch('u', e.type, e.owner, 'turret', M).put(pxp, y, pzp, r.tdir, s, s, s, 1, 1, 1);
+        if (M.parts.turret) partBatch('u', typ, own, 'turret', M).putM(pxp, pyp, pzp, BVt, s, hc, hc, hc);
         if (M.parts.tglow) {   // W10: Glühteile am Turm (Laserlinse / Blitzspule): Grundglühen + Aufblitzen beim Schuss (nst.v5T aus R3F)
           var tst = nst(e.id), tsince = R.t - tst.v5T, tfl = tsince < 0.6 ? Math.exp(-tsince * 6) : 0, tgn;
           if (M.tg === 'tesla') tgn = 0.85 + 0.35 * Math.sin(R.t * 9 + r.ph) * Math.sin(R.t * 5.3) + tfl * 2.2;
           else tgn = 0.95 + 0.25 * Math.sin(R.t * 2.4 + r.ph) + tfl * 2.4;
-          partBatch('u', e.type, e.owner, 'tglow', M).put(pxp, y, pzp, r.tdir, s, s, s, tgn, tgn, tgn);
+          partBatch('u', typ, own, 'tglow', M).putM(pxp, pyp, pzp, BVt, s, tgn, tgn, tgn);
           if (M.tg === 'tesla' && rnd() < dt * 5 * (R.safeGPU ? 0.4 : 1) && inView(x, z)) {   // Funken an der Elektrode
             var tsa = rnd() * 6.283;
             emit(0, pxp + Math.cos(tsa) * 0.05 * s, y + 0.84 * s, pzp + Math.sin(tsa) * 0.05 * s, Math.cos(tsa) * 0.4, 0.4 + rnd() * 0.5, Math.sin(tsa) * 0.4, 0.15 + rnd() * 0.1, 0.06, 0.02, 0.7, 0.85, 1, 1, 0.3, 0.4, 1, 0, -3);
           }
         }
         if (M.parts.barrel2) {   // Kolosspanzer: Zwillingsrohre mit eigenem Rückstoß (shot.barrel 0|1)
-          var ra0 = R.t - r.b0, ra1 = R.t - r.b1, rk0 = ra0 < 0.32 ? M.recoil * s * (1 - ra0 / 0.32) : 0, rk1 = ra1 < 0.32 ? M.recoil * s * (1 - ra1 / 0.32) : 0, ctd = Math.cos(r.tdir), std = Math.sin(r.tdir);
-          partBatch('u', e.type, e.owner, 'barrel', M).put(pxp - ctd * rk0, y, pzp - std * rk0, r.tdir, s, s, s, 1, 1, 1);
-          partBatch('u', e.type, e.owner, 'barrel2', M).put(pxp - ctd * rk1, y, pzp - std * rk1, r.tdir, s, s, s, 1, 1, 1);
+          var ra0 = (R.t - r.b0) * 15, ra1 = (R.t - r.b1) * 15, rk0 = ra0 < 9 ? M.recoil * s * rcl(ra0, 9) * 1.3 : 0, rk1 = ra1 < 9 ? M.recoil * s * rcl(ra1, 9) * 1.3 : 0;
+          partBatch('u', typ, own, 'barrel', M).putM(pxp - BVt[0] * rk0, pyp - BVt[1] * rk0, pzp - BVt[2] * rk0, BVt, s, hc, hc, hc);
+          partBatch('u', typ, own, 'barrel2', M).putM(pxp - BVt[0] * rk1, pyp - BVt[1] * rk1, pzp - BVt[2] * rk1, BVt, s, hc, hc, hc);
         } else if (M.parts.barrel) {
-          var fa = tick - e.fireT + alpha, rc = fa < 5 ? M.recoil * s * (1 - fa / 5) : 0;
-          partBatch('u', e.type, e.owner, 'barrel', M).put(pxp - Math.cos(r.tdir) * rc, y, pzp - Math.sin(r.tdir) * rc, r.tdir, s, s, s, 1, 1, 1);
+          var rc = fa < 8 ? M.recoil * s * rcl(fa, 8) * 1.3 : 0;
+          partBatch('u', typ, own, 'barrel', M).putM(pxp - BVt[0] * rc, pyp - BVt[1] * rc, pzp - BVt[2] * rc, BVt, s, hc, hc, hc);
         }
       }
       if (M.parts.cargo && e.cargo > 0) {
         var cf = clamp(e.cargo / 700, 0.08, 1);
-        partBatch('u', e.type, e.owner, 'cargo', M).put(x + cd * M.cargoAt[0] * s, y + M.cargoAt[1] * s, z + sd * M.cargoAt[0] * s, r.dir, s, s * cf, s, 1, 1, 1);
+        lv(BVh, M.cargoAt[0], M.cargoAt[1], 0, s);
+        partBatch('u', typ, own, 'cargo', M).putMS(x + P8[0], y + P8[1], z + P8[2], BVh, s, s * cf, s, hc, hc, hc);
       }
       if (selSet[e.id]) selRing.put(x, y + 0.03, z, 0, e.r / TILE * 1.25 + 0.06, 1, e.r / TILE * 1.25 + 0.06, 0.6, 1, 0.6);
       if (!inView(x, z)) continue;
-      if (e.moving && (r.dust += dt) > 0.12) { // Staub hinter Fahrzeugen
+      var cls = !F3.tier();   // Sprite-Stufen: Staubfahne und Schadensqualm kommen aus r3-fx.js (ambient) – hier nur die klassische Stufe
+      if (cls && e.moving && (r.dust += dt) > 0.12) { // Staub hinter Fahrzeugen
         r.dust = 0;
         emit(1, x - cd * 0.4 * s, y + 0.05, z - sd * 0.4 * s, -cd * 0.2, 0.15, -sd * 0.2, 0.9, 0.12, 0.4, 0.6, 0.55, 0.44, 0.4, 0.6, 0.55, 0.44, 0, 0, 1);
       }
-      if (M.exhaust && rnd() < dt * (e.moving ? 7 : 1.5) * (R.safeGPU ? 0.5 : 1)) {   // Abgasfahne aus dem Auspuff
-        var ex = M.exhaust[(rnd() * M.exhaust.length) | 0];
-        emit(1, x + (cd * ex[0] - sd * ex[2]) * s, y + ex[1] * s, z + (sd * ex[0] + cd * ex[2]) * s, -cd * 0.14, 0.32, -sd * 0.14, 0.7 + rnd() * 0.4, 0.03, 0.19, 0.3, 0.3, 0.3, 0.5, 0.42, 0.42, 0.42, 0, -0.12, 0.5);
+      var xacc = r.pv > 0.035 && e.moving ? 1 : 0;   // Bewegung: beim Anfahren (Bug hebt sich) dunkler, kräftiger Abgasstoß
+      if (M.exhaust && rnd() < dt * (e.moving ? 7 + 16 * xacc : 1.5) * (R.safeGPU ? 0.5 : 1)) {   // Abgasfahne aus dem Auspuff
+        var ex = M.exhaust[(rnd() * M.exhaust.length) | 0], xg = xacc ? 0.14 : 0.3;
+        emit(1, x + (cd * ex[0] - sd * ex[2]) * s, y + ex[1] * s, z + (sd * ex[0] + cd * ex[2]) * s, -cd * 0.14, 0.32 + 0.25 * xacc, -sd * 0.14, 0.7 + rnd() * 0.4, 0.03 + 0.02 * xacc, 0.19 + 0.12 * xacc, xg, xg, xg, 0.5 + 0.2 * xacc, 0.42, 0.42, 0.42, 0, -0.12, 0.5);
       }
-      if (hfu < 0.4 && rnd() < dt * 7) emit(1, x, y + M.h * s, z, 0.1, 0.5, 0.03, 1.6, 0.12, 0.5, 0.12, 0.12, 0.12, 0.7, 0.3, 0.3, 0.3, 0, 0, 0.4);
-      if (hfu < 0.2 && rnd() < dt * 8) emit(0, x, y + M.h * s * 0.8, z, 0, 0.5, 0, 0.3, 0.2, 0.06, 1, 0.6, 0.2, 1, 0.9, 0.2, 0.05, 0);
+      if (cls && hfu < 0.4 && rnd() < dt * 7) emit(1, x, y + M.h * s, z, 0.1, 0.5, 0.03, 1.6, 0.12, 0.5, 0.12, 0.12, 0.12, 0.7, 0.3, 0.3, 0.3, 0, 0, 0.4);
+      if (cls && hfu < 0.2 && rnd() < dt * 8) emit(0, x, y + M.h * s * 0.8, z, 0, 0.5, 0, 0.3, 0.2, 0.06, 1, 0.6, 0.2, 1, 0.9, 0.2, 0.05, 0);
     }
     drawDeploy(S, alpha, dt, inView);
     // --- Wracks (verkohlt, sinken langsam ein)
@@ -3401,6 +3527,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       var w = wrecks[i], wa = R.t - w.t0;
       if (wa > w.life) { wrecks.splice(i, 1); continue; }
       if (w.kind === 'crash' || w.kind === 'sink') { if (!drawV8Wreck(w, wa, dt)) wrecks.splice(i, 1); continue; }   // v0.8
+      if (w.kind === 'fall') { drawFall(w, wa); continue; }   // Bewegung: gefallener Infanterist
       M = model(w.type, w.fac, w.color);
       var sink = wa > w.life * 0.6 ? (wa - w.life * 0.6) / (w.life * 0.4) : 0, dkc = 0.22 + 0.2 * Math.max(0, 1 - wa * 2);
       if (w.kind === 'building') {
@@ -3411,12 +3538,19 @@ var G = (typeof G !== 'undefined') ? G : {};
       }
       s = SCALE[w.type] || 1;
       var wy = groundAt(w.x, w.z) - sink * 0.4 * s;
-      partBatch('u', w.type, w.owner, 'hull', M).put(w.x, wy, w.z, w.dir, s, s, s, dkc, dkc * 0.95, dkc * 0.9);
+      // Bewegung: Wrack glüht kurz nach (Instanzfarbe), Turm wird abgesprengt (w.pop: Flughöhe, w.ox/w.oz: Versatz, w.spin), späte Nachexplosion (w.ckT)
+      var hot = wa < 2.4 ? (1 - wa / 2.4) : 0, wr = dkc + 0.6 * hot * hot, wg = dkc * 0.95 + 0.17 * hot * hot, wb = dkc * 0.9;
+      partBatch('u', w.type, w.owner, 'hull', M).put(w.x, wy, w.z, w.dir, s, s, s, wr, wg, wb);
       var wcd = Math.cos(w.dir), wsd = Math.sin(w.dir);
-      if (M.parts.turret) partBatch('u', w.type, w.owner, 'turret', M).put(w.x + (wcd * M.pivot[0]) * s, wy - 0.03, w.z + (wsd * M.pivot[0]) * s, w.tdir + 0.4, s, s, s, dkc, dkc * 0.95, dkc * 0.9);
+      if (w.pop && (!M.parts.turret || M.how)) w.pop = 0;
+      var tf = w.pop ? Math.min(1, wa / 0.75) : 1, tpx = w.x + (wcd * M.pivot[0]) * s + (w.pop ? w.ox * tf : 0), tpz = w.z + (wsd * M.pivot[0]) * s + (w.pop ? w.oz * tf : 0);
+      var tpy = wy - 0.03 + (w.pop ? w.pop * 4 * tf * (1 - tf) : 0), tya = w.tdir + 0.4 + (w.pop ? w.spin * tf : 0);
+      if (w.pop && tf >= 1 && !w.landed) { w.landed = true; if (inView(tpx, tpz)) dust(tpx, wy, tpz, 0.45); }
+      if (w.ckT && wa > w.ckT) { w.ckT = 0; if (inView(w.x, w.z)) F3.explosion(w.x + (rnd() - 0.5) * 0.2, wy + 0.3, w.z + (rnd() - 0.5) * 0.2, 0.42, false); }
+      if (M.parts.turret) partBatch('u', w.type, w.owner, 'turret', M).put(tpx, tpy, tpz, tya, s, s, s, wr, wg, wb);
       if (M.how) partBatch('u', w.type, w.owner, 'barrel', M).putP(w.x + (wcd * M.pivot[0]) * s, wy + M.trun[1] * s, w.z + (wsd * M.pivot[0]) * s, w.tdir + 0.4, 0.3, dkc, dkc * 0.95, dkc * 0.9);
-      else if (M.parts.barrel) partBatch('u', w.type, w.owner, 'barrel', M).put(w.x + (wcd * M.pivot[0]) * s, wy - 0.03, w.z + (wsd * M.pivot[0]) * s, w.tdir + 0.4, s, s, s, dkc, dkc * 0.95, dkc * 0.9);
-      if (M.parts.barrel2) partBatch('u', w.type, w.owner, 'barrel2', M).put(w.x + (wcd * M.pivot[0]) * s, wy - 0.03, w.z + (wsd * M.pivot[0]) * s, w.tdir + 0.4, s, s, s, dkc, dkc * 0.95, dkc * 0.9);
+      else if (M.parts.barrel) partBatch('u', w.type, w.owner, 'barrel', M).put(tpx, tpy, tpz, tya, s, s, s, wr, wg, wb);
+      if (M.parts.barrel2) partBatch('u', w.type, w.owner, 'barrel2', M).put(tpx, tpy, tpz, tya, s, s, s, wr, wg, wb);
       if (M.xp && M.xp.length) for (var wxi = 0; wxi < M.xp.length; wxi++) {
         var wxe = M.xp[wxi], wbt = partBatch('u', w.type, w.owner, wxe.p, M), wxp2 = w.x + (wcd * wxe.x - wsd * wxe.z) * s, wzp2 = w.z + (wsd * wxe.x + wcd * wxe.z) * s;
         if (wxe.k === 'wheel') wbt.putPS(wxp2, wy + wxe.y * s, wzp2, w.dir, 0.4 * wxi, s, dkc, dkc * 0.95, dkc * 0.9);
@@ -3487,7 +3621,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     link: link, makeMaterials: makeMaterials, material: material, MAT: MAT, SURF: SURF, surfOf: surfOf, ensureSurf: ensureSurf,
     MB: MB, Batch: Batch, batch: batch, partBatch: partBatch, partMat: partMat, GLOW_PARTS: GLOW_PARTS,
     model: model, unitModelOf: unitModelOf, facOfColor: facOfColor, isBld: isBld, teamRGB: teamRGB, PAL: PAL, teamCols: teamCols,
-    NEUT: NEUT, GARR: GARR, BH: BH, SCALE: SCALE, INF: INF, DIE_SMALL: DIE_SMALL,
+    NEUT: NEUT, GARR: GARR, BH: BH, SCALE: SCALE, INF: INF, DIE_SMALL: DIE_SMALL, _wreckCount: function () { return wrecks.length; },
     neutralShown: neutralShown, nst: nst, rs: rs, addWreck: addWreck, muzzleOf: muzzleOf,
     deployEvt: deployEvt, fill: fill, flush: flush, reset: reset, getFlagModel: getFlagModel, ruinModel: ruinModel,
     get: function (type, fac, color) { return model(type, fac, color); },
