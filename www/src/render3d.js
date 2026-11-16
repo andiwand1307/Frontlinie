@@ -44,7 +44,7 @@ var G = (typeof G !== 'undefined') ? G : {};
   // v0.6: gemeinsamer interner Kontext aller 3D-Module (siehe docs/RENDER_MODULES.md). Wird von render3d.js (Kern) befüllt,
   // r3-models.js (G.R3M), r3-terrain.js (G.R3T) und r3-fx.js (G.R3F) lesen daraus. Kern lädt ZUERST.
   var R = G.R3 = G.R3 || {};
-  var T3 = null, M3 = null, F3 = null, S3 = null; // Modul-Objekte, in init() verbunden
+  var T3 = null, M3 = null, F3 = null, S3 = null, W3 = null; // Modul-Objekte, in init() verbunden (W3: Thema/Wetter/Tageszeit)
   // Aliase auf Modell-Tabellen/-Funktionen (aus G.R3M, in init() gesetzt)
   var MAT = null, NEUT = null, GARR = null, BH = null, SCALE = null, INF = null, model = null, unitModelOf = null, neutralShown = null, facOfColor = null, isBld = null, groundAt = null;
 
@@ -222,9 +222,11 @@ var G = (typeof G !== 'undefined') ? G : {};
     var hasPrev = prev && prev !== THREE.Material.prototype.onBeforeCompile;
     // INK: Zeichenstil beim Anlegen festgelegt (Stufenwechsel ink ↔ andere baut die Materialien neu); nur beleuchtete Materialien
     var ink = !!R.ink && (mat.type === 'MeshStandardMaterial' || mat.type === 'MeshLambertMaterial');
+    var lit = mat.type === 'MeshStandardMaterial' || mat.type === 'MeshLambertMaterial';
     mat.onBeforeCompile = function (sh, rr) {
       if (hasPrev) prev.call(mat, sh, rr);
       if (ink) inkify(sh);
+      if (lit) moodify(sh, mat);   // Thema/Wetter/Tageszeit
       sh.uniforms.uFow = SH.uFow; sh.uniforms.uFowScale = SH.uFowScale; sh.uniforms.uFowOn = SH.uFowOn;
       sh.uniforms.uHazeCol = SH.uHazeCol; sh.uniforms.uHaze = SH.uHaze;
       sh.uniforms.uEdge = SH.uEdge; sh.uniforms.uGrade = SH.uGrade; sh.uniforms.uWarm = SH.uWarm; sh.uniforms.uLift = SH.uLift; sh.uniforms.uRes = SH.uRes;   // W11-look
@@ -242,8 +244,36 @@ var G = (typeof G !== 'undefined') ? G : {};
           '  float hz = clamp((vFowW.z - uHaze.x) / (uHaze.y - uHaze.x), 0.0, 1.0) * uHaze.z * uFowOn;\n' +
           '  outgoingLight = mix(outgoingLight, uHazeCol, hz) * fowV;\n  if (uGrade.x > 0.5) outgoingLight = outgoingLight * uWarm + uLift;\n#include <opaque_fragment>');
     };
-    mat.customProgramCacheKey = function () { return 'fow3' + mat.type + (ink ? 'I' : '') + (hasPrev && prevKey ? prevKey.call(mat) : ''); };
+    mat.customProgramCacheKey = function () { return 'fow3' + mat.type + (ink ? 'I' : '') + (lit ? moodKey(mat) : '') + (hasPrev && prevKey ? prevKey.call(mat) : ''); };
     return mat;
+  }
+
+  // ------------------------------------------------------------------ Thema/Wetter/Tageszeit: gemeinsame Material-Erweiterung (alle beleuchteten fowify-Materialien)
+  // Werte kommen je Bild aus r3-mood.js (G.R3W) über SH: uSnow (0/1 Winter), uWet (Regen-Nässe 0..1), uNight (0..1 Fensterlicht).
+  // Welche Teile reagieren, entscheidet das Material, nicht das Modell:
+  //   Schneehauben: nach oben zeigende Flächen (Welt-Normale) mit verrauschter Kante. Modelle (MAT.std mit 'surf'-Attribut): NUR matte
+  //     Gebäude-/Natur-Oberflächen (SURF bodyB/matte/conc: Rauheit 0.7–0.93, Metall < 0.1) – Fahrzeug-Lack/Metall/Ketten (Einheiten) bleiben frei,
+  //     damit Einheiten sich vom Schnee abheben. Pflanzen/Felsen (mat.userData.snowAll) überall. → neue Gebäude-Modelle erben Schnee automatisch,
+  //     sobald ihre Dach-Farben über surfOf auf bodyB/matte/conc fallen (Standard für Gebäude-Farben).
+  //   Fensterlicht (Nacht): 'glass'-Oberflächen (Rauheit < 0.2, Metall 0.2–0.3) leuchten in ihrer Farbe (Gebäudefenster, Cockpits).
+  //   Nässe: Boden-Materialien (mat.userData.ground) dunkeln bei Regen nach.
+  // Kosten: ~10 ALU je Pixel, ein Varying, keine Textur; ohne Thema bleibt das Ergebnis exakt gleich (uSnow = uWet = uNight = 0).
+  function moodKey(mat) { var u = mat.userData || {}; return 'M' + (u.surf ? 's' : '') + (u.snowAll ? 'a' : '') + (u.ground ? 'g' : ''); }
+  function moodify(sh, mat) {
+    var u = mat.userData || {}, snow = !!(u.surf || u.snowAll), glass = !!u.surf, ground = !!u.ground;
+    if (!snow && !ground) return;
+    sh.uniforms.uSnow = SH.uSnow; sh.uniforms.uWet = SH.uWet; sh.uniforms.uNight = SH.uNight;
+    if (snow) sh.vertexShader = 'varying float vSnN;\n' + sh.vertexShader.replace('#include <project_vertex>', '#include <project_vertex>\n  { vec3 snO = objectNormal;\n#ifdef USE_INSTANCING\n  snO = mat3(instanceMatrix) * snO;\n#endif\n  vSnN = normalize(mat3(modelMatrix) * snO).y; }');
+    var fs = sh.fragmentShader, add = '';
+    if (snow) add += '  { float snN = vSnN + (fwMn(vFowW.xy * 2.3) - 0.5) * 0.42 + (fwMn(vFowW.xy * 9.0) - 0.5) * 0.12;\n' +
+      '    float snA = uSnow * smoothstep(' + (u.snowAll ? '0.46, 0.7' : '0.58, 0.8') + ', snN)' + (u.surf ? ' * step(0.7, vSurf.x) * step(vSurf.x, 0.93) * step(vSurf.y, 0.1)' : '') + ';\n' +
+      '    diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.84, 0.88, 0.95), snA); }\n';
+    if (ground) add += '  diffuseColor.rgb *= 1.0 - 0.3 * uWet;\n';
+    fs = fs.replace('#include <color_fragment>', '#include <color_fragment>\n' + add);
+    if (glass) fs = fs.replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n  totalEmissiveRadiance += diffuseColor.rgb * uNight * 2.4 * step(vSurf.x, 0.2) * step(0.2, vSurf.y) * step(vSurf.y, 0.3);');
+    sh.fragmentShader = 'uniform float uSnow; uniform float uWet; uniform float uNight;' + (snow ? ' varying float vSnN;\n' +
+      'float fwMh(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }\n' +
+      'float fwMn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(fwMh(i), fwMh(i + vec2(1.0, 0.0)), f.x), mix(fwMh(i + vec2(0.0, 1.0)), fwMh(i + vec2(1.0, 1.0)), f.x), f.y); }\n' : '\n') + fs;
   }
 
   /** INK (Zeichenstil, im Material – auch ohne Nachbearbeitung):
@@ -324,7 +354,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       var wm = world && world.water;
       if (wm && wm.uniforms) {
         if (wm.uniforms.uView) wm.uniforms.uView.value.set(SY * COS, SIN, CY * COS);
-        if (wm.uniforms.uSun) { var ld = V.lightDir(MODERN_LOOK.sunDir, tmpL); wm.uniforms.uSun.value.set(ld[0], ld[1], ld[2]).normalize(); }
+        if (wm.uniforms.uSun) { var ld = V.lightDir(R.sunDir || MODERN_LOOK.sunDir, tmpL); wm.uniforms.uSun.value.set(ld[0], ld[1], ld[2]).normalize(); }
       }
     } catch (e) { /* egal */ }
     if (lastYaw !== V.YAW) {
@@ -404,6 +434,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     if (pipeWanted()) { try { pipe = Q.ink ? makeInkPipe() : makePipe(); } catch (e) { console.warn('Nachbearbeitung nicht verfügbar: ' + e); pipe = null; renderer.toneMapping = MODERN_LOOK.tone; } }
     R.post = !!pipe; R.pipe = pipe;
     if (!Q.std || pipe) SH.uGrade.value.x = 0;
+    if (W3) W3.look();   // Thema/Wetter/Tageszeit: Grundwerte merken, Stimmung der Karte darüberlegen (Licht, Toon-Tönung, Palette)
   }
   /** INK: Licht/Toon-Werte setzen (nach den Modern-Werten, überschreibt sie). Umgebungs-PMREM aus (Toon braucht keine Reflexe). */
   function inkLook() {
@@ -685,12 +716,15 @@ var G = (typeof G !== 'undefined') ? G : {};
       uGrade: { value: new THREE.Vector4(0, 1, 1, 0) }, uWarm: { value: new THREE.Vector3(1, 1, 1) }, uLift: { value: new THREE.Vector3(0, 0, 0) }, uRes: { value: new THREE.Vector2(1, 1) },
       // INK: Toon-Stufen + Schraffur (Werte aus INK_LOOK in applyLook; uInkN je Bild aus der Kamera)
       uInkB: { value: new THREE.Vector2(0.3, 0.7) }, uInkL: { value: new THREE.Vector3(0.4, 0.75, 1) }, uInkS: { value: new THREE.Vector3(1, 1, 1) },
-      uInkW: { value: new THREE.Vector3(1, 1, 1) }, uInkH: { value: new THREE.Vector4(0, 3, 0.3, 0) }, uInkN: { value: new THREE.Vector3(1, 0, 0) }
+      uInkW: { value: new THREE.Vector3(1, 1, 1) }, uInkH: { value: new THREE.Vector4(0, 3, 0.3, 0) }, uInkN: { value: new THREE.Vector3(1, 0, 0) },
+      // Thema/Wetter/Tageszeit (Werte setzt r3-mood.js): Schnee-Hauben, Regen-Nässe, Fensterlicht, Tönung unbeleuchteter Flächen (Wasser, Vorland)
+      uSnow: { value: 0 }, uWet: { value: 0 }, uNight: { value: 0 }, uMoodCol: { value: new THREE.Vector3(1, 1, 1) }, uRain: { value: 0 }, uIce: { value: 0 }
     };
     // 1×1-Platzhalter für den Nebel
     var ph = new THREE.DataTexture(new Uint8Array([255]), 1, 1, THREE.RedFormat, THREE.UnsignedByteType); ph.needsUpdate = true;
     SH.uFow.value = ph;
     T3 = G.R3T; M3 = G.R3M; F3 = G.R3F; S3 = G.R3S || null;   // W11-look: S3 = Schatten-Ersatz (r3-shadow.js, optional)
+    W3 = G.R3W || null;   // Thema/Wetter/Tageszeit (r3-mood.js, optional)
     MAT = M3.MAT; NEUT = M3.NEUT; GARR = M3.GARR; BH = M3.BH; SCALE = M3.SCALE; INF = M3.INF; model = M3.model; unitModelOf = M3.unitModelOf;
     neutralShown = M3.neutralShown; facOfColor = M3.facOfColor; isBld = M3.isBld; groundAt = T3.groundAt;
     scene = new THREE.Scene();
@@ -703,10 +737,11 @@ var G = (typeof G !== 'undefined') ? G : {};
     scene.add(sun); scene.add(sun.target);
     dynRoot = new THREE.Group(); scene.add(dynRoot);
     syncCtx();
-    M3.link(); T3.link(); F3.link(); if (S3) S3.link();
+    M3.link(); T3.link(); F3.link(); if (S3) S3.link(); if (W3) W3.link();
     M3.makeMaterials();
     F3.init();
     T3.init();
+    if (W3) W3.init();   // Thema/Wetter/Tageszeit
     createRenderer();
     resize();
   }
@@ -1038,7 +1073,7 @@ var G = (typeof G !== 'undefined') ? G : {};
   var LDIR = null, PIXEL_SUN = [-0.55, 1, -0.38];
   function updateSun(c) {
     if (!LDIR) LDIR = new THREE.Vector3();
-    LDIR.fromArray(V.lightDir(Q.std ? MODERN_LOOK.sunDir : PIXEL_SUN, tmpL)).normalize();   // W11: dreht mit der Kamera
+    LDIR.fromArray(V.lightDir(R.sunDir || (Q.std ? MODERN_LOOK.sunDir : PIXEL_SUN), tmpL)).normalize();   // W11: dreht mit der Kamera; Tageszeit: R.sunDir (r3-mood.js)
     var ext = Math.max(c.halfW, c.halfH / SIN) + 3;
     sun.target.position.set(c.cx, 0, c.cz);
     sun.position.set(c.cx + LDIR.x * 30, LDIR.y * 30, c.cz + LDIR.z * 30);
@@ -1066,6 +1101,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     if (!glOK) { mapRef = G.Sim.S.map; return; }
     var m = G.Sim.S.map;
     mapRef = m;
+    if (W3) W3.setMap(m);         // Thema/Wetter/Tageszeit: vor dem Geländebau (Bodenschichten/Bäume je Thema)
     world = T3.build(m);          // Gelände, Wasser, Bäume/Felsen/Erz, Brücken, Decals
     lastYaw = null;               // v0.7: neues Wasser-Material → Blickrichtung neu setzen
     buildFogTex(m);
@@ -1074,6 +1110,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     M3.reset();
     F3.reset();
     if (S3) S3.reset();
+    if (W3) W3.reset();           // Thema/Wetter/Tageszeit: Licht der Karte, Lichter, Wetter
     fogTick = -1; oreTick = -1;
   }
 
@@ -1113,6 +1150,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     fillFrame(S, alpha, dt);
     F3.update(dt);                 // Effektzeit R.t, Partikel, Leuchtspuren, Strahlen, Lichtblitz
     T3.update(dt);                 // Decals, Wasserzeit, Erz-Glühen
+    if (W3) W3.update(S, alpha, dt, c);   // Thema/Wetter/Tageszeit: Wetter-Schicht, Nässe, Regenringe
     SH.uFowOn.value = S.settings.fogOff ? 0 : 1;
     if (iconQ.length) iconStep();      // v0.8: höchstens ein aufgeschobenes Symbol je Bild, VOR dem Szenenbild (kein Zusatz-Durchgang)
     if (pipe) { pipe.render(dt); mark('post'); } else renderer.render(scene, camera);
@@ -1162,6 +1200,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     }
     T3.fill(S, dt, S.settings.fogOff, S.players[pid]);   // Funkeln auf Erz
     if (S3) S3.fill(S, alpha);           // W11-look: Boden-Schatten-Ersatz (nur ohne Schattenkarte, Flag liteLook)
+    if (W3) W3.fill(S, alpha, dt);       // Thema/Wetter/Tageszeit: Scheinwerfer/Laternen/Positionslichter (nachts), Atemwolken (Winter)
     M3.flush(); F3.flush(); if (S3) S3.flush();
     selRing.flush(); selSquare.flush(); markRing.flush();
   }
@@ -1394,9 +1433,12 @@ var G = (typeof G !== 'undefined') ? G : {};
   }
 
   // ------------------------------------------------------------------ Minimap
-  var TCOLM = { grass: [70, 112, 50], sand: [180, 158, 106], rock: [110, 106, 100], water: [36, 90, 140], trees: [36, 72, 32], road: [96, 94, 88], bridge: [130, 96, 60] };
+  var TCOLM_D = { grass: [70, 112, 50], sand: [180, 158, 106], rock: [110, 106, 100], water: [36, 90, 140], trees: [36, 72, 32], road: [96, 94, 88], bridge: [130, 96, 60] };
+  // Thema/Wetter/Tageszeit: Winter-Minimap (Schnee, Harsch, Fels, dunkles Wasser, verschneiter Nadelwald, Matsch-Straße)
+  var TCOLM_W = { grass: [208, 216, 226], sand: [184, 194, 208], rock: [104, 106, 112], water: [44, 76, 110], trees: [58, 86, 80], road: [124, 126, 132], bridge: [120, 92, 64] };
   var miniBase = null;
   function buildMiniBase(m) {
+    var TCOLM = (G.MAPS.mood && G.MAPS.mood(m.id).theme === 'winter') ? TCOLM_W : TCOLM_D;
     var c = document.createElement('canvas'); c.width = m.w * 2; c.height = m.h * 2;
     var g = c.getContext('2d'), img = g.createImageData(c.width, c.height);
     for (var y = 0; y < c.height; y++) for (var x = 0; x < c.width; x++) {
@@ -1568,6 +1610,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       iconCam.position.set(ctr.x + dist * 0.42, ctr.y + dist * 0.62, ctr.z + dist * 0.66);
       iconCam.lookAt(ctr);
       var fo = SH.uFowOn.value; SH.uFowOn.value = 0; SH.uEdge.value.set(0, 1);
+      if (W3) W3.iconBegin();   // Thema/Tageszeit: Symbole immer im Grundzustand (kein Schnee, kein Nachtlicht, Toon-Grundwerte)
       var KEY = 0xff00ff, oldCol = new THREE.Color(), oldA = renderer.getClearAlpha(), oldExp = renderer.toneMappingExposure;
       renderer.getClearColor(oldCol);
       var oldBg = iconScene.background; iconScene.background = new THREE.Color(KEY);
@@ -1578,6 +1621,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       var oldSh = renderer.shadowMap.enabled; renderer.shadowMap.enabled = false;
       renderer.render(iconScene, iconCam);
       SH.uFowOn.value = fo; SH.uEdge.value.set(EDGE_DIM[0], EDGE_DIM[1]);
+      if (W3) W3.iconEnd();
       iconScene.remove(grp);
       if (tintMat) tintMat.dispose();
       var out = document.createElement('canvas'); out.width = w; out.height = h;
@@ -1609,7 +1653,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     var r = renderer ? renderer.info.render : { calls: 0, triangles: 0, points: 0, lines: 0 };
     if (pipe) r = { calls: pipe.calls + (pipe.ink ? 1 : 9), triangles: pipe.tris, points: r.points, lines: r.lines };   // + Nachbearbeitungs-Durchgänge
     return { calls: r.calls, triangles: r.triangles, points: r.points, lines: r.lines, ms: frameMs, quality: quality, buf: [bufW, bufH],
-      particles: F3 ? F3.particleCount() : 0, lite: !!Q.lite, scale: dyn.scale, pipe: pipe ? pipe.info() : null, flags: toCode(F), safe: safeGPU };
+      particles: F3 ? F3.particleCount() : 0, mood: W3 && W3.state ? W3.state() : null, lite: !!Q.lite, scale: dyn.scale, pipe: pipe ? pipe.info() : null, flags: toCode(F), safe: safeGPU };
   }
 
   // ------------------------------------------------------------------ v0.8: Flags in der Sitzung wechseln (ohne neuen WebGL-Kontext)

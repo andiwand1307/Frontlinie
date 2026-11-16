@@ -45,8 +45,8 @@ var G = (typeof G !== 'undefined') ? G : {};
     var vsh = 'attribute float aSize; attribute vec4 aCol; uniform float uScale; uniform float uMaxPt; varying vec4 vCol;' +
       'void main(){ vCol = aCol; vec4 mv = modelViewMatrix * vec4(position,1.0); gl_Position = projectionMatrix * mv; gl_PointSize = clamp(aSize * uScale, 1.0, uMaxPt); }';
     // v0.6: uLin = 1 (Modern mit Nachbearbeitung, linearer HDR-Puffer): Farben sRGB→linear; additiver Pool × uGain (> 1 → Bloom)
-    var fsh = 'uniform float uLin; uniform float uGain; varying vec4 vCol; void main(){ vec2 d = gl_PointCoord - 0.5; float r = dot(d,d) * 4.0; if (r > 1.0) discard; float a = vCol.a * (1.0 - r * r);' +
-      ' vec3 c = vCol.rgb; if (uLin > 0.5) c = pow(max(c, vec3(0.0)), vec3(2.2)) * uGain; gl_FragColor = vec4(c, a); }';
+    var fsh = 'uniform float uLin; uniform float uGain; uniform vec3 uTint; varying vec4 vCol; void main(){ vec2 d = gl_PointCoord - 0.5; float r = dot(d,d) * 4.0; if (r > 1.0) discard; float a = vCol.a * (1.0 - r * r);' +
+      ' vec3 c = vCol.rgb * uTint; if (uLin > 0.5) c = pow(max(c, vec3(0.0)), vec3(2.2)) * uGain; gl_FragColor = vec4(c, a); }';
     fx.uLin = { value: 0 };
     fx.uScale = { value: 10 }; fx.uMaxPt = { value: 48 };
     for (var p = 0; p < 2; p++) {
@@ -56,7 +56,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       geo.setAttribute('aCol', new THREE.BufferAttribute(col, 4).setUsage(THREE.DynamicDrawUsage));
       geo.setAttribute('aSize', new THREE.BufferAttribute(siz, 1).setUsage(THREE.DynamicDrawUsage));
       geo.setDrawRange(0, 0);
-      var mat = new THREE.ShaderMaterial({ uniforms: { uScale: fx.uScale, uMaxPt: fx.uMaxPt, uLin: fx.uLin, uGain: { value: p === 0 ? 2.2 : 1.0 } }, vertexShader: vsh, fragmentShader: fsh, transparent: true, depthWrite: false,
+      var mat = new THREE.ShaderMaterial({ uniforms: { uScale: fx.uScale, uMaxPt: fx.uMaxPt, uLin: fx.uLin, uGain: { value: p === 0 ? 2.2 : 1.0 }, uTint: { value: new THREE.Vector3(1, 1, 1) } }, vertexShader: vsh, fragmentShader: fsh, transparent: true, depthWrite: false,
         blending: p === 0 ? THREE.AdditiveBlending : THREE.NormalBlending, toneMapped: false });
       var pts = new THREE.Points(geo, mat);
       pts.frustumCulled = false; pts.renderOrder = p === 0 ? 6 : 5;
@@ -648,7 +648,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       }
     }
     // Licht-Blitz
-    if (fx.flashT > 0) { fx.flashT -= dt; flash.intensity = Math.max(0, fx.flashT) * 40 * (fx.flashK || 1); } else flash.intensity = 0;
+    if (fx.flashT > 0) { fx.flashT -= dt; flash.intensity = Math.max(0, fx.flashT) * 40 * (fx.flashK || 1) * (R.glowK || 1); }   // Tageszeit: nachts kräftiger (R.glowK, r3-mood.js) else flash.intensity = 0;
   }
 
   function consumeEvents(S) {
@@ -1768,6 +1768,11 @@ var G = (typeof G !== 'undefined') ? G : {};
     _counts: function () { var wv = 0, bn = 0, i; for (i = 0; i < waves.length; i++) if (waves[i].on) wv++; for (i = 0; i < burns.length; i++) if (burns[i].on) bn++;
       return { pts: fx ? fx.pools[0].n + fx.pools[1].n : 0, spr: SP ? SP.pools[0].n + SP.pools[1].n : 0, deb: DB ? DB.n : 0, waves: wv, burns: bn, tracers: fx ? fx.tr.n : 0, acc: accMap.size, rs: rs.size, wrecks: M3._wreckCount ? M3._wreckCount() : -1, tier: spTier }; },
     time: function () { return fx ? fx.time : 0; },
+    // Thema/Wetter/Tageszeit (r3-mood.js): Rauch/Staub (normale Pools) in Stimmungsfarbe tönen, additive Pools × glow (Nacht: Feuer leuchtet heraus)
+    moodTint: function (r, g, b, glow) {
+      if (fx) { fx.pools[1].pts.material.uniforms.uTint.value.set(r, g, b); fx.pools[0].pts.material.uniforms.uTint.value.setScalar(glow || 1); }
+      if (SP) { SP.pools[1].mat.color.setRGB(r, g, b); SP.pools[0].mat.color.setScalar(glow || 1); }
+    },
     debug: function () { return { heals: heals.map(function (h) { return [h.on, +(fx.time - h.t0).toFixed(2), h.x, h.y, h.z]; }), flames: flames.length, bolts: BM ? BM.n : -1, t: fx.time, q: BM ? Array.prototype.slice.call(BM.pos, Math.max(0, BM.n - 2) * 12, BM.n * 12).map(function (v) { return +v.toFixed(2); }).concat(Array.prototype.slice.call(BM.col, Math.max(0, BM.n - 1) * 12, BM.n * 12).map(function (v) { return +v.toFixed(2); })) : null, vdir: R.VDIR && [R.VDIR.x, R.VDIR.y, R.VDIR.z] }; }
   };
   // GA (Gebäude): kleine Haken für Gebäude-Effekte – Flammenzunge/Funke als Sprite je Stufe, in Stufe 0 als Punkt-Partikel
