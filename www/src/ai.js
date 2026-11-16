@@ -124,6 +124,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     apcFerry();
     airSea();   // v0.8
     psiAI();    // v1.0 Gedankenkontrolle (eigene und gegnerische)
+    v12();      // v1.2 Neue Einheiten & Zusatzgebäude (Block am Dateiende)
   }
 
   // ================================================================== v1.0 Kollektiv (SPEC_v10 §6)
@@ -2001,5 +2002,27 @@ var G = (typeof G !== 'undefined') ? G : {};
     return adj._m;
   }
   // v1.0.1 KI-Leicht Ende
-  G.AI = { update: update, DIFF: DIFF, AIRSEA: AIRSEA, VS_HUMAN: VS_HUMAN };   // v1.0.1 KI-Leicht: VS_HUMAN
+  // ================================================================== v1.2 Neue Einheiten & Zusatzgebäude
+  // V12[stufe]: Höchstzahlen/Schalter der neuen Mittel. „Sehr leicht/Leicht“ nutzen sie sparsamer.
+  //   flakT = Flakpanzer (nur wenn gegnerische Luftfahrzeuge/Flugfeld gesehen)
+  var V12 = {
+    veryeasy: { flakT: 1 },
+    easy:     { flakT: 1 },
+    medium:   { flakT: 3 },
+    hard:     { flakT: 4 }
+  };
+  function X12() { return V12[P.ai] || V12.medium; }
+  function inQ(cat, t) { var q = P.q[cat] || [], n = 0; for (var i = 0; i < q.length; i++) if (q[i].type === t) n++; return n; }
+  function v12() {
+    var X = X12();
+    v12Flak(X);
+  }
+  /** Flakpanzer: sobald gegnerische Luftfahrzeuge (A.seenAir, gleitend) oder ein gegnerisches Flugfeld bekannt sind; fahren mit den Wellen. */
+  function v12Flak(X) {
+    if (!G.Sim.hasBuilding(pid, 'factory')) return;
+    var air = A.seenAir || 0, want = Math.min(X.flakT, air > 0.5 ? 1 + Math.ceil(air / 2) : (A.enemyAirfield ? 1 : 0));
+    if (cntU('flaktank') + inQ('vehicle', 'flaktank') < want && P.q.vehicle.length < cfg.armyQ + 1 && G.Sim.canProduce(pid, 'flaktank').ok) G.cmd.produce(pid, 'flaktank');
+  }
+
+  G.AI = { update: update, DIFF: DIFF, AIRSEA: AIRSEA, VS_HUMAN: VS_HUMAN, V12: V12 };   // v1.0.1 KI-Leicht: VS_HUMAN
 })();

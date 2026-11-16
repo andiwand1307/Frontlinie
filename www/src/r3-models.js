@@ -3375,6 +3375,7 @@ var G = (typeof G !== 'undefined') ? G : {};
 
   function model(type, fac, color) {
     var M;
+    if (LOOK12[type]) type = LOOK12[type];   // v1.2 look-Rückfall: Typ ohne eigenes Modell → Modell seines look (siehe lookAlias)
     if (NEUT[type]) { var nk = 'N|' + type + (HI() ? '' : '|lo'); M = modelCache[nk]; if (!M) { curKind = 'bld'; M = modelCache[nk] = mirrorModel(buildNeutral(type)); curKind = 'env'; } return M; }
     var key = type + '|' + fac + '|' + color + (LOD[type] && !HI() ? '|lo' : '');   // W10: Detailstufe (Flag hiPoly/V) im Schlüssel
     if (!modelCache[key] && fac === 'kollektiv' && KB[type]) {   // GB: eigene Kollektiv-Gebäude (nicht gespiegelt, siehe buildKB)
@@ -4296,6 +4297,23 @@ var G = (typeof G !== 'undefined') ? G : {};
     ghost.group.visible = true;
   }
 
+  // ------------------------------------------------------------------ v1.2 look-Rückfall (ZENTRALE STELLE, vorläufige Darstellung)
+  // Neue Typen (data.js, Feld look) benutzen Modell, Maßstab und Tabellen-Einträge des look-Typs, solange sie kein eigenes Modell haben.
+  // Eigenes Modell nachrüsten: Typ in OWN12 eintragen (dann greift kein Rückfall mehr) und wie gewohnt in den Bau-Tabellen ergänzen.
+  var LOOK12 = {}, OWN12 = {};
+  function lookAlias() {
+    var tabs = [SCALE, INF, NEUT, GARR, BH, LOD, K10M, KB, V4U, V4B, V5B, V5U, V7U, V8M, V9M, PCAT, IKICK, NOKNEEL, DIE_SMALL];
+    [D.UNITS, D.BUILDINGS].forEach(function (T) {
+      for (var t in T) {
+        var l = T[t].look;
+        if (!l || l === t || OWN12[t]) continue;
+        LOOK12[t] = l;
+        for (var k = 0; k < tabs.length; k++) if (tabs[k] && (l in tabs[k]) && !(t in tabs[k])) tabs[k][t] = tabs[k][l];
+      }
+    });
+  }
+  lookAlias();
+
   var fdt = 0, V = null;
   initSurf();
   G.R3M = {
@@ -4306,6 +4324,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     neutralShown: neutralShown, nst: nst, rs: rs, addWreck: addWreck, muzzleOf: muzzleOf,
     deployEvt: deployEvt, fill: fill, flush: flush, reset: reset, getFlagModel: getFlagModel, ruinModel: ruinModel,
     get: function (type, fac, color) { return model(type, fac, color); },
+    LOOK12: LOOK12, OWN12: OWN12, lookAlias: lookAlias,   // v1.2 look-Rückfall
     WL: WL8, RAMP_OPEN: RAMP_OPEN   // v0.8: Wasserspiegel (Schiffe), Bugklappe offen (rad)
   };
 })();

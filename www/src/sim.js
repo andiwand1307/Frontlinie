@@ -129,7 +129,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     var def = G.MAPS.byId(opts.mapId || 'flussgabel');
     var map = G.MAPS.parse(def);
     S = {
-      version: 1, tick: 0, rng: (opts.seed >>> 0) || 1, nextId: 1, evSeq: 0,
+      version: D.SAVE_VERSION, tick: 0, rng: (opts.seed >>> 0) || 1, nextId: 1, evSeq: 0,
       map: map, occ: new Int32Array(map.w * map.h), ents: [], proj: [], strikes: [], sw: [], events: [], pq: [],
       players: [], over: false, winner: -1, aiState: {},
       settings: { fogOff: !!opts.fogOff, speed: opts.speed || 'normal', mapId: def.id, seed: opts.seed >>> 0,
@@ -239,6 +239,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       }
     }
     migrateV08();
+    migrateV12();   // v1.2 Neue Einheiten (Abschnitt am Dateiende)
   }
 
   function circle(r) {
@@ -2755,6 +2756,12 @@ var G = (typeof G !== 'undefined') ? G : {};
     P.credits += cr; P.st.recycled = (P.st.recycled || 0) + 1;
     emit('recycle', e.x, e.y, { id: e.id, owner: e.owner, type: e.type, cr: cr, ref: ref.id, mc: !!e.mcBy });
     removeEntity(e);
+  }
+
+  // ================================================================== v1.2 Neue Einheiten & Zusatzgebäude
+  /** Altstände (S.version < D.SAVE_VERSION) um v1.2-Felder ergänzen; danach gilt der Stand als aktuell. */
+  function migrateV12() {
+    S.version = D.SAVE_VERSION;
   }
 
   function setState(st) { S = st; rebuild(); }

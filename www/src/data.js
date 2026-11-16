@@ -544,3 +544,32 @@ var G = (typeof G !== 'undefined') ? G : {};
   D.UNIT_ORDER.infantry.push('psiadept', 'brute');
   D.UNIT_ORDER.vehicle.splice(D.UNIT_ORDER.vehicle.indexOf('harvester'), 0, 'gatling', 'magnet', 'psitank');
 })();
+
+/* ---- v1.2 Neue Einheiten & Zusatzgebäude – eigener Block ----
+ * SPIELSTAND-VERSION: D.SAVE_VERSION (S.version). Ältere Stände werden über G.Sim.migrate() ergänzt (fehlende Felder → Standard),
+ * neuere/unbekannte als „nicht mehr kompatibel“ verworfen (save.js).
+ * VORLÄUFIGE DARSTELLUNG: jedes neue Objekt hat ein Feld look = ID eines vorhandenen Typs, dessen Modell/Symbol/Sprite benutzt wird, solange
+ * es kein eigenes gibt (D.lookOf(type); Renderer: r3-models.js lookAlias()/model(), render2d.js lookType()). Im 2D-/Sprite-Rückfall bleibt look dauerhaft.
+ * Neue Datenfelder (Einheiten): cloak (getarnt, s. sim.js „Tarnung“), detect (Aufdeckradius in Kacheln), saboteur {dmg, delay, stun, cd},
+ *   hangar {type, slots, range, rebuild, life, ammo} (Träger: startet Drohnen-Einheiten des Typs type), drone (nicht baubar/nicht steuerbar),
+ *   Waffe: stun (s Lähmung statt Schaden), fx (Waffentyp für die Darstellung, falls abweichend von type).
+ * Neue Datenfelder (Gebäude): detect, repairPad {r, rate, cost}, store (Erz-Lagerkapazität), mine {dmg, r, charges, trig}, gate, noOcc, placeDist, cloak. */
+(function () {
+  'use strict';
+  var D = G.DATA, U = D.UNITS, B = D.BUILDINGS;
+  function W(type, range, dmg, rof, extra) { var w = { type: type, range: range, dmg: dmg, rof: rof }; for (var k in extra) w[k] = extra[k]; return w; }
+
+  D.SAVE_VERSION = 2;   // 1 = bis v1.1 (ohne Versionsprüfung), 2 = v1.2
+  /** Typ, dessen Modell/Symbol/Sprite vorläufig benutzt wird (oder type selbst). */
+  D.lookOf = function (type) { var d = U[type] || B[type]; return (d && d.look) || type; };
+
+  // ---- Flakpanzer: mobile Flugabwehr (alle Fraktionen). Flak-Waffe ohne airOnly → trifft auch Bodenziele (schwach gegen Panzer).
+  U.flaktank = {
+    id: 'flaktank', name: 'Flakpanzer', cat: 'vehicle', armor: 'light', move: 'wheel', radius: 11, sight: 8, turret: true, look: 'gatling',
+    desc: 'Mobile Flugabwehr – stark gegen Luftziele, schwach gegen Panzer',
+    coalition: { cost: 700, time: 10, hp: 340, speed: 2.4, weapon: W('flak', 7, 22, 0.4, { antiAir: true }) },
+    syndicate: { cost: 620, time: 9, hp: 400, speed: 2.0, weapon: W('flak', 6.5, 24, 0.45, { antiAir: true }) },
+    kollektiv: { name: 'Spulenpanzer', cost: 660, time: 10, hp: 360, speed: 2.2, weapon: W('flak', 7, 22, 0.42, { antiAir: true }) }
+  };
+  D.UNIT_ORDER.vehicle.splice(D.UNIT_ORDER.vehicle.indexOf('tank'), 0, 'flaktank');
+})();

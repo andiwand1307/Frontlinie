@@ -4,6 +4,9 @@
  *  deserialize(str) → S      (ohne Laufzeit-Caches; danach G.Sim.setState(S))
  *  save(extra) / load() / has() / clear() / info()   localStorage-Schlüssel 'frontlinie.save.v1'
  * Kurzlebige Daten (Ereignisse) werden nicht gespeichert.
+ * v1.2 Versionsprüfung: der Stand trägt S.version (G.DATA.SAVE_VERSION). Ältere Stände (Version fehlt/kleiner) werden geladen und in
+ *  G.Sim.rebuild() → migrate() ergänzt. Stände einer NEUEREN Version, mit unbekannten Typen oder defekter Struktur gelten als
+ *  „nicht mehr kompatibel“: compatible(S) → '' oder Grund; info()/has() liefern dann nichts und der Stand wird verworfen (kein Absturz).
  */
 var G = (typeof G !== 'undefined') ? G : {};
 (function () {
@@ -46,12 +49,25 @@ var G = (typeof G !== 'undefined') ? G : {};
 
   function store() { try { return (typeof localStorage !== 'undefined') ? localStorage : null; } catch (e) { return null; } }
 
+  /** v1.2: '' wenn der (deserialisierte) Zustand geladen werden kann, sonst der Grund. */
+  function compatible(st) {
+    var D = G.DATA, cur = D.SAVE_VERSION || 1;
+    if (!st || typeof st !== 'object' || !st.map || !st.players || !st.players.length || !Array.isArray(st.ents) || !st.occ) return 'Spielstand defekt';
+    if ((st.version || 1) > cur) return 'Spielstand stammt aus einer neueren Version';
+    for (var p = 0; p < st.players.length; p++) if (!D.FACTIONS[st.players[p].faction] || !st.players[p].q) return 'Spielstand nicht mehr kompatibel';
+    for (var i = 0; i < st.ents.length; i++) {
+      var e = st.ents[i];
+      if (!e || !(e.kind === 'unit' ? D.UNITS[e.type] : D.BUILDINGS[e.type])) return 'Spielstand nicht mehr kompatibel';
+    }
+    return '';
+  }
+
   /** Speichert G.Sim.S plus Zusatzdaten (z. B. Kamera, Spieler-ID). */
   function save(extra) {
     var ls = store(), S = G.Sim && G.Sim.S;
     if (!ls || !S || S.over) return false;
     try {
-      ls.setItem(KEY, JSON.stringify({ when: Date.now(), tick: S.tick, extra: extra || {}, state: serialize(S) }));
+      ls.setItem(KEY, JSON.stringify({ when: Date.now(), tick: S.tick, v: G.DATA.SAVE_VERSION || 1, extra: extra || {}, state: serialize(S) }));
       return true;
     } catch (e) { return false; }
   }
@@ -62,17 +78,26 @@ var G = (typeof G !== 'undefined') ? G : {};
     try {
       var o = JSON.parse(ls.getItem(KEY));
       if (!o) return null;
-      G.Sim.setState(deserialize(o.state));
+      var st = deserialize(o.state);
+      if (compatible(st)) { clear(); return null; }   // v1.2: nicht mehr kompatibel → verwerfen
+      var prev = G.Sim.S;
+      try { G.Sim.setState(st); }
+      catch (e2) { if (prev) { try { G.Sim.setState(prev); } catch (e3) { /* egal */ } } clear(); return null; }
       return o.extra || {};
     } catch (e) { return null; }
   }
   function info() {
     var ls = store();
     if (!ls) return null;
-    try { var o = JSON.parse(ls.getItem(KEY)); return o ? { when: o.when, tick: o.tick } : null; } catch (e) { return null; }
+    try {
+      var o = JSON.parse(ls.getItem(KEY));
+      if (!o) return null;
+      if ((o.v || 1) > (G.DATA.SAVE_VERSION || 1) || typeof o.state !== 'string') { clear(); return null; }   // v1.2: neuere Version/defekt → verwerfen
+      return { when: o.when, tick: o.tick, v: o.v || 1 };
+    } catch (e) { clear(); return null; }
   }
   function has() { return !!info(); }
   function clear() { var ls = store(); if (ls) try { ls.removeItem(KEY); } catch (e) { /* egal */ } }
 
-  G.Save = { serialize: serialize, deserialize: deserialize, save: save, load: load, has: has, clear: clear, info: info };
+  G.Save = { serialize: serialize, deserialize: deserialize, save: save, load: load, has: has, clear: clear, info: info, compatible: compatible };
 })();

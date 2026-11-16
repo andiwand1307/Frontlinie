@@ -42,6 +42,25 @@ var G = (typeof G !== 'undefined') ? G : {};
     psitower: 1.5, psidome: 0.9 };                   // v1.0 Kollektiv (PLATZHALTER v1.0)
   var V8U = { transheli: 1, gunship: 1, bomber: 1, gunboat: 1, destroyer: 1, lander: 1 };   // v0.8 Luft-/Seeeinheiten (Sprites; Vektorformen in der geraden Kamera)
   var F_FLAK = 14, F_TRAIL = 15, rampT = {}, wreck8 = [];   // v0.8: Flak-Sprengwolke; Bugklappe offen seit (fxTime) je Landungsboot; Absturz/Untergang
+  // ---- v1.2 look-Rückfall (ZENTRALE STELLE, bleibt im 2D-/Sprite-Modus dauerhaft): neue Typen (data.js, Feld look) werden als ihr look-Typ gezeichnet.
+  // lookEnts(S) liefert S.ents, wobei Entitäten mit look-Typ durch einen Stellvertreter (Object.create(e), type = look, src = Original) ersetzt sind.
+  function lookType(t) { return D.lookOf ? D.lookOf(t) : t; }
+  var lkProx = new Map(), lkArr = [], lkTick = -1, lkSrc = null, lkN = -1;
+  function lookEnt(e) {
+    var l = lookType(e.type);
+    if (l === e.type) return e;
+    var p = lkProx.get(e.id);
+    if (!p || p.src !== e) { p = Object.create(e); p.type = l; p.ltype = e.type; p.src = e; lkProx.set(e.id, p); }
+    return p;
+  }
+  function lookEnts(S) {
+    var E = S.ents;
+    if (lkSrc === S && lkTick === S.tick && lkN === E.length) return lkArr;
+    lkSrc = S; lkTick = S.tick; lkN = E.length; lkArr.length = E.length;
+    for (var i = 0; i < E.length; i++) lkArr[i] = lookEnt(E[i]);
+    if (lkProx.size > E.length * 2 + 64) lkProx.clear();
+    return lkArr;
+  }
   function isInf(t) { return t === 'rifle' || t === 'rocket' || t === 'engineer' || t === 'sniper' || t === 'flamer' || t === 'medic' || t === 'psiadept' || t === 'brute'; }
   var INFK = { rifle: 0, rocket: 1, engineer: 2, sniper: 3, flamer: 4, medic: 5 }; // drawInfantry: Gestalt
   var UH = { gatling: 12, magnet: 14, psitank: 18, harvester: 14, tank: 14, howitzer: 14, colossus: 20, mcv: 18, apc: 13, lasertank: 15, flamer: 0, mlrs: 17, shocktank: 18 }; // Aufbauhöhe in px (Welt) für Balken/Rauch
@@ -728,7 +747,8 @@ var G = (typeof G !== 'undefined') ? G : {};
         addFx(F_BOOM, e.x, e.y, 2, 0, 0, 0, 0.4, e.w === 'cannon' ? 15 : 10);
         addDecal(e.x, e.y, e.w === 'cannon' ? 9 : 6, 22, 0);
       } else if (e.t === 'die') {
-        if (e.inside || !visibleAt(e.x, e.y)) continue;   // v0.8: Insassen eines Transporters ohne eigenen Effekt
+        if (e.inside || !visibleAt(e.x, e.y)) continue;
+        if (lookType(e.type) !== e.type) { var e12 = Object.create(e); e12.type = lookType(e.type); e = e12; }   // v1.2 look-Rückfall   // v0.8: Insassen eines Transporters ohne eigenen Effekt
         var Pd = S.players[e.owner];
         if (Pd && e.kind === 'unit' && (V8U[e.type] || e.type === 'dreadnought')) { delete dsv[e.id]; die8(e, Pd); continue; }
         if (e.kind === 'building') {
@@ -2788,7 +2808,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     var SPM = spOn(); // Sprite-Modus: vorgerenderte Modern-Sprites statt Vektorformen
     if (SPM && (world.spDirty || !world.props)) { world.spDirty = false; spBuildProps(); }
     ctx.imageSmoothingQuality = SPM ? 'high' : 'low'; // Sprites weich skalieren (Zoom 0,5–2)
-    var pid = V.pid, P = S.players[pid], fogOff = S.settings.fogOff, ents = S.ents, i, e, m = S.map;
+    var pid = V.pid, P = S.players[pid], fogOff = S.settings.fogOff, ents = lookEnts(S), i, e, m = S.map;   // v1.2 look-Rückfall
     var VW = V.vw, VH = V.vh;
     // Hintergrund + Gelände
     ctx.fillStyle = '#0b0f14'; ctx.fillRect(0, 0, VW, VH);
@@ -3114,7 +3134,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     ctx.lineWidth = lw; ctx.strokeStyle = col; ctx.beginPath(); ctx.ellipse(X, Y, rw, rh, 0, a0, a1); ctx.stroke();
   }
   function drawOverlay(S, P, sel, selSet, alpha, tick) {
-    var pid = V.pid, fogOff = S.settings.fogOff, ents = S.ents, i, e, VW = V.vw, VH = V.vh;
+    var pid = V.pid, fogOff = S.settings.fogOff, ents = lookEnts(S), i, e, VW = V.vw, VH = V.vh;   // v1.2 look-Rückfall
     drawMcLinks(S, pid, fogOff, alpha, tick);   // v1.0 Gedankenkontrolle / Magnet
     // Sammelpunkt
     if (sel.length === 1 && sel[0].kind === 'building' && sel[0].rx >= 0) {
@@ -3280,9 +3300,9 @@ var G = (typeof G !== 'undefined') ? G : {};
     var S = G.Sim.S;
     if (!S || !world || !V || !V.running) return null;
     setView();
-    var pid = V.pid, fogOff = S.settings.fogOff, P = S.players[pid], best = null, bestD = 1e9, i, e;
-    for (i = 0; i < S.ents.length; i++) {
-      e = S.ents[i];
+    var pid = V.pid, fogOff = S.settings.fogOff, P = S.players[pid], best = null, bestD = 1e9, i, e, LE = lookEnts(S);   // v1.2 look-Rückfall
+    for (i = 0; i < LE.length; i++) {
+      e = LE[i];
       if (e.dead || e.kind !== 'unit' || e.inside) continue;
       if (e.owner !== pid && !fogOff && !G.Sim.isVisible(pid, e)) continue;
       var X = PX(e.x, e.y), Y = PY(e.x, e.y) - (e.mc === 2 ? airScreen(e) : unitLiftPx(e) * 0.45);   // v0.8: Luftfahrzeuge in Flughöhe
@@ -3290,10 +3310,10 @@ var G = (typeof G !== 'undefined') ? G : {};
       var d = Math.hypot(X - px, Y - py) - rad;
       if (d <= (slack || 6) && d < bestD) { best = e; bestD = d; }
     }
-    if (best) return best;
+    if (best) return best.src || best;
     var bestKey = -1e9;
-    for (i = 0; i < S.ents.length; i++) {
-      e = S.ents[i];
+    for (i = 0; i < LE.length; i++) {
+      e = LE[i];
       if (e.dead || e.kind !== 'building') continue;
       if (NEUT[e.type]) { if (e.ruin || !neutralShown(e, P, fogOff)) continue; }
       else if (e.owner !== pid && !fogOff && !G.Sim.isVisible(pid, e)) continue;
@@ -3306,7 +3326,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       }
       if (hit && bk > bestKey) { bestKey = bk; best = e; }
     }
-    return best;
+    return best ? (best.src || best) : best;
   }
 
   // ------------------------------------------------------------------ Minimap
@@ -3334,9 +3354,9 @@ var G = (typeof G !== 'undefined') ? G : {};
       var mm = P.mem[id]; if (NEUT[mm.type]) continue; mctx.fillStyle = '#111'; mctx.fillRect(mm.tx * mxs - 1, mm.ty * mys - 1, mm.w * mxs + 2, mm.h * mys + 2);
       mctx.fillStyle = S.players[mm.owner].color; mctx.fillRect(mm.tx * mxs, mm.ty * mys, mm.w * mxs, mm.h * mys);
     }
-    var ds = Math.max(3, 2.2 * dpr);
-    for (i = 0; i < S.ents.length; i++) {
-      var e = S.ents[i];
+    var ds = Math.max(3, 2.2 * dpr), LE = lookEnts(S);   // v1.2 look-Rückfall
+    for (i = 0; i < LE.length; i++) {
+      var e = LE[i];
       if (e.dead || e.inside) continue;
       if (e.kind === 'building' && NEUT[e.type]) {
         if (!neutralShown(e, P, fogOff)) continue;
@@ -3411,6 +3431,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     return true;
   }
   function drawIcon(c, type, color, w, h) {
+    type = lookType(type);   // v1.2 look-Rückfall
     var sp = spReady && !spFail, key = type + '|' + color + '|' + w + 'x' + h + (sp ? '|s' : ''), img = iconCache[key];
     if (!img) {
       img = document.createElement('canvas'); img.width = w; img.height = h;
