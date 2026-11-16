@@ -110,6 +110,12 @@ var G = (typeof G !== 'undefined') ? G : {};
     trees: [68, 112, 50], road: [92, 90, 86], bridge: [34, 84, 138]
   };
   var TCOLM = { grass: [70, 112, 50], sand: [180, 158, 106], rock: [110, 106, 100], water: [36, 90, 140], trees: [36, 72, 32], road: [96, 94, 88], bridge: [130, 96, 60] };
+  // Thema/Wetter/Tageszeit: Winter-Boden (2D + Sprite-Boden + Minimap), Tönung für Dämmerung/Nacht (G.MAPS.mood). Sprites der Bäume/Gebäude bleiben.
+  var TCOL_W = { grass: [204, 212, 224], sand: [182, 194, 210], rock: [98, 100, 106], water: [38, 72, 108], trees: [50, 78, 70], road: [116, 118, 126], bridge: [38, 72, 108] };
+  var TCOLM_W = { grass: [208, 216, 226], sand: [184, 194, 208], rock: [104, 106, 112], water: [44, 76, 110], trees: [58, 86, 80], road: [124, 126, 132], bridge: [120, 92, 64] };
+  var GRD_W = { sat: 1.0, r: 0.95, g: 0.97, b: 1.0 };
+  var MOOD_TINT = { dusk: 'rgba(120,52,40,0.16)', night: 'rgba(6,14,40,0.52)' };
+  function moodOf(m) { return (G.MAPS && G.MAPS.mood && m) ? G.MAPS.mood(m.id) : { theme: 'temperate', time: 'day', weather: 'none' }; }
   var STRETCH = 1; // senkrechte Streckung für "aufrechte" Formen im Boden-Canvas (1/sin(PITCH))
 
   // ------------------------------------------------------------------ Sprite-Modus: Boden im Modern-Stil (prozedural, einmal je Karte)
@@ -117,7 +123,7 @@ var G = (typeof G !== 'undefined') ? G : {};
   // Texturen, weich überblendet (verrauschte Ränder + Höhen-Überblendung), Straßen mit dunklem Rand, Hangschattierung aus einem
   // groben Höhenfeld (Felsen hoch, Wasser tief), Wasser mit Tiefe, nassem Ufer und Schaumlinie. Kein WebGL.
   var GL_S = 64, glCache = null; // W11-look: 128 bei feinem Boden (world.TS > 40), damit die Schichten nicht grob hochgezogen werden
-  var GRD = { sat: 1.05, r: 0.95, g: 0.92, b: 0.72 }; // Abschlussfarbe des Sprite-Bodens (per Vergleich mit Modern abgestimmt)
+  var GRD0 = { sat: 1.05, r: 0.95, g: 0.92, b: 0.72 }; // Abschlussfarbe des Sprite-Bodens (per Vergleich mit Modern abgestimmt)
   function pnoise(f, oct, seed) { // periodisches fBm-Wertrauschen GL_S×GL_S in [0,1]
     var S = GL_S, out = new Float32Array(S * S), amp = 1, tot = 0, o, i, j;
     for (o = 0; o < oct; o++, f *= 2, amp *= 0.5) {
@@ -135,8 +141,8 @@ var G = (typeof G !== 'undefined') ? G : {};
   function sst(a, b, x) { var t = (x - a) / (b - a); t = t < 0 ? 0 : (t > 1 ? 1 : t); return t * t * (3 - 2 * t); }
   function mixf(a, b, t) { return a + (b - a) * t; }
   /** 7 Schichten (RGB + Höhe) wie die Modern-Bodentexturen (Paletten aus r3-terrain.genLayers) */
-  function groundLayers() {
-    if (glCache) return glCache;
+  function groundLayers(wt) {
+    if (glCache && glCache.wt === !!wt) return glCache;   // Thema Winter: eigener Satz
     var S = GL_S, N = S * S, A1 = pnoise(2, 4, 3), A2 = pnoise(8, 3, 11), A3 = pnoise(16, 2, 17), B1 = pnoise(2, 4, 23), B2 = pnoise(4, 4, 29), B3 = pnoise(16, 2, 37);
     var L = [], k, l;
     for (l = 0; l < 7; l++) {
@@ -150,11 +156,16 @@ var G = (typeof G !== 'undefined') ? G : {};
         else if (l === 4) { var ra = 1 - Math.abs(2 * n1 - 1), rb = 1 - Math.abs(2 * m2 - 1), st = Math.sin((v2 * 5 + n1 * 3 + (n2 - 0.5)) * TAU) * 0.5 + 0.5; t = clamp(0.25 + 0.4 * ra + 0.175 * st + 0.3 * (n3 - 0.5), 0, 1); r = mixf(84, 154, t); g = mixf(80, 144, t); b = mixf(74, 130, t); var crk = sst(0.9, 0.985, rb); r *= 1 - 0.45 * crk; g *= 1 - 0.45 * crk; b *= 1 - 0.45 * crk; h = clamp(0.25 + 0.5 * ra * ra + 0.2 * st - crk * 0.3, 0, 1); }
         else if (l === 5) { var ck2 = sst(0.955, 0.992, 1 - Math.abs(2 * m2 - 1)); t = clamp(0.5 + 0.5 * (n1 - 0.5) + 0.5 * (n3 - 0.5), 0, 1); r = mixf(62, 86, t); g = mixf(64, 88, t); b = mixf(66, 90, t); var oil = sst(0.62, 0.74, m1) * 0.22; r *= 1 - oil - ck2 * 0.45; g *= 1 - oil - ck2 * 0.45; b *= 1 - oil - ck2 * 0.45; if (sp > 0.93) { r += 14; g += 14; b += 14; } h = 0.5; }
         else { t = clamp(0.3 + 0.5 * n1 + 0.5 * (n2 - 0.5), 0, 1); r = mixf(58, 112, t); g = mixf(42, 78, t); b = mixf(32, 52, t); var sk = Math.min(1, sst(0.82, 0.9, m3) + sst(0.86, 0.93, n3) * 0.8); r = mixf(r, 250, sk * 0.85); g = mixf(g, 198, sk * 0.85); b = mixf(b, 74, sk * 0.85); h = clamp(0.4 + 0.45 * (n2 - 0.5) + sk * 0.35, 0, 1); }
+        if (wt) {   // Thema Winter (wie r3-terrain winterLayer, vereinfacht)
+          if (l === 0) { r = mixf(188, 224, t); g = mixf(198, 231, t); b = mixf(216, 242, t); } else if (l === 1) { r = mixf(176, 204, t); g = mixf(184, 211, t); b = mixf(198, 224, t); }
+          else if (l === 2) { r = mixf(84, 120, t); g = mixf(80, 112, t); b = mixf(78, 106, t); } else if (l === 3) { r = mixf(170, 204, t); g = mixf(184, 214, t); b = mixf(200, 228, t); }
+          else if (l === 4) { r *= 0.86; g *= 0.9; b *= 0.98; } else if (l === 5) { r *= 0.82; g *= 0.84; b *= 0.9; } else { r *= 0.9; g *= 0.92; b *= 1.02; }
+        }
         c[k * 3] = r; c[k * 3 + 1] = g; c[k * 3 + 2] = b; hh[k] = h;
       }
       L.push({ c: c, h: hh });
     }
-    glCache = { L: L, warp: pnoise(4, 3, 61), warp2: pnoise(4, 3, 67) };
+    glCache = { L: L, warp: pnoise(4, 3, 61), warp2: pnoise(4, 3, 67), wt: !!wt };
     return glCache;
   }
   function blurGrid(a, w, h, rad) { // Kastenfilter (zweimal) auf einem Kachelraster
@@ -185,7 +196,8 @@ var G = (typeof G !== 'undefined') ? G : {};
   function wfDirt(x, z) { return wfbm(0.3, 3, 73, x, z); }
   /** Boden im Modern-Stil in g (Größe m.w·TS × m.h·TS) malen */
   function modernGround(g, m, TS, tt) {
-    var t0 = performance.now(), GL = groundLayers(), Ls = GL.L, S = GL_S, W = m.w, H = m.h, x, y, l, i;
+    var WTm = moodOf(m).theme === 'winter', GRD = WTm ? GRD_W : GRD0;   // Thema Winter
+    var t0 = performance.now(), GL = groundLayers(WTm), Ls = GL.L, S = GL_S, W = m.w, H = m.h, x, y, l, i;
     var NL = 7, wg = [], road = new Float32Array(W * H), wat = new Float32Array(W * H), hgt = new Float32Array(W * H);
     for (l = 0; l < NL; l++) wg.push(new Float32Array(W * H));
     for (y = 0; y < H; y++) for (x = 0; x < W; x++) {
@@ -297,12 +309,13 @@ var G = (typeof G !== 'undefined') ? G : {};
     var hq = TS / 2;
     world.bruns = G.Bridges ? G.Bridges.plan(m) : null;   // v0.9: diagonale Brückenzüge (ein gerader Steg statt Kacheltreppe)
     var bdiag = world.bruns ? world.bruns.diag : null;
+    var WT2 = moodOf(m).theme === 'winter', TCX = WT2 ? TCOL_W : TCOL, TCMX = WT2 ? TCOLM_W : TCOLM;   // Thema Winter
     if (MODE === 'sprite') { var gls = TS > 40 ? 128 : 64; if (gls !== GL_S) { GL_S = gls; glCache = null; } modernGround(g, m, TS, tt); } // Sprite-Modus: Boden im Modern-Stil
     else {
     // 1) Grundfarben mit Viertelkachel-Rauschen
     for (y = 0; y < m.h; y++) for (x = 0; x < m.w; x++) {
-      id = tt(x, y); col = TCOL[id];
-      if (id === 'trees') col = TCOL.trees; if (id === 'bridge') col = TCOL.water;
+      id = tt(x, y); col = TCX[id];
+      if (id === 'trees') col = TCX.trees; if (id === 'bridge') col = TCX.water;
       for (q = 0; q < 4; q++) {
         v = (hash(x, y, 1 + q) - 0.5) * (id === 'water' ? 10 : 15);
         g.fillStyle = 'rgb(' + (col[0] + v | 0) + ',' + (col[1] + v | 0) + ',' + (col[2] + v | 0) + ')';
@@ -315,10 +328,10 @@ var G = (typeof G !== 'undefined') ? G : {};
       id = tt(x, y); px = x * TS; py = y * TS;
       if (id === 'grass') {
         for (i = 0; i < 6; i++) {
-          g.fillStyle = hash(x, y, 30 + i) > 0.5 ? 'rgba(255,255,255,0.10)' : 'rgba(10,30,0,0.14)';
+          g.fillStyle = hash(x, y, 30 + i) > 0.5 ? 'rgba(255,255,255,0.10)' : (WT2 ? 'rgba(60,80,120,0.10)' : 'rgba(10,30,0,0.14)');
           g.fillRect(px + hash(x, y, 10 + i) * (TS - 3), py + hash(x, y, 20 + i) * (TS - 4), 2 * s + 1, 3 * s + 1);
         }
-        if (hash(x, y, 77) > 0.93) { g.fillStyle = '#f5e27a'; g.fillRect(px + hash(x, y, 78) * (TS - 3), py + hash(x, y, 79) * (TS - 3), 2, 2); }
+        if (!WT2 && hash(x, y, 77) > 0.93) { g.fillStyle = '#f5e27a'; g.fillRect(px + hash(x, y, 78) * (TS - 3), py + hash(x, y, 79) * (TS - 3), 2, 2); }
       } else if (id === 'sand') {
         for (i = 0; i < 7; i++) {
           g.fillStyle = hash(x, y, 30 + i) > 0.5 ? 'rgba(255,255,230,0.20)' : 'rgba(110,80,30,0.16)';
@@ -379,7 +392,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     var mb = document.createElement('canvas'); mb.width = m.w * 2; mb.height = m.h * 2;
     var mg = mb.getContext('2d'), img = mg.createImageData(mb.width, mb.height);
     for (y = 0; y < mb.height; y++) for (x = 0; x < mb.width; x++) {
-      var mc = TCOLM[D.TERRAIN[m.terrain[(y >> 1) * m.w + (x >> 1)]].id], vv = (hash(x, y, 9) - 0.5) * 14, o = (y * mb.width + x) * 4;
+      var mc = TCMX[D.TERRAIN[m.terrain[(y >> 1) * m.w + (x >> 1)]].id], vv = (hash(x, y, 9) - 0.5) * 14, o = (y * mb.width + x) * 4;
       img.data[o] = mc[0] + vv; img.data[o + 1] = mc[1] + vv; img.data[o + 2] = mc[2] + vv; img.data[o + 3] = 255;
     }
     mg.putImageData(img, 0, 0);
@@ -2938,6 +2951,9 @@ var G = (typeof G !== 'undefined') ? G : {};
     drawArtyFx();
     drawFx(dt);
     drawBolts(dt);
+    // Thema/Tageszeit: Dämmerung/Nacht als einfache Tönung über der Welt (vor dem Nebel → Nebel bleibt davon unterscheidbar)
+    var mt = MOOD_TINT[moodOf(m).time];
+    if (mt) { ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = mt; ctx.fillRect(0, 0, cv.width, cv.height); ctx.restore(); }
     // Nebel
     PROF(4); // Messung (nur mit _prof)
     if (!fogOff) blitMap(world.fogCv, 1, true);

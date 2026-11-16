@@ -896,7 +896,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     if (!qs.some(function (q) { return q[0] === 'sprite'; })) qs.push(['sprite', 'Sprite (stabil)']); // Sprite-Modus: vorgerenderte Grafik, kein WebGL
     return '<div class="opt"><div class="lbl">Grafik</div><select id="gfxSel" aria-label="Grafik" style="width:100%">' + qs.map(function (q) {
       return '<option value="' + q[0] + '"' + (q[0] === cur ? ' selected' : '') + '>' + q[1] + '</option>';
-    }).join('') + '</select>' + camOpt() + gfxTools() + '</div>';
+    }).join('') + '</select>' + camOpt() + weatherOpt() + gfxTools() + '</div>';
   }
   /** W11-look: gut lesbare Zeile „Aktiv: …“ (Modus/Profil, Schatten, Bildpuffer), damit Spieler den laufenden Modus melden können. */
   function gfxActive() {
@@ -929,6 +929,22 @@ var G = (typeof G !== 'undefined') ? G : {};
       '<div class="seg" style="margin-top:6px"><button id="gfxTest" aria-label="Grafik-Test" style="min-width:140px">Grafik-Test</button><button id="gfxDiagBtn" aria-label="Grafik-Info" style="min-width:140px">Grafik-Info</button><button id="gfxReset" aria-label="Grafik zurücksetzen" style="flex-basis:100%">Grafik zurücksetzen</button></div>' +
       '<div class="help">Grafik-Test: prüft ca. 4 Minuten lang jede Grafik-Funktion einzeln und behält nur, was stabil läuft.</div>';
   }
+  /** Thema/Wetter/Tageszeit: „Wetter: An / Aus“ (G.Mood, localStorage 'frontlinie.weather', Standard An) – wirkt sofort, rein optisch. */
+  function weatherOpt() {
+    if (!G.Mood) return '';
+    var cur = G.Mood.weatherOn() ? '1' : '0';
+    return '<div class="lbl sublbl">Wetter</div><div class="seg" data-weather="1">' + [['1', 'An'], ['0', 'Aus']].map(function (it) {
+      return '<button data-v="' + it[0] + '" class="' + (cur === it[0] ? 'on' : '') + '" aria-label="Wetter: ' + it[1] + '">' + it[1] + '</button>';
+    }).join('') + '</div>';
+  }
+  function bindWeather(root) {
+    var sg = (root || document).querySelector('.seg[data-weather]'); if (!sg || !G.Mood) return;
+    sg.addEventListener('click', function (ev) {
+      var b = ev.target.closest('button'); if (!b) return;
+      G.Mood.setWeather(b.dataset.v === '1');
+      Array.prototype.forEach.call(sg.children, function (c) { c.classList.toggle('on', c === b); });
+    });
+  }
   /** v0.7: „Kamera: Diagonal / Gerade“ – eigene Segmentgruppe (data-cam), wirkt sofort, Bildmitte bleibt. */
   function camOpt() {
     if (!V || !V.setCamMode) return '';
@@ -947,7 +963,7 @@ var G = (typeof G !== 'undefined') ? G : {};
   }
   // Start- und Pausemenü enthalten je ein #gfxSel → innerhalb des jeweiligen Menüs suchen (getElementById fände immer das erste)
   function bindGfx(root) {
-    var r = root || document, el = r.querySelector('#gfxSel'); if (el) el.onchange = function () { G.Render.setQuality(el.value); }; bindCam(root);
+    var r = root || document, el = r.querySelector('#gfxSel'); if (el) el.onchange = function () { G.Render.setQuality(el.value); }; bindCam(root); bindWeather(root);
     var bt = r.querySelector('#gfxTest'), br = r.querySelector('#gfxReset'), bd = r.querySelector('#gfxDiagBtn');
     if (bt) bt.onclick = function () { if (G.GfxTest) G.GfxTest.start(); };
     if (br) br.onclick = function () {
@@ -960,15 +976,26 @@ var G = (typeof G !== 'undefined') ? G : {};
   function saveOpts() { try { localStorage.setItem('frontlinie.opts', JSON.stringify(opts)); } catch (e) { /* egal */ } }
 
   // Vorschau einer Karte: Gelände aus den Zeilen, Strukturpunkte, Startpositionen
-  var TCOL = { '.': '#5f8f3f', ',': '#bba76f', '#': '#6e6a64', '~': '#2f6ea3', 'T': '#2d5a2a', '=': '#77746c', 'H': '#9a7344', 'o': '#e0b030', 'O': '#ffd23f' };
+  var TCOL0 = { '.': '#5f8f3f', ',': '#bba76f', '#': '#6e6a64', '~': '#2f6ea3', 'T': '#2d5a2a', '=': '#77746c', 'H': '#9a7344', 'o': '#e0b030', 'O': '#ffd23f' };
   var SCOL = { house: '#f1f5f9', block: '#f1f5f9', bunker: '#fb923c', oilrig: '#111827', radar: '#22d3ee', hospital: '#4ade80', workshop: '#f59e0b', artillery: '#f43f5e' };
+  // Thema/Wetter/Tageszeit: Winter-Farben der Vorschau, Tönung für Dämmerung/Nacht, Kennzeichnung in der Kartenkarte
+  var TCOL_W = { '.': '#d2d9e4', ',': '#b8c3d2', '#': '#64666c', '~': '#2a4c70', 'T': '#33504a', '=': '#7c7f87', 'H': '#7a5c40', 'o': '#e0b030', 'O': '#ffd23f' };
+  var MOOD_TXT = { theme: { winter: 'Winter' }, time: { dusk: 'Dämmerung', night: 'Nacht' }, weather: { rain: 'Regen', snow: 'Schneefall', sand: 'Sandsturm' } };
+  function moodTxt(m) {
+    if (!G.MAPS.mood) return '';
+    var o = G.MAPS.mood(m.id), a = [MOOD_TXT.theme[o.theme], MOOD_TXT.time[o.time], MOOD_TXT.weather[o.weather]].filter(Boolean);
+    return a.length ? ' · ' + a.join(' · ') : '';
+  }
   function drawThumb(cv, m) {
     var rows = m.rows, h = rows.length, w = rows[0].length, S = cv.width, s = S / Math.max(w, h), c = cv.getContext('2d');
+    var mo = G.MAPS.mood ? G.MAPS.mood(m.id) : { theme: 'temperate', time: 'day' }, TCOL = mo.theme === 'winter' ? TCOL_W : TCOL0;
     var ox = (S - w * s) / 2, oy = (S - h * s) / 2;
     c.fillStyle = '#05080c'; c.fillRect(0, 0, S, S);
     for (var y = 0; y < h; y++) for (var x = 0; x < w; x++) {
       c.fillStyle = TCOL[rows[y][x]] || '#555'; c.fillRect(ox + x * s, oy + y * s, Math.ceil(s) + 0.5, Math.ceil(s) + 0.5);
     }
+    if (mo.time === 'night') { c.fillStyle = 'rgba(8,16,44,0.5)'; c.fillRect(ox, oy, w * s, h * s); }
+    else if (mo.time === 'dusk') { c.fillStyle = 'rgba(150,60,40,0.18)'; c.fillRect(ox, oy, w * s, h * s); }
     (m.structures || []).forEach(function (st) {
       var d = D.BUILDINGS[st.type], sw = (d && d.w) || 2, sh = (d && d.h) || 2, cx = ox + (st.tx + sw / 2) * s, cy = oy + (st.ty + sh / 2) * s, r = Math.max(4, s * 1.5);
       c.fillStyle = SCOL[st.type] || '#fff'; c.strokeStyle = st.type === 'oilrig' ? '#fbbf24' : '#000'; c.lineWidth = 2;
@@ -984,7 +1011,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     return '<div class="maplist" data-opt="mapId">' + G.MAPS.list.map(function (m) {
       var w = m.rows[0].length, h = m.rows.length;
       return '<button class="mapcard ' + (opts.mapId === m.id ? 'on' : '') + '" data-v="' + m.id + '"><canvas width="168" height="168"></canvas><span><span class="mt">' + esc(m.name) +
-        '</span><span class="ms">' + esc(m.size || (w + '×' + h)) + '</span><span class="md">' + esc(m.desc || '') + '</span></span></button>';
+        '</span><span class="ms">' + esc((m.size || (w + '×' + h)) + moodTxt(m)) + '</span><span class="md">' + esc(m.desc || '') + '</span></span></button>';
     }).join('') + '</div>';
   }
   function showStart() {

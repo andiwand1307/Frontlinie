@@ -321,8 +321,9 @@ var G = (typeof G !== 'undefined') ? G : {};
   // 0 Gras, 1 Trockengras, 2 Erde, 3 Sand, 4 Fels, 5 Asphalt, 6 Erzboden.  alb: sRGB-RGBA (a = Höhe), nrm: (xy = Normale, b = Rauheit, a = Verdeckung)
   var NL = 7, layerCache = {};
   function fh(i, j, s) { var h = Math.imul(i, 374761393) + Math.imul(j, 668265263) + Math.imul(s, 1274126177); h = Math.imul(h ^ (h >>> 13), 1103515245); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
-  function genLayers(S) {
-    if (layerCache[S]) return layerCache[S];
+  function genLayers(S, wt) {
+    var ck = S + (wt ? 'w' : '');   // Thema/Wetter/Tageszeit: Winter-Schichten eigener Cache-Eintrag
+    if (layerCache[ck]) return layerCache[ck];
     var t0 = now(), N = S * S;
     var alb = new Uint8Array(NL * N * 4), nrm = new Uint8Array(NL * N * 4);
     var fa = mkFbm(4, 5, 3), fb = mkFbm(16, 3, 11), fc = mkFbm(64, 2, 17), ga = mkFbm(2, 5, 23), gb = mkFbm(8, 4, 29), gc = mkFbm(32, 3, 37);
@@ -390,6 +391,7 @@ var G = (typeof G !== 'undefined') ? G : {};
           if (sk > 0) { sk = Math.min(1, sk); r = mix(r, 244, sk * 0.72); g = mix(g, 194, sk * 0.72); b = mix(b, 84, sk * 0.72); }
           h = clamp(0.4 + 0.45 * (n2 - 0.5) + 0.35 * (n3 - 0.5) + sk * 0.35, 0, 1); rg = sk > 0.2 ? 0.45 : 0.92;
         }
+        if (wt) { WCOL[0] = r; WCOL[1] = g; WCOL[2] = b; WCOL[3] = h; WCOL[4] = rg; winterLayer(L, t, n1, n2, n3, m1, m2, m3, sp); r = WCOL[0]; g = WCOL[1]; b = WCOL[2]; h = WCOL[3]; rg = WCOL[4]; }
         hb[k] = h; rr[k] = rg;
         var q = o + k * 4;
         alb[q] = r < 0 ? 0 : (r > 255 ? 255 : r); alb[q + 1] = g < 0 ? 0 : (g > 255 ? 255 : g); alb[q + 2] = b < 0 ? 0 : (b > 255 ? 255 : b); alb[q + 3] = h * 255;
@@ -404,10 +406,56 @@ var G = (typeof G !== 'undefined') ? G : {};
       }
     }
     var out = { S: S, alb: alb, nrm: nrm };
-    layerCache[S] = out;
+    layerCache[ck] = out;
     out.ms = now() - t0; stats.layerMs += out.ms;
     return out;
   }
+
+  // ------------------------------------------------------------------ Thema/Wetter/Tageszeit: Winter-Bodenschichten
+  // Gleiche 7 Schichten, gleiche Rauschfelder → Splat/Straßen/Shader bleiben unverändert, nur die Farben (und Gras-Höhen) wechseln:
+  // 0 Gras → Tiefschnee (weich, bläuliche Mulden, Glitzer), 1 Trockengras → Harsch/festgefahrener Schnee (Windrippel), 2 Erde → gefrorene Erde/Matsch
+  // (Reifsprenkel), 3 Sand → Firn/Eisufer (grau-blau), 4 Fels → kühler Fels mit Schnee in Mulden, 5 Asphalt → nasser Matsch mit Schneeresten,
+  // 6 Erzboden → kühler, Erz-Splitter bleiben. Werte in/aus WCOL (r, g, b, h, rg).
+  var WCOL = [0, 0, 0, 0, 0];
+  function winterLayer(L, t, n1, n2, n3, m1, m2, m3, sp) {
+    var W = WCOL, r, g, b, h;
+    if (L === 0) {
+      t = clamp(0.3 + 0.55 * n1 + 0.3 * (n2 - 0.5), 0, 1);
+      h = clamp(0.45 + 0.6 * (n1 - 0.5) + 0.35 * (n2 - 0.5) + 0.12 * (n3 - 0.5), 0, 1);
+      r = mix(186, 222, t); g = mix(196, 229, t); b = mix(214, 240, t);
+      var cold = (1 - h) * 0.6; r -= 20 * cold; g -= 11 * cold;
+      if (sp > 0.986) { r += 14; g += 14; b += 10; }
+      W[3] = h; W[4] = 0.78;
+    } else if (L === 1) {
+      t = clamp(0.3 + 0.5 * m1 + 0.3 * (n2 - 0.5), 0, 1);
+      r = mix(176, 204, t); g = mix(184, 211, t); b = mix(198, 224, t);
+      W[3] = clamp(0.45 + 0.3 * (m2 - 0.5) + 0.2 * (n3 - 0.5), 0, 1); W[4] = 0.7;
+    } else if (L === 2) {
+      r = mix(84, 120, t); g = mix(80, 112, t); b = mix(78, 106, t);
+      var fr = sstep(0.55, 0.8, n3) * 0.55 + sstep(0.7, 0.76, m3) * 0.3;
+      r = mix(r, 206, fr); g = mix(g, 212, fr); b = mix(b, 222, fr);
+      W[4] = 0.9;
+    } else if (L === 3) {
+      r = mix(170, 204, t); g = mix(184, 214, t); b = mix(200, 228, t);
+      if (sp > 0.97) { r += 10; g += 10; b += 10; }
+      W[4] = 0.6;
+    } else if (L === 4) {
+      r = W[0] * 0.86; g = W[1] * 0.9; b = W[2] * 0.98;
+      var sn = sstep(0.5, 0.72, n2) * 0.55 + sstep(0.6, 0.8, m1) * 0.25;
+      r = mix(r, 214, sn); g = mix(g, 220, sn); b = mix(b, 232, sn);
+      W[4] = W[4];
+    } else if (L === 5) {
+      r = W[0] * 0.82; g = W[1] * 0.84; b = W[2] * 0.9;
+      var sl = sstep(0.5, 0.72, m1) * 0.5 + sstep(0.62, 0.8, n3) * 0.25;
+      r = mix(r, 150, sl); g = mix(g, 156, sl); b = mix(b, 166, sl);
+      W[4] = W[4] * 0.85;
+    } else {
+      r = W[0] * 0.9; g = W[1] * 0.92; b = W[2] * 1.02;
+    }
+    if (L === 0 || L === 1) { /* h gesetzt */ } else W[3] = W[3];
+    W[0] = r; W[1] = g; W[2] = b;
+  }
+  function isWinter() { return !!(R.mood && R.mood.theme === 'winter'); }
 
   // ------------------------------------------------------------------ Welt-Felder (Distanzfelder, Höhen, Splat, Straßen) – reine Rechnung
   var CLS = { grass: 0, sand: 1, rock: 2, water: 3, trees: 4, road: 5, bridge: 6 };
@@ -599,7 +647,8 @@ var G = (typeof G !== 'undefined') ? G : {};
       var gW = chn[0][k], sW = chn[1][k], rW = chn[2][k], wW = chn[3][k], fW = Math.min(chn[4][k], gW), oW = chn[5][k];
       var nD = dryN(wx, wz), nM = dirtN(wx, wz), mc = macN(wx, wz) * 0.75 + mac2(wx, wz) * 0.25, bk = bankN(wx, wz);
       var sdw = sdW[k], sdr = sdR[k];
-      var dry = sstep(0.5, 0.7, nD) * 0.92 * (1 - fW * 0.85), dirtP = sstep(0.62, 0.88, nM) * 0.62 * (1 - fW * 0.6);   // B1: Erdflecken weicher und nur teildeckend (vorher 0.64–0.8 · 0.8)
+      var dry = sstep(0.5, 0.7, nD) * 0.92 * (1 - fW * 0.85), dirtP = sstep(0.62, 0.88, nM) * 0.62 * (1 - fW * 0.6);
+      if (cf.wt) { dirtP *= 0.35; dry *= 0.8; }   // Thema Winter: nur vereinzelt gefrorene Erde, etwas weniger Harsch   // B1: Erdflecken weicher und nur teildeckend (vorher 0.64–0.8 · 0.8)
       var Lg = gW * (1 - dry) * (1 - dirtP), Ld = gW * dry * (1 - dirtP), Le = gW * dirtP, Ls = sW, Lr = rW, Lo = 0;
       Le += fW * 0.42 * (0.5 + 0.5 * nM); Lg -= Math.min(Lg, fW * 0.42 * (0.5 + 0.5 * nM));
       // Sandufer (Land nahe Wasser), Wasserbett
@@ -649,7 +698,8 @@ var G = (typeof G !== 'undefined') ? G : {};
 
   // ------------------------------------------------------------------ Gelände: Mesh, Material
   var TREP = [0.62, 0.62, 0.85, 0.85, 0.5, 0.75, 1.0];
-  var TINT_A = [0.9, 0.96, 0.93], TINT_B = [1.08, 1.05, 0.9];   // B1: großflächige Tönung kühl ↔ warm (vorher 0.84,0.94,0.92 ↔ 1.14,1.08,0.86); Shader und Bake
+  var TINT_A = [0.9, 0.96, 0.93], TINT_B = [1.08, 1.05, 0.9];
+  var TINT_WA = [0.95, 0.975, 1.03], TINT_WB = [1.03, 1.02, 0.98];   // Thema Winter: Makro-Tönung kühl ↔ hell (Shader T_WINTER und Bake)   // B1: großflächige Tönung kühl ↔ warm (vorher 0.84,0.94,0.92 ↔ 1.14,1.08,0.86); Shader und Bake
   var VS_TERRAIN = ['varying vec3 vTW; varying vec3 vTN;'].join('\n');
   var FS_HEAD = [
     'uniform sampler2DArray uAlb; uniform sampler2DArray uNrm;',
@@ -732,14 +782,25 @@ var G = (typeof G !== 'undefined') ? G : {};
     '  if (totT < 0.001) { colT = vec3(0.1, 0.2, 0.05); rghT = 0.9; aoT = 1.0; }',
     // Makro-Färbung (Gras/Erde) + Waldboden
     '  float kgT = sA.x + sA.y + sA.z + sA.w * 0.5;',
+    '#ifdef T_WINTER',
+    '  vec3 tintT = mix(vec3(' + TINT_WA.join(', ') + '), vec3(' + TINT_WB.join(', ') + '), sB.y);',
+    '  colT *= mix(vec3(1.0), tintT, clamp(kgT, 0.0, 1.0) * 0.95);',
+    '  colT *= mix(vec3(1.0), vec3(0.76, 0.82, 0.92), sB.w * 0.85);',   // Thema Winter: Waldboden im Schatten der Kiefern (bläulich)
+    '#else',
     '  vec3 tintT = mix(vec3(' + TINT_A.join(', ') + '), vec3(' + TINT_B.join(', ') + '), sB.y);',
     '  colT *= mix(vec3(1.0), tintT, clamp(kgT, 0.0, 1.0) * 0.95);',
-    '  colT *= mix(vec3(1.0), vec3(0.7, 0.8, 0.68), sB.w * 0.85);',   // Waldboden (B1: etwas heller – mit den kräftigeren Schatten sonst schwarz)
+    '  colT *= mix(vec3(1.0), vec3(0.7, 0.8, 0.68), sB.w * 0.85);',
+    '#endif',   // Waldboden (B1: etwas heller – mit den kräftigeren Schatten sonst schwarz)
     // Straße
     '  if (rcT > 0.0) {',
     '    vec4 n5T = textureGrad(uNrm, vec3(tP * TREP[5], 5.0), dxw * TREP[5], dyw * TREP[5]);',
     '    vec3 rcol = a5T.rgb * (1.0 - 0.26 * rdT.b);',
+    '#ifdef T_WINTER',
+    '    rcol = mix(vec3(0.6, 0.62, 0.67) * (0.9 + 0.2 * a5T.a), rcol * 0.9, clamp(rdT.b * 1.15, 0.0, 1.0));',   // festgefahrener Schnee, dunkle Fahrrinnen
+    '    rcol = mix(rcol, vec3(0.6, 0.57, 0.46), clamp(rdT.r * 0.6, 0.0, 1.0));',                                   // Markierung halb verschneit
+    '#else',
     '    rcol = mix(rcol, vec3(0.85, 0.78, 0.5), clamp(rdT.r * 1.3, 0.0, 1.0));',
+    '#endif',
     '    rcol = mix(rcol, vec3(0.5, 0.5, 0.46), rdT.g * 0.6);',
     '    colT = mix(colT, rcol, rcT);',
     '    rghT = mix(rghT, n5T.b * (1.0 - 0.3 * rdT.b), rcT);',
@@ -747,7 +808,11 @@ var G = (typeof G !== 'undefined') ? G : {};
     '  }',
     // nasser Ufersaum
     '  float wetT = smoothstep(-0.62, -0.1, sdf) * (1.0 - rcT * 0.8);',
+    '#ifdef T_WINTER',
+    '  colT *= mix(vec3(1.0), vec3(0.8, 0.88, 0.98), wetT); rghT = mix(rghT, 0.3, wetT * 0.75);',   // Thema Winter: vereister Ufersaum (kühl statt nass-dunkel)
+    '#else',
     '  colT *= mix(1.0, 0.6, wetT); rghT = mix(rghT, 0.32, wetT * 0.75);',
+    '#endif',
     '  diffuseColor.rgb *= colT * mix(1.0, aoT, 0.85);',
     '  float tRough = clamp(rghT, 0.2, 1.0); vec2 tNrm = nrmT;'
   ].join('\n');
@@ -784,10 +849,10 @@ var G = (typeof G !== 'undefined') ? G : {};
     var mat = new THREE.ShaderMaterial({
       side: THREE.DoubleSide,
       uniforms: { uCol: { value: tex }, uInv: { value: new THREE.Vector2(1 / W, 1 / H) }, uLit: { value: R.std ? APRON.litStd : APRON.litClassic },
-        uFar: { value: new THREE.Vector3().fromArray(R.std ? APRON.far : APRON.farClassic) }, uFow: SH.uFow, uFowOn: SH.uFowOn, uEdge: SH.uEdge },
+        uFar: { value: new THREE.Vector3().fromArray(R.std ? APRON.far : APRON.farClassic) }, uFow: SH.uFow, uFowOn: SH.uFowOn, uEdge: SH.uEdge, uMoodCol: SH.uMoodCol },
       vertexShader: 'varying vec2 vP; void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vP = w.xz; gl_Position = projectionMatrix * viewMatrix * w; }',
       fragmentShader: [
-        'uniform sampler2D uCol; uniform sampler2D uFow; uniform vec2 uInv; uniform float uLit; uniform vec3 uFar; uniform float uFowOn; uniform vec2 uEdge;',
+        'uniform sampler2D uCol; uniform sampler2D uFow; uniform vec2 uInv; uniform float uLit; uniform vec3 uFar; uniform float uFowOn; uniform vec2 uEdge; uniform vec3 uMoodCol;',
         'varying vec2 vP;',
         'float hsh(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }',
         'float vn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);',
@@ -798,6 +863,7 @@ var G = (typeof G !== 'undefined') ? G : {};
         '  float n1 = vn(vP * 0.42), n2 = vn(vP * 1.7 + 7.3);',
         '  vec2 cuv = clamp(uv + (vec2(n1, n2) - 0.5) * uInv * 3.0 * min(d, 1.5), 0.5 * uInv, 1.0 - 0.5 * uInv);',
         '  vec3 c = texture2D(uCol, cuv).rgb * (uLit * uEdge.y * (0.86 + 0.28 * n2));',
+        '  c *= uMoodCol;',   // Thema/Tageszeit: Vorland folgt der Stimmung
         '  c = mix(c, uFar, smoothstep(0.0, 7.0, d + (n1 - 0.5) * 2.2));',
         '  c *= mix(1.0, texture2D(uFow, uv).r, uFowOn);',
         '  gl_FragColor = vec4(c, 1.0);',
@@ -831,6 +897,7 @@ var G = (typeof G !== 'undefined') ? G : {};
   /** Modern/Lite: Standard-Material mit Splat-Überblendung der Bodenschichten */
   function terrainMaterialStd(fl, ly, texs, lite) {
     var ink = !!R.ink;   // INK: Aquarell-Boden (T_INK)
+    var wt = isWinter();  // Thema Winter (T_WINTER)
     var mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, metalness: 0 });
     var U = {
       uAlb: { value: makeArrayTex(ly.alb, ly.S, true) }, uNrm: { value: makeArrayTex(ly.nrm, ly.S, false) },
@@ -843,18 +910,20 @@ var G = (typeof G !== 'undefined') ? G : {};
     mat.onBeforeCompile = function (sh) {
       for (var k in U) sh.uniforms[k] = U[k];
       sh.vertexShader = VS_TERRAIN + '\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vTW = position; vTN = normal;');
-      sh.fragmentShader = (lite ? '#define T_LITE\n' : '') + (ink ? '#define T_INK\n' : '') + FS_HEAD + '\n' + sh.fragmentShader
+      sh.fragmentShader = (lite ? '#define T_LITE\n' : '') + (ink ? '#define T_INK\n' : '') + (wt ? '#define T_WINTER\n' : '') + FS_HEAD + '\n' + sh.fragmentShader
         .replace('#include <map_fragment>', FS_MAP)
         .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = tRough;')
         .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\n  { vec3 tpn = (viewMatrix * vec4(tNrm.x, 0.0, tNrm.y, 0.0)).xyz; normal = normalize(normal + tpn * uNK); }');
     };
-    mat.customProgramCacheKey = function () { return 'r3t7' + (lite ? 'L' : 'F') + (ink ? 'I' : ''); };
+    mat.customProgramCacheKey = function () { return 'r3t7' + (lite ? 'L' : 'F') + (ink ? 'I' : '') + (wt ? 'W' : ''); };
+    mat.userData.ground = true;   // Thema/Wetter: Regen-Nässe (fowify/moodify)
     return fowify(mat);
   }
 
   /** Pixel/Scharf/Spar: Boden einmalig in eine Canvas-Textur backen (Lambert, kein eigener Shader) */
   function bakeTerrain(m, fl, ly, P, withAO) {
     var W = m.w, H = m.h, cw = W * P, ch = H * P, S = ly.S, mk = S - 1, SS = S * S;
+    var wt = isWinter(), TA = wt ? TINT_WA : TINT_A, TB = wt ? TINT_WB : TINT_B, FO = wt ? [0.24, 0.18, 0.08] : [0.3, 0.2, 0.32];   // Thema Winter
     var c = document.createElement('canvas'); c.width = cw; c.height = ch;
     var g = c.getContext('2d'), img = g.createImageData(cw, ch), d = img.data;
     var alb = ly.alb, nrmA = ly.nrm, F = fl.F, fw = fl.cw, fh = fl.ch, sA = fl.splA, sB = fl.splB, rd = fl.road, RF = fl.RF, rw = fl.rw, hF = fl.hF, sh = fl.shore;
@@ -898,17 +967,19 @@ var G = (typeof G !== 'undefined') ? G : {};
         if (tot > 0) { cr /= tot; cg /= tot; cb /= tot; ao /= tot * 255; } else { cr = 0.07; cg = 0.18; cb = 0.03; ao = 1; }
         if (withAO) { var aof = 1 + (ao - 1) * 0.85; cr *= aof; cg *= aof; cb *= aof; }   // v0.8: wie der Boden-Shader (Hohlraum-Abdunklung der Schichten)
         var kk = clamp(kg, 0, 1) * 0.95;
-        cr *= 1 + (mix(TINT_A[0], TINT_B[0], mc) - 1) * kk; cg *= 1 + (mix(TINT_A[1], TINT_B[1], mc) - 1) * kk; cb *= 1 + (mix(TINT_A[2], TINT_B[2], mc) - 1) * kk;
-        cr *= 1 - 0.30 * fo * 0.85; cg *= 1 - 0.20 * fo * 0.85; cb *= 1 - 0.32 * fo * 0.85;
+        cr *= 1 + (mix(TA[0], TB[0], mc) - 1) * kk; cg *= 1 + (mix(TA[1], TB[1], mc) - 1) * kk; cb *= 1 + (mix(TA[2], TB[2], mc) - 1) * kk;
+        cr *= 1 - FO[0] * fo * 0.85; cg *= 1 - FO[1] * fo * 0.85; cb *= 1 - FO[2] * fo * 0.85;
         if (rc > 0) {
           var rq2 = 5 * SS * 4 + ((((wz * TREP[5]) % 1 * S) | 0) & mk) * S * 4 + ((((wx * TREP[5]) % 1 * S) | 0) & mk) * 4;
           var wf2 = 1 - 0.26 * rwear, ar = lin[alb[rq2]] * wf2, ag = lin[alb[rq2 + 1]] * wf2, ab = lin[alb[rq2 + 2]] * wf2;
+          if (wt) { var pk = clamp(rwear * 1.15, 0, 1); ar = mix(0.33, ar, pk); ag = mix(0.35, ag, pk); ab = mix(0.4, ab, pk); rcen *= 0.4; }   // Thema Winter: Schnee + Fahrrinnen
           ar = mix(ar, 0.66, rcen * 0.95); ag = mix(ag, 0.6, rcen * 0.95); ab = mix(ab, 0.36, rcen * 0.95);
           ar = mix(ar, 0.5, redg * 0.6); ag = mix(ag, 0.5, redg * 0.6); ab = mix(ab, 0.46, redg * 0.6);
           cr = mix(cr, ar, rc); cg = mix(cg, ag, rc); cb = mix(cb, ab, rc);
         }
-        var wf = 1 - 0.4 * sstep(-0.62, -0.1, sdf) * (1 - rc * 0.8);
-        d[pi] = Math.pow(cr * wf, 1 / 2.2) * 255; d[pi + 1] = Math.pow(cg * wf, 1 / 2.2) * 255; d[pi + 2] = Math.pow(cb * wf, 1 / 2.2) * 255; d[pi + 3] = 255;
+        var wf = 1 - 0.4 * sstep(-0.62, -0.1, sdf) * (1 - rc * 0.8), wfb = wf;
+        if (wt) { wf = 1 - 0.16 * sstep(-0.62, -0.1, sdf) * (1 - rc * 0.8); wfb = 1; }   // Thema Winter: vereister Ufersaum
+        d[pi] = Math.pow(cr * wf, 1 / 2.2) * 255; d[pi + 1] = Math.pow(cg * wf, 1 / 2.2) * 255; d[pi + 2] = Math.pow(cb * wfb, 1 / 2.2) * 255; d[pi + 3] = 255;
       }
     }
     g.putImageData(img, 0, 0);
@@ -928,6 +999,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     tex.anisotropy = 2;
     world.texs.push(tex);
     var mat = M3.material('terrain', { map: tex });
+    mat.userData.ground = true;   // Thema/Wetter: Regen-Nässe
     if ((R.F || {}).liteLook) addDetail(mat, m);   // W11-look: feines Korn über dem gebackenen Boden (Flag liteLook)
     return mat;
   }
@@ -985,6 +1057,8 @@ var G = (typeof G !== 'undefined') ? G : {};
       : { S: 128, F: 4, RF: 8, N: 2, tuft: 0, wind: false, mode: 'classic' };
     // v0.8 Flags: grass (G) → Büschel, wind (L) → Wind-Vertex-Shader, hiPoly (V) → Baum-Detail, terrainArray (B) → Boden-Shader oder gebackene Textur
     if (std) { if (!FF.grass) cf.tuft = 0; cf.wind = !!FF.wind; }
+    cf.wt = isWinter();       // Thema Winter: Bodenschichten/Bäume/Wasser
+    if (cf.wt) cf.tuft = 0;   // im Schnee keine Gras-Büschel
     if (R.ink) cf.tuft = 0;   // INK: keine Gras-Büschel – im Zeichenstil nur Unruhe (jedes Büschel bekäme eine Kontur); spart Dreiecke
     cf.hiPoly = std && !!FF.hiPoly;
     cf.array = std && FF.terrainArray !== false;
@@ -996,7 +1070,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     world = { group: new THREE.Group(), W: W, H: H, cfg: cf, texs: [] };
     scene.add(world.group);
     stats.layerMs = 0;
-    var ly = genLayers(cf.S);
+    var ly = genLayers(cf.S, cf.wt);
     var fl = buildFields(m, cf);
     world.fl = null;
     // Wasser-/Ufer-Textur (RG: Distanzfeld, Tiefe)
@@ -1034,7 +1108,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     var tmat;
     if (cf.array) tmat = terrainMaterialStd(fl, ly, world.texs, lite);
     else if (std) tmat = bakedStd(m, fl, ly);     // v0.8: Flag terrainArray aus → Splat-Überblendung einmal in EINE 2D-Textur (≤ 2048) backen
-    else { tmat = M3.material('terrain', { map: bakeTerrain(m, fl, ly, 9) }); }
+    else { tmat = M3.material('terrain', { map: bakeTerrain(m, fl, ly, 9) }); tmat.userData.ground = true; }
     var terrain = new THREE.Mesh(tg, tmat);
     terrain.receiveShadow = true;
     world.group.add(terrain);
@@ -1100,7 +1174,7 @@ var G = (typeof G !== 'undefined') ? G : {};
   }
 
   function bakeWaterTex(fl, W, H) {
-    var cw = fl.cw, ch = fl.ch, c = document.createElement('canvas'); c.width = cw; c.height = ch;
+    var wt = isWinter(), cw = fl.cw, ch = fl.ch, c = document.createElement('canvas'); c.width = cw; c.height = ch;
     var g = c.getContext('2d'), img = g.createImageData(cw, ch), d = img.data, k;
     for (k = 0; k < cw * ch; k++) {
       var sdf = (fl.shore[k * 2] / 255 - 0.5) * 6 + 0.1, dep = fl.shore[k * 2 + 1] / 255, q = k * 4;
@@ -1109,6 +1183,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       var foam = sstep(0.2, 0.0, sdf) * sstep(-0.12, 0.0, sdf);
       r = mix(r, 224, foam * 0.8); gg = mix(gg, 232, foam * 0.8); b = mix(b, 230, foam * 0.8);
       var a = mix(0.34, 0.9, sstep(0.0, 0.6, dep)) + foam * 0.3; if (dep <= 0.001 && sdf < 0.05) a *= sstep(-0.1, 0.05, sdf);
+      if (wt) { var ice = sstep(0.55, 0.4, sdf) * sstep(-0.12, 0.0, sdf); r = mix(r * 0.7, 160, ice); gg = mix(gg * 0.8, 186, ice); b = mix(b * 0.9, 210, ice); a = mix(a, 1, ice); }   // Thema Winter: Eisrand
       d[q] = r; d[q + 1] = gg; d[q + 2] = b; d[q + 3] = clamp(a, 0, 1) * 255;
     }
     g.putImageData(img, 0, 0);
@@ -1121,10 +1196,12 @@ var G = (typeof G !== 'undefined') ? G : {};
     return new THREE.ShaderMaterial({
       transparent: true, depthWrite: false,
       uniforms: { uTime: { value: 0 }, uShore: { value: shore }, uInv: { value: new THREE.Vector2(1 / W, 1 / H) },
-        uFow: SH.uFow, uFowScale: SH.uFowScale, uFowOn: SH.uFowOn, uHazeCol: SH.uHazeCol, uHaze: SH.uHaze, uEdge: SH.uEdge },
+        uFow: SH.uFow, uFowScale: SH.uFowScale, uFowOn: SH.uFowOn, uHazeCol: SH.uHazeCol, uHaze: SH.uHaze, uEdge: SH.uEdge,
+        uIce: SH.uIce, uMoodCol: SH.uMoodCol },   // Thema/Tageszeit
       vertexShader: 'varying vec3 vW; varying float vD; void main(){ vec4 w = modelMatrix * vec4(position,1.0); vW = w.xyz; vec4 mv = viewMatrix * w; vD = -mv.z; gl_Position = projectionMatrix * mv; }',
       fragmentShader: [
         'uniform float uTime; uniform sampler2D uShore; uniform vec2 uInv; uniform sampler2D uFow; uniform vec2 uFowScale; uniform float uFowOn; uniform vec3 uHazeCol; uniform vec3 uHaze; uniform vec2 uEdge;',
+        'uniform float uIce; uniform vec3 uMoodCol;',
         'varying vec3 vW; varying float vD;',
         'void main(){',
         '  vec2 uv = vW.xz * uInv; float m = texture2D(uShore, uv).r; float t = uTime;',
@@ -1136,6 +1213,8 @@ var G = (typeof G !== 'undefined') ? G : {};
         '  float foam = smoothstep(0.66, 0.5, m) * (0.55 + 0.45 * sin(t*2.0 + vW.x*7.0 + vW.z*5.0)) * smoothstep(0.3, 0.5, m);',
         '  col = mix(col, vec3(0.75, 0.82, 0.85), foam * 0.75);',
         '  float a = mix(0.45, 0.9, smoothstep(0.5, 0.9, m)) * smoothstep(0.32, 0.5, m);',
+        '  float ice = (1.0 - smoothstep(0.6 + 0.04 * sin(vW.x * 1.7 + vW.z * 1.3), 0.64, m)) * smoothstep(0.36, 0.44, m) * uIce;',   // Thema Winter: Eisrand
+        '  col = mix(col * mix(vec3(1.0), vec3(0.62, 0.74, 0.86), uIce), vec3(0.74, 0.82, 0.88), ice); a = mix(a, 1.0, ice); col *= uMoodCol;',
         '  vec2 fowUV = vW.xz * uFowScale; float fowV = mix(1.0, texture2D(uFow, fowUV).r, uFowOn);',
         '  vec2 edQ = min(fowUV, 1.0 - fowUV) / uFowScale; fowV *= clamp(min(edQ.x, edQ.y) * uEdge.x + uEdge.y, 0.0, 1.0);',
         '  float hz = clamp((vD - uHaze.x) / (uHaze.y - uHaze.x), 0.0, 1.0) * uHaze.z * uFowOn;',
@@ -1156,12 +1235,14 @@ var G = (typeof G !== 'undefined') ? G : {};
       uniforms: { uTime: { value: 0 }, uShore: { value: shore }, uInv: { value: new THREE.Vector2(1 / W, 1 / H) },
         uView: { value: new THREE.Vector3((V.sy || 0) * cs, sn, (V.cy == null ? 1 : V.cy) * cs) },   // W11: Kern führt uView/uSun jedes Frame nach (YAW)
         uSun: { value: new THREE.Vector3().fromArray(V.lightDir ? V.lightDir([-0.62, 0.68, -0.4]) : [-0.62, 0.68, -0.4]).normalize() },
-        uFow: SH.uFow, uFowScale: SH.uFowScale, uFowOn: SH.uFowOn, uHazeCol: SH.uHazeCol, uHaze: SH.uHaze, uEdge: SH.uEdge },
+        uFow: SH.uFow, uFowScale: SH.uFowScale, uFowOn: SH.uFowOn, uHazeCol: SH.uHazeCol, uHaze: SH.uHaze, uEdge: SH.uEdge,
+        uIce: SH.uIce, uRain: SH.uRain, uMoodCol: SH.uMoodCol },   // Thema/Wetter/Tageszeit
       vertexShader: 'varying vec3 vW; varying float vD; void main(){ vec4 w = modelMatrix * vec4(position,1.0); vW = w.xyz; vec4 mv = viewMatrix * w; vD = -mv.z; gl_Position = projectionMatrix * mv; }',
       fragmentShader: [
         (lite ? '#define W_LITE' : ''), (R.ink ? '#define W_INK' : ''),
         'uniform float uTime; uniform sampler2D uShore; uniform vec2 uInv; uniform vec3 uView; uniform vec3 uSun;',
         'uniform sampler2D uFow; uniform vec2 uFowScale; uniform float uFowOn; uniform vec3 uHazeCol; uniform vec3 uHaze; uniform vec2 uEdge;',
+        'uniform float uIce; uniform float uRain; uniform vec3 uMoodCol;',
         'varying vec3 vW; varying float vD;',
         'float hsh(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }',
         'float vn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);',
@@ -1220,6 +1301,27 @@ var G = (typeof G !== 'undefined') ? G : {};
         '    col = mix(col, vec3(0.08, 0.075, 0.07), shoreL * 0.8);',
         '    a = mix(0.55, 0.97, smoothstep(0.0, 0.35, dep)); a = max(a, rimI * 0.95); a = max(a, shoreL * 0.85); }',
         '#endif',
+        // Thema/Wetter/Tageszeit: Winter = vereister Uferrand (Eisbreite 0.5–1.3 Kacheln, verrauscht) mit Rissen + einzelne Schollen, dunkleres
+        // kaltes Wasser; Regen = Tropfenringe (Zellen 0.45 Kacheln, je Zelle ein Ring, Anteil = Regenstärke); Stimmungstönung (Dämmerung/Nacht)
+        '  if (uIce > 0.0) {',
+        '    float iN = vn(vW.xz * 1.1) * 0.65 + vn(vW.xz * 3.7) * 0.35;',
+        '    float iW = 0.22 + 0.5 * iN, iF = fwidth(sdf) + 0.02;',   // schmal: offene Rinne bleibt sichtbar (Wasser bleibt unpassierbar)
+        '    float ice = 1.0 - smoothstep(iW - iF, iW + iF, sdf);',
+        '    ice = max(ice, smoothstep(0.74, 0.77, vn(vW.xz * 0.55 + 4.0)) * smoothstep(0.6, 1.4, sdf) * 0.95);',
+        '    float cr = abs(vn(vW.xz * 2.6 + 9.0) - 0.5), crF = fwidth(cr) + 0.004;',
+        '    vec3 iceC = mix(vec3(0.56, 0.68, 0.8), vec3(0.7, 0.8, 0.88), iN) * (1.0 - 0.35 * (1.0 - smoothstep(0.012, 0.012 + crF * 1.5, cr)));',
+        '    col *= vec3(0.62, 0.74, 0.86);',
+        '    float iE = 1.0 - smoothstep(0.0, iF * 2.5, abs(sdf - iW));',
+        '    col = mix(col, iceC, ice * uIce); col = mix(col, vec3(0.1, 0.16, 0.22), iE * 0.5 * uIce * step(sdf, 1.6));',
+        '    a = mix(a, 1.0, ice * uIce);',
+        '  }',
+        '  if (uRain > 0.0) {',
+        '    vec2 rg = vW.xz * 2.2, rid = floor(rg), rf = fract(rg) - 0.5; float rh = hsh(rid);',
+        '    float rp = fract(t * 0.8 + rh), rd = length(rf - (vec2(hsh(rid + 3.1), hsh(rid + 7.7)) - 0.5) * 0.4);',
+        '    float ring = (1.0 - smoothstep(0.0, 0.03, abs(rd - rp * 0.32))) * (1.0 - rp) * (1.0 - rp) * step(rh, uRain * 0.55) * smoothstep(0.1, 0.4, sdf);',
+        '    col += vec3(0.4, 0.47, 0.5) * ring * 0.55;',
+        '  }',
+        '  col *= uMoodCol;',
         '  a *= smoothstep(-0.16, -0.01, sdf);',
         '  vec2 fowUV = vW.xz * uFowScale; float fowV = mix(1.0, texture2D(uFow, fowUV).r, uFowOn);',
         '  vec2 edQ = min(fowUV, 1.0 - fowUV) / uFowScale; fowV *= clamp(min(edQ.x, edQ.y) * uEdge.x + uEdge.y, 0.0, 1.0);',
@@ -1296,12 +1398,14 @@ var G = (typeof G !== 'undefined') ? G : {};
       };
       mat.customProgramCacheKey = function () { return 'r3tw1'; };
     }
+    mat.userData.snowAll = true;   // Thema Winter: Schneekappen auf allen nach oben zeigenden Flächen (fowify/moodify, wirkt nur mit SH.uSnow)
     return fowify(mat);
   }
 
   function treeGeos() {
     var lowp = !(world && world.cfg && world.cfg.hiPoly);   // v0.8: Flag hiPoly (V); Lite/klassisch wie bisher grob
     var det = lowp ? 0 : 1, T = THREE;
+    if (isWinter()) return treeGeosWinter(det);   // Thema Winter
     // C1: Kronen „rund“ schattiert (Kugel-Normalen, dunklere Unterseite), Farben etwas gedeckter und zum neuen Gras passend; gleiche Dreieckszahl
     // Kiefer
     var pine = new Acc();
@@ -1322,6 +1426,23 @@ var G = (typeof G !== 'undefined') ? G : {};
     birch.add(new T.CylinderGeometry(0.02, 0.032, 0.5, 5), '#d8d2c0', 0, 0.25, 0, 1, 1, 1, 0);
     birch.add(new T.IcosahedronGeometry(0.2, det), '#6a9148', 0, 0.66, 0, 0.62, 1.45, 0.62, 0.7, 0.12, 0.8);
     birch.add(new T.IcosahedronGeometry(0.13, 0), '#7da254', 0.05, 0.9, 0.03, 0.7, 1.2, 0.7, 1.9, 0.1, 0.8);
+    return [pine.geo(0.95), oak.geo(0.85), birch.geo(1.0)];
+  }
+  /** Thema Winter: dunkle, dichte Kiefern (Schneekappen kommen aus dem Material), kahle Laubbäume mit Reif (grau-braune, lichte Kronen). */
+  function treeGeosWinter(det) {
+    var T = THREE, pine = new Acc(), oak = new Acc(), birch = new Acc();
+    pine.add(new T.CylinderGeometry(0.026, 0.04, 0.2, 5), '#4a3424', 0, 0.1, 0, 1, 1, 1, 0);
+    pine.add(new T.ConeGeometry(0.23, 0.34, 7), '#24473a', 0, 0.3, 0, 1, 1, 1, 0.3, 0.06, 0.8, 0.45);
+    pine.add(new T.ConeGeometry(0.19, 0.32, 7), '#2a4f40', 0, 0.5, 0, 1, 1, 1, 0.9, 0.06, 0.8, 0.45);
+    pine.add(new T.ConeGeometry(0.14, 0.3, 7), '#2f5645', 0, 0.68, 0, 1, 1, 1, 0.5, 0.05, 0.8, 0.45);
+    pine.add(new T.ConeGeometry(0.08, 0.2, 6), '#355d4a', 0, 0.84, 0, 1, 1, 1, 0.2, 0, 0.8, 0.45);
+    oak.add(new T.CylinderGeometry(0.035, 0.055, 0.34, 6), '#4d3a2a', 0, 0.17, 0, 1, 1, 1, 0);
+    oak.add(new T.IcosahedronGeometry(0.24, det), '#6f665c', 0, 0.52, 0, 1, 0.85, 1, 0.4, 0.2, 0.7);
+    oak.add(new T.IcosahedronGeometry(0.15, 0), '#7a7166', 0.12, 0.66, 0.04, 1, 0.85, 1, 1.2, 0.2, 0.7);
+    oak.add(new T.IcosahedronGeometry(0.13, 0), '#655d54', -0.12, 0.56, -0.08, 1, 0.8, 1, 2.0, 0.2, 0.7);
+    birch.add(new T.CylinderGeometry(0.02, 0.032, 0.52, 5), '#d8d2c0', 0, 0.26, 0, 1, 1, 1, 0);
+    birch.add(new T.IcosahedronGeometry(0.18, det), '#8b8379', 0, 0.68, 0, 0.6, 1.4, 0.6, 0.7, 0.18, 0.7);
+    birch.add(new T.IcosahedronGeometry(0.12, 0), '#968e83', 0.05, 0.9, 0.03, 0.7, 1.2, 0.7, 1.9, 0.16, 0.7);
     return [pine.geo(0.95), oak.geo(0.85), birch.geo(1.0)];
   }
   function rockGeos() {
@@ -1488,7 +1609,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     for (i = 0; i < trees.length; i += 2) for (k = 0; k < per; k++) {
       var tx = trees[i], ty = trees[i + 1];
       var ox = tx + 0.16 + 0.68 * hash(tx, ty, 20 + k), oz = ty + 0.16 + 0.68 * hash(tx, ty, 30 + k);
-      var c = cn(tx + 0.5, ty + 0.5), sp = c > 0.56 ? 0 : (c < 0.4 ? 2 : 1);
+      var c = cn(tx + 0.5, ty + 0.5), sp = c > (cf.wt ? 0.4 : 0.56) ? 0 : (c < (cf.wt ? 0.3 : 0.4) ? 2 : 1);   // Thema Winter: überwiegend Kiefern
       var rr = hash(tx, ty, 60 + k); if (rr > 0.82) sp = (sp + 1 + ((rr * 7) | 0) % 2) % 3;
       var s = 0.78 + 0.6 * hash(tx, ty, 40 + k), tint = 0.8 + 0.24 * hash(tx, ty, 50 + k);   // C1: etwas gedeckter (vorher 0.84 + 0.3)
       var hue = hash(tx, ty, 90 + k), cr = tint, cg = tint, cb = tint;
@@ -1722,28 +1843,32 @@ var G = (typeof G !== 'undefined') ? G : {};
     for (i = 0; i < uv.count; i++) uv.setXY(i, u0 + uv.getX(i) * 0.5, v0 + uv.getY(i) * 0.5);
     return g;
   }
-  function decalMaterial() {
+  function decalMaterial(trkM) {
     var map = decAtlas, m;
     var pr = { map: map, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 };
     if (R.std) { pr.roughness = 1; pr.metalness = 0; m = new THREE.MeshStandardMaterial(pr); } else m = new THREE.MeshLambertMaterial(pr);
     // Instanzfarbe (r) steuert die Deckkraft (Ausblenden), nicht die Farbe
     m.onBeforeCompile = function (sh) {
       sh.fragmentShader = sh.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n#ifdef USE_INSTANCING_COLOR\n  diffuseColor.a *= vColor.r; diffuseColor.rgb /= max(vColor.r, 0.02);\n#endif');
+      if (trkM) {   // Thema Winter: Fahrspuren im Schnee = verdichtete, bläulich-graue Rinnen statt Erdbraun (uSnow)
+        sh.uniforms.uSnowT = SH.uSnow;
+        sh.fragmentShader = 'uniform float uSnowT;\n' + sh.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.5, 0.56, 0.68) * (0.55 + diffuseColor.rgb * 2.0), uSnowT); diffuseColor.a *= 1.0 - 0.15 * uSnowT;');
+      }
     };
-    m.customProgramCacheKey = function () { return 'r3td1'; };
+    m.customProgramCacheKey = function () { return 'r3td1' + (trkM ? 'T' : ''); };
     return fowify(m);
   }
   function ensureDecals() {
     if (dec && dec.std === !!R.std && dec.ink === !!R.ink && dec.scene === R.scene) { resetDecals(); return; }   // INK: Stilwechsel → Material neu
-    if (dec) { dec.meshes.forEach(function (b) { if (b.mesh.parent) b.mesh.parent.remove(b.mesh); b.mesh.dispose(); }); dec.mat.dispose(); trk.b.mesh.parent && trk.b.mesh.parent.remove(trk.b.mesh); trk.b.mesh.dispose(); }
+    if (dec) { dec.meshes.forEach(function (b) { if (b.mesh.parent) b.mesh.parent.remove(b.mesh); b.mesh.dispose(); }); dec.mat.dispose(); if (dec.tmat) dec.tmat.dispose(); trk.b.mesh.parent && trk.b.mesh.parent.remove(trk.b.mesh); trk.b.mesh.dispose(); }
     if (!decAtlas) decAtlas = drawAtlas();
     try { if (R.renderer && R.renderer.initTexture) R.renderer.initTexture(decAtlas); } catch (e) { /* egal */ }   // W11-look: beim Aufbau hochladen, nicht erst beim ersten Krater mitten im Spiel
     var mat = decalMaterial(), N = 96;
     var bs = [new Batch(cellGeo(0, 0), mat, N, false), new Batch(cellGeo(1, 0), mat, N, false), new Batch(cellGeo(0, 1), mat, N, false)];
-    var tb = new Batch(cellGeo(1, 1, 1.0, 0.5), mat, 720, false);
+    var tb = new Batch(cellGeo(1, 1, 1.0, 0.5), decalMaterial(true), 720, false);   // Thema Winter: Spuren mit eigenem Material (Schnee-Tönung)
     bs.forEach(function (b) { b.mesh.renderOrder = 1; b.mesh.receiveShadow = false; R.scene.add(b.mesh); });
     tb.mesh.renderOrder = 1; tb.mesh.receiveShadow = false; R.scene.add(tb.mesh);
-    dec = { b: bs, meshes: bs.concat([tb]), mat: mat, N: N, n: 0, used: 0, x: new Float32Array(N), z: new Float32Array(N), s: new Float32Array(N), r: new Float32Array(N), t0: new Float32Array(N), life: new Float32Array(N), kind: new Uint8Array(N), std: !!R.std, ink: !!R.ink, scene: R.scene };
+    dec = { b: bs, meshes: bs.concat([tb]), mat: mat, tmat: tb.mesh.material, N: N, n: 0, used: 0, x: new Float32Array(N), z: new Float32Array(N), s: new Float32Array(N), r: new Float32Array(N), t0: new Float32Array(N), life: new Float32Array(N), kind: new Uint8Array(N), std: !!R.std, ink: !!R.ink, scene: R.scene };
     trk = { b: tb, N: 720, n: 0, used: 0, x: new Float32Array(720), z: new Float32Array(720), a: new Float32Array(720), w: new Float32Array(720), l: new Float32Array(720), t0: new Float32Array(720), life: 40, dirty: true, nextT: 0,
       ids: new Int32Array(512), lx: new Float32Array(512), lz: new Float32Array(512) };
   }
