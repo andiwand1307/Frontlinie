@@ -20,6 +20,9 @@
  *   drawInf/drawFall, Wrack-Art 'fall'). Zustand je Einheit in rs (vf, yr, pv/pw, rl/rw, gp, steer, mv, kn, fc, hitT/hitK – hitT setzt r3-fx.js).
  *   Alles nur aus lesbarem Sim-Zustand + dt abgeleitet; dt = 0 (Pause) → Stillstand.
  * Konventionen: siehe docs/RENDER_MODULES.md (Oberflächen/Metall, Glühen/Bloom, Teile-Namen).
+ * GB (Gebäude): Kollektiv-Gebäude haben eigene Modelle (buildKB, Abschnitt „GB“; nicht gespiegelt, Grundflächen/Ausgänge/Andockpunkte/Mündungen
+ *   wie die gemeinsamen Modelle). GA: Gebäude zeigen Produktion/Andocken/Auslastung/Strommangel/Schaden (actPre/actDraw/dmgFx/litGain, liest
+ *   nur den Sim-Zustand; Zusatzteile über actAttach bzw. M.act). Einziger Haken in r3-fx.js: G.R3F.bFlame/bSpark (angehängt).
  */
 var G = (typeof G !== 'undefined') ? G : {};
 (function () {
@@ -1807,7 +1810,8 @@ var G = (typeof G !== 'undefined') ? G : {};
   var modelCache = {};
   function facOfColor(color) {
     var F = D.FACTIONS;
-    for (var k in F) if (F[k].color.toLowerCase() === String(color).toLowerCase()) return k;
+    var c = String(color).toLowerCase();
+    for (var k in F) if (F[k].color.toLowerCase() === c || (F[k].alt && F[k].alt.toLowerCase() === c)) return k;   // GB: auch Ersatzfarbe (Spiegelpartie)
     return 'coalition';
   }
   function isBld(type) { return !!(D.BUILDINGS[type] || NEUT[type] || V4B[type] || V5B[type]); }
@@ -2452,11 +2456,11 @@ var G = (typeof G !== 'undefined') ? G : {};
   function drawBldV8(b, M, owner, x, z, tdir, sy, cr, cg, cb) {
     var t = R.t, mem = cr === GREY, st = nst(b.id), low = !mem && G.Sim.lowPower(owner);
     if (M.v8b === 'shipyard') {
-      var sp = mem ? 0 : (low ? 0.2 : 1);
+      var sp = mem ? 0 : (low ? 0.2 : (st.actOn ? 1 : 0.12));   // GA: Kran fährt nur bei laufender Produktion zügig
       st.gz = (st.gz || 0) + fdt * sp; var off = Math.sin(st.gz * 0.22 + st.ph) * 0.55, tro = Math.sin(st.gz * 0.5 + st.ph * 1.3) * 0.42;
       partBatch('b', b.type, owner, 'gantry', M).put(x, 0, z + off * sy, 0, 1, sy, 1, cr, cg, cb);
       partBatch('b', b.type, owner, 'trolley', M).put(x + tro, 0, z + off * sy, 0, 1, sy, 1, cr, cg, cb);
-      if (!mem && !low && inV5 && sy >= 1 && rnd() < fdt * 2.5) {   // Schweißfunken am Neubau
+      if (!mem && !low && st.actOn && inV5 && sy >= 1 && rnd() < fdt * 3.5) {   // Schweißfunken am Neubau (GA: nur bei Produktion)
         var wx = x + (rnd() - 0.5) * 0.3, wz = z + 0.25 + (rnd() - 0.5) * 1.1;
         for (var q = 0; q < 4; q++) emit(0, wx, 0.22, wz, (rnd() - 0.5) * 0.9, 0.5 + rnd() * 0.8, (rnd() - 0.5) * 0.9, 0.3, 0.07, 0.02, 0.8, 0.9, 1, 1, 1, 0.6, 0.2, 0, -5);
       }
@@ -2698,10 +2702,686 @@ var G = (typeof G !== 'undefined') ? G : {};
     var ly = Math.max(groundAt(cx, cz), groundAt(x, z)) + (c.kind === 'unit' ? 0.45 : 1.1);
     lb.put((cx + x) / 2, ly, (cz + z) / 2, Math.atan2(dz, dx), L, 1, 1, 0.55 * pu, 0.62 * pu, 1.0 * pu);
   }
+  // ================================================================== GB: Kollektiv-Gebäude – eigene Formensprache (Psi)
+  // Statt der Koalitions-Kästen: achteckige dunkle Sockel, Perlmutt-Kuppeln/-Gewölbe, schräge Finnen, schwebende Ringe (Teamfarbe) und
+  // leuchtende Kristalle. Jeder Typ hat ein „sprechendes“ Merkmal: Zentrale = Kuppel + Traktor-Ausleger über der Bauplattform, Reaktor =
+  // Kristallkern in drei Finnen mit Ringen, Erzwandler = Erzkugeln + Trichter + Schrägförderer, Klonlabor = drei Klonröhren + Appellplatz +
+  // Torbogen, Kriegsfabrik = Gewölbehalle + Portal über offener Montagebucht, Psi-Labor = Stufenturm mit Kristall + Halo + Antennen,
+  // Psi-Verstärker = offene Kuppel mit Emitter + Ladezellen, Psi-Turm = Dreibein mit Ringkopf, Geschütze klar mit Rohr.
+  // Modelle sind direkt für die Kamera aus Süd-West gebaut (Fronten Süd + West) → KEINE Spiegelung (M.mir = true).
+  // Grundflächen, Ausgänge (Mitte Süd bzw. Nordausgang), Andockseiten, Landeplätze, Mündungspunkte und Teile-Haken wie bei den gemeinsamen Modellen.
+  // Bewegte Teile liegen in Ruhestellung in M.parts (Symbol/Vorschau zeigen sie ohne Sonderfall); Anzeigen (Hologramm, Strahl, Füllstand,
+  // Förderstollen) liegen nur in M.xparts. Gezeichnet/animiert werden sie in actDraw (Abschnitt GA unten).
+  var KB = { hq: 1, power: 1, refinery: 1, barracks: 1, factory: 1, techcenter: 1, turret: 1, mg: 1, flak: 1, pbunker: 1, airfield: 1, shipyard: 1, psitower: 1, psidome: 1 };
+  var KP = { edge: '#4b4660', plate: '#77718c', base: '#3a3450', base2: '#4f4869', shell: '#e0daec', shell2: '#a99fca', dark: '#1e1b2a', metal: '#c9c5d8',
+    glass: '#9cc9ff', glow: '#eaa9ff', glow2: '#8ff3ff', ore: '#ffb44a', line: '#5b5573', conc: '#8b8699', body: '#e0daec', body2: '#a99fca', rust: '#4f4869', roof: '#3a3450', pan: '#f2eff8' };
+  (function () {   // Oberflächen für Modern
+    surfCol[KP.edge] = 'conc'; surfCol[KP.plate] = 'conc'; surfCol[KP.base] = 'body'; surfCol[KP.base2] = 'body'; surfCol[KP.shell] = 'body'; surfCol[KP.shell2] = 'body';
+    surfCol[KP.dark] = 'dark'; surfCol[KP.metal] = 'metal'; surfCol[KP.glass] = 'glass'; surfCol[KP.line] = 'conc'; surfCol[KP.pan] = 'body';
+  })();
+  /** Achteck-Prisma (Flächen achsparallel), Unterkante y, Radius r (Mitte → Ecke) oben/unten, optional gestreckt (sx, sz). */
+  function kOct(b, col, rt, rb, h, x, y, z, sx, sz, seg) {
+    var g = new THREE.CylinderGeometry(rt, rb, h, seg || 8); if (!seg || seg === 8) g.rotateY(Math.PI / 8);
+    return b.add(g, col, x, y + h / 2, z, 0, 0, 0, sx || 1, 1, sz || 1);
+  }
+  /** Offenes Band (Ring-Mantel) – Teamstreifen, Leuchtfugen. */
+  function kBand(b, col, r, y, h, x, z, seg) {
+    var g = new THREE.CylinderGeometry(r, r, h, seg || 16, 1, true); if (seg === 8) g.rotateY(Math.PI / 8);
+    return b.add(g, col, x, y + h / 2, z);
+  }
+  /** Liegender Ring (Torus in der xz-Ebene). */
+  function kTor(b, col, R0, tube, x, y, z, rs, ts) { return b.add(new THREE.TorusGeometry(R0, tube, rs || 5, ts || 18), col, x, y, z, 0, Math.PI / 2, 0); }
+  /** Flacher Leuchtring auf einer Oberseite. */
+  function kDisc(b, col, r0, r1, x, y, z, seg) { return b.add(new THREE.RingGeometry(r0, r1, seg || 18), col, x, y, z, 0, -Math.PI / 2, 0); }
+  /** Bodenplatte: achteckig (Ecken gekappt), Randstein dunkel, Platte hell, Teamstreifen an Süd- und Westkante. Oberkante 0.06. */
+  function kPlate(b, T, w, h) {
+    var k = 1 / 0.924;
+    kOct(b, KP.edge, 0.5, 0.5, 0.05, 0, 0, 0, (w - 0.03) * k, (h - 0.03) * k);
+    kOct(b, KP.plate, 0.5, 0.5, 0.012, 0, 0.05, 0, (w - 0.2) * k, (h - 0.2) * k);
+    b.top(T.team, -w * 0.32, h / 2 - 0.075, w * 0.32, h / 2 - 0.075, 0.052, 0.075);
+    b.top(T.team, -w / 2 + 0.075, -h * 0.32, -w / 2 + 0.075, h * 0.32, 0.052, 0.075);
+  }
+  /** Finne (schräges Blatt) radial bei Winkel a (Richtung (cos a, sin a) in x/z), Profil r0..r1 unten bis Spitze rt bei Höhe ht. */
+  function kFin(b, col, a, r0, r1, rt, ht, th, y0, cx, cz) {
+    var pts = [[r0, 0], [r1, 0], [rt + 0.05, ht], [rt, ht]];
+    return b.prism(col, pts, th, cx || 0, y0 || 0.06, cz || 0, -a, 0.008);
+  }
+  /** Tonnengewölbe (obere Zylinderhälfte), Achse entlang x (alongZ: entlang z), Mitte der Grundlinie bei (x, y, z). */
+  function kVault(b, col, r, len, x, y, z, alongZ, seg) {
+    var g = new THREE.CylinderGeometry(r, r, len, seg || 12, 1, false, 0, Math.PI); g.rotateZ(Math.PI / 2); if (alongZ) g.rotateY(Math.PI / 2);
+    return b.add(g, col, x, y, z);
+  }
+  /** Antennen-Nadel mit Leuchtspitze. */
+  function kSpire(b, g, x, z, y0, hgt, r) {
+    b.cyl(KP.shell2, 0.012, r || 0.06, hgt, 6, x, y0, z).cylB(KP.base, (r || 0.06) * 1.4, 0.06, 6, x, y0, z, 0.01);
+    g.ico(KP.glow, 0.04, x, y0 + hgt + 0.02, z, 1, 1.4, 1, 0);
+  }
+  /** Drahtgitter-Würfel (Hologramm) – Kanten + zwei Querschnitte, Unterkante 0, Breite a. */
+  function kHoloGeo(a, hgt) {
+    var m = new MB(), h2 = a / 2, t = 0.022, i, y;
+    m.flat = true;
+    for (i = 0; i < 4; i++) m.pbox('#ffffff', t, hgt, t, (i & 1 ? 1 : -1) * h2, 0, (i & 2 ? 1 : -1) * h2);
+    for (i = 0; i < 3; i++) {
+      y = i === 0 ? 0 : (i === 1 ? hgt * 0.5 : hgt - t);
+      m.pbox('#ffffff', a, t, t, 0, y, h2).pbox('#ffffff', a, t, t, 0, y, -h2).pbox('#ffffff', t, t, a, h2, y, 0).pbox('#ffffff', t, t, a, -h2, y, 0);
+    }
+    m.pbox('#ffffff', a * 0.55, hgt * 0.62, a * 0.55, 0, 0, 0);   // Kern (wächst mit)
+    return m.geo(false);
+  }
+
+  function buildKB(type, color) {
+    var T = teamCols(color), hi = HI(), P = KP, i, a, x, z, sd;
+    var b = new MB(), g = new MB(), M = { parts: {}, xparts: {}, xp: [], h: 1, mir: true, mirA: 1, kb: type, lit: true, lo: !hi, act: null };
+    var bd = D.BUILDINGS[type], w = bd.w, h = bd.h;
+    if (type !== 'shipyard') kPlate(b, T, w, h);
+    if (type === 'hq') {                                    // Psi-Zentrale: Kuppel auf Achteck-Sockel, Mast + Traktor-Ausleger über der Bauplattform
+      var hx = -0.4, hz = -0.4;
+      kOct(b, P.base, 1.02, 1.08, 0.26, hx, 0.06, hz); kBand(b, T.team, 1.09, 0.2, 0.08, hx, hz, 8);
+      kOct(b, P.base2, 0.98, 1.0, 0.04, hx, 0.32, hz);
+      kBand(g, P.glow, 0.95, 0.36, 0.045, hx, hz, 16);
+      b.dome(P.shell, 0.9, hx, 0.36, hz, 1, 0.74, 1, 16);
+      kTor(b, T.team, 0.5, 0.04, hx, 0.36 + 0.9 * 0.74 * 0.84, hz, 5, 16); b.dome(T.team, 0.33, hx, 0.975, hz, 1, 0.42, 1, 12);
+      b.cylB(P.shell2, 0.1, 0.62, 8, hx, 0.98, hz, 0.012).cylB(T.team, 0.14, 0.07, 8, hx, 1.3, hz, 0.01).cylB(P.base, 0.15, 0.08, 8, hx, 1.56, hz, 0.012);
+      // Tor (Süd-West-Seite) + Teamfinnen links/rechts
+      b.box(P.dark, 0.42, 0.3, 0.1, hx - 0.7, 0.06, hz + 0.7, Math.PI / 4).box(T.team, 0.52, 0.05, 0.16, hx - 0.72, 0.36, hz + 0.72, Math.PI / 4);
+      g.pbox(P.glow, 0.34, 0.03, 0.02, hx - 0.745, 0.3, hz + 0.745, Math.PI / 4);
+      for (sd = -1; sd <= 1; sd += 2) { a = Math.PI * 0.75 + sd * 0.5; kFin(b, T.team, a, 0.96, 1.16, 0.9, 0.95, 0.07, 0.06, hx, hz); }
+      // Bauplattform (vorn links) mit Leuchtring
+      var px = 0.84, pz = 0.84;
+      kOct(b, P.base, 0.56, 0.6, 0.08, px, 0.06, pz); kBand(b, T.team, 0.61, 0.07, 0.05, px, pz, 8);
+      kDisc(g, P.glow, 0.36, 0.43, px, 0.141, pz, 16); kDisc(b, P.line, 0.0, 0.3, px, 0.1405, pz, 8);
+      b.top(T.teamL, px - 0.18, pz, px + 0.18, pz, 0.142, 0.04).top(T.teamL, px, pz - 0.18, px, pz + 0.18, 0.142, 0.04);
+      // Antennen hinten, Leitungen
+      kSpire(b, g, 1.2, -1.2, 0.06, 1.05, 0.06); if (hi) kSpire(b, g, 0.55, -1.25, 0.06, 0.7, 0.05);
+      b.cylX(P.base2, 0.045, 0.045, 0.62, 6, 0.3, 0.12, 0.3, -Math.PI / 4);
+      if (hi) { b.box(P.base2, 0.3, 0.2, 0.3, -1.15, 0.06, 1.12).pbox(T.team, 0.32, 0.03, 0.32, -1.15, 0.26, 1.12); g.pbox(P.glow, 0.2, 0.05, 0.012, -1.15, 0.14, 1.276); }
+      // Ausleger (dreht um den Mast): Richtung zur Plattform, Gegengewicht, Emitter an der Spitze
+      var bm = new MB(), BL = 1.7, a0 = Math.atan2(pz - hz, px - hx);
+      bm.box(P.shell, BL + 0.45, 0.12, 0.14, (BL - 0.45) / 2, -0.06, 0).pbox(T.team, BL + 0.3, 0.03, 0.145, (BL - 0.3) / 2 + 0.05, 0.06, 0);
+      bm.box(P.base2, BL * 0.72, 0.045, 0.07, BL * 0.42, -0.26, 0); for (i = 0; i < 4; i++) bm.pbox(P.base2, 0.03, 0.2, 0.05, 0.12 + i * BL * 0.22, -0.24, 0);
+      bm.box(P.base, 0.26, 0.2, 0.22, -0.36, -0.12, 0).cylB(P.base2, 0.13, 0.08, 8, 0, -0.04, 0, 0.01);
+      bm.add(new THREE.CylinderGeometry(0.05, 0.12, 0.2, 8), P.shell2, BL - 0.02, -0.16, 0).cyl(P.glow, 0.045, 0.045, 0.05, 8, BL - 0.02, -0.31, 0);
+      if (hi) for (i = 0; i < 5; i++) bm.pbox(P.base2, 0.02, 0.12, 0.148, 0.25 + i * 0.3, -0.06, 0);
+      var bg = bm.geo(); bg.rotateY(-a0); bg.translate(hx, 1.64, hz);
+      M.parts.kboom = bg; M.kPiv = [hx, hz]; M.kTip = [hx + Math.cos(a0) * (BL - 0.02), 1.33, hz + Math.sin(a0) * (BL - 0.02)]; M.kPad = [px, 0.15, pz];
+      M.xparts.kholo = kHoloGeo(0.52, 0.5);
+      var bmb = new MB(); bmb.flat = true; bmb.add(new THREE.CylinderGeometry(0.05, 0.12, 1, 8, 1, true), '#ffffff', 0, 0.5, 0); M.xparts.kbeam = bmb.geo(false);
+      M.h = 1.65; M.act = { k: 'hq', cells: [-0.95, 1.4, 0.1, 1.4, 0.062] };
+    } else if (type === 'power') {                          // Psi-Reaktor: Kristallkern, drei Finnen, schwebende Teamringe
+      kOct(b, P.base, 0.7, 0.76, 0.16, 0, 0.06, 0); kBand(b, T.team, 0.77, 0.14, 0.06, 0, 0, 8);
+      b.cylB(P.dark, 0.27, 0.12, 10, 0, 0.22, 0, 0.012).cylB(P.base2, 0.2, 0.06, 10, 0, 0.34, 0, 0.01);
+      g.cyl('#c4fcff', 0.13, 0.16, 0.7, 8, 0, 0.38, 0); g.ico('#c4fcff', 0.16, 0, 1.22, 0, 1, 2.1, 1, 0);
+      for (i = 0; i < 3; i++) {
+        a = -Math.PI / 4 + i * Math.PI * 2 / 3;
+        kFin(b, P.shell, a, 0.5, 0.74, 0.3, 1.16, 0.12, 0.2);
+        b.box(T.team, 0.2, 0.1, 0.16, Math.cos(a) * 0.62, 0.2, Math.sin(a) * 0.62, -a);
+        g.ico(P.glow, 0.045, Math.cos(a) * 0.36, 1.4, Math.sin(a) * 0.36, 1, 1.5, 1, 0);
+      }
+      // Schaltkasten vorn links + Leitungen
+      b.box(P.base2, 0.28, 0.22, 0.24, -0.66, 0.06, 0.66, Math.PI / 4).pbox(T.team, 0.3, 0.03, 0.26, -0.66, 0.28, 0.66, Math.PI / 4);
+      g.pbox(P.glow2, 0.16, 0.05, 0.012, -0.6, 0.15, 0.75, Math.PI / 4);
+      if (hi) { b.cylX(P.base2, 0.03, 0.03, 0.5, 6, -0.4, 0.1, 0.4, -Math.PI / 4); for (i = 0; i < 4; i++) b.pbox(P.dark, 0.06, 0.04, 0.06, Math.cos(i * 1.57 + 0.78) * 0.86, 0.06, Math.sin(i * 1.57 + 0.78) * 0.86); }
+      var rg = new MB();
+      kTor(rg, T.team, 0.4, 0.045, 0, 0.56, 0, 5, 18); kTor(rg, T.teamL, 0.33, 0.04, 0, 0.9, 0, 5, 16);
+      for (i = 0; i < 3; i++) { a = i * Math.PI * 2 / 3; rg.box(P.shell, 0.09, 0.09, 0.09, Math.cos(a) * 0.4, 0.515, Math.sin(a) * 0.4).box(P.shell, 0.08, 0.08, 0.08, Math.cos(a + 1) * 0.33, 0.86, Math.sin(a + 1) * 0.33); }
+      M.parts.kring = rg.geo();
+      M.h = 1.45; M.act = { k: 'power' };
+    } else if (type === 'refinery') {                       // Erzwandler: Konverter mit Gewölbe, zwei Erzkugeln, Trichter an der Andockbucht, Schrägförderer
+      // Konverter: Achteck-Sockel + Kegelturm mit Erz-Glutring
+      kOct(b, P.base, 0.5, 0.54, 0.3, 0.3, 0.06, -0.5); kBand(b, T.team, 0.55, 0.26, 0.07, 0.3, -0.5, 8);
+      b.add(new THREE.CylinderGeometry(0.27, 0.48, 0.62, 10), P.shell, 0.3, 0.36 + 0.31, -0.5);
+      kBand(b, T.team, 0.4, 0.6, 0.07, 0.3, -0.5, 10); kBand(g, P.ore, 0.29, 0.94, 0.04, 0.3, -0.5, 10);
+      b.cylB(P.base, 0.2, 0.12, 8, 0.3, 0.98, -0.5, 0.01).cyl(P.dark, 0.08, 0.1, 0.16, 6, 0.3, 1.1, -0.5);
+      g.pbox(P.ore, 0.3, 0.06, 0.012, 0.2, 0.2, -0.06).pbox(P.dark, 0.36, 0.1, 0.012, 0.2, 0.18, -0.07);
+      // Erzkugeln
+      var orbs = [[-1.02, -0.42, 0.38], [1.12, 0.48, 0.3]];
+      for (i = 0; i < 2; i++) {
+        x = orbs[i][0]; z = orbs[i][1]; var rr = orbs[i][2];
+        b.cylB(P.base, rr * 0.55, 0.22, 8, x, 0.06, z, 0.012);
+        b.sph(i ? P.shell2 : P.shell, rr, x, 0.24 + rr, z, 1, 1, 1, 14);
+        kTor(b, T.team, rr + 0.005, 0.03, x, 0.24 + rr, z, 4, 16);
+        g.ico(P.ore, rr * 0.28, x - rr * 0.62, 0.3 + rr, z + rr * 0.62, 1, 1, 1, 0);
+      }
+      b.cylX(P.base2, 0.05, 0.05, 0.5, 6, -0.46, 0.5, -0.42).cylX(P.base2, 0.045, 0.045, 0.5, 6, 0.86, 0.3, 0.12);
+      // Trichter an der Andockbucht (Süd, Mitte) + Schrägförderer zum Konverter
+      for (i = 0; i < 4; i++) b.pbox(P.dark, 0.04, 0.3, 0.04, (i & 1 ? 1 : -1) * 0.2, 0.06, 0.55 + (i & 2 ? 1 : -1) * 0.2);
+      b.add(new THREE.CylinderGeometry(0.34, 0.12, 0.28, 8, 1, true), P.shell2, 0, 0.5, 0.55).cyl(P.dark, 0.2, 0.2, 0.02, 8, 0, 0.5, 0.55);
+      kTor(g, P.ore, 0.34, 0.025, 0, 0.64, 0.55, 4, 16);
+      var cl = Math.atan2(0.5, 0.76), cL = Math.sqrt(0.5 * 0.5 + 0.76 * 0.76);
+      b.box(P.base2, 0.22, 0.05, cL, 0, 0.625, 0.18, 0, cl).box(P.dark, 0.16, 0.03, cL, 0, 0.655, 0.18, 0, cl);
+      M.kBelt = [0, 0.42, 0.56, 0, 0.92, -0.2];   // Förderstollen: von (x,y,z) nach (x,y,z)
+      var cm = new MB(); cm.box(P.ore, 0.17, 0.04, 0.05, 0, 0, 0); M.xparts.kbelt = cm.geo(false);
+      // Andockbucht vorn: Führungslinien in Teamfarbe; Nordannahme
+      b.pbox(P.base, 0.9, 0.012, 0.36, 0, 0.06, 0.8);
+      b.top(T.teamL, -0.42, 0.66, -0.42, 0.98, 0.0735, 0.04).top(T.teamL, 0.42, 0.66, 0.42, 0.98, 0.0735, 0.04);
+      b.box(P.dark, 0.4, 0.22, 0.04, 0, 0.06, -0.955).pbox(T.team, 0.46, 0.03, 0.06, 0, 0.28, -0.955);
+      var dl = new MB(); dl.pbox('#ffffff', 0.08, 0.03, 0.08, 0, 0, 0); M.xparts.kdock = dl.geo(false);
+      M.kDockL = [[-0.42, 0.08, 1.0], [0.42, 0.08, 1.0], [-0.24, 0.08, -0.99], [0.24, 0.08, -0.99]];
+      M.h = 1.1; M.act = { k: 'refinery' };
+    } else if (type === 'barracks') {                       // Klonlabor: drei Klonröhren (Westseite), Unterkunftsflügel hinten, Appellplatz + Torbogen
+      b.box(P.base, 1.76, 0.28, 0.6, 0, 0.06, -0.58).box(T.team, 1.78, 0.06, 0.62, 0, 0.3, -0.58);
+      for (i = 0; i < 3; i++) { b.dome(P.shell, 0.27, -0.56 + i * 0.56, 0.36, -0.58, 1, 0.85, 1, 12); kTor(b, T.teamL, 0.2, 0.025, -0.56 + i * 0.56, 0.36 + 0.27 * 0.85 * 0.69, -0.58, 4, 12); }
+      for (i = 0; i < 4; i++) g.pbox(WINLIT, 0.16, 0.08, 0.012, -0.55 + i * 0.36, 0.17, -0.274);
+      for (i = 0; i < 4; i++) b.pbox(P.dark, 0.19, 0.11, 0.012, -0.55 + i * 0.36, 0.155, -0.279);
+      b.box(P.dark, 0.3, 0.24, 0.04, -0.5, 0.06, -0.885).pbox(T.team, 0.36, 0.035, 0.06, -0.5, 0.3, -0.885);   // Nordausgang
+      // Klonröhren
+      M.kTubes = [];
+      for (i = 0; i < 3; i++) {
+        z = -0.06 + i * 0.36; x = -0.66;
+        b.cylB(P.base, 0.16, 0.12, 10, x, 0.06, z, 0.012); kBand(b, T.team, 0.165, 0.14, 0.05, x, z, 10);
+        b.cyl('#4f8fb0', 0.12, 0.12, 0.8, 10, x, 0.18, z);
+        b.cylB(P.shell, 0.15, 0.08, 10, x, 0.98, z, 0.012).cylB(T.team, 0.1, 0.05, 8, x, 1.06, z, 0.008); g.ico(P.glow, 0.045, x, 1.15, z, 1, 1.3, 1, 0);
+        b.cylX(P.base2, 0.03, 0.03, 0.3, 6, x + 0.2, 0.12, z);
+        M.kTubes.push([x, 0.18, z]);
+      }
+      var fl = new MB(); fl.cyl('#ffffff', 0.128, 0.128, 0.78, 10, 0, 0, 0); M.xparts.kfill = fl.geo(false);
+      // Appellplatz + Fahne + Torbogen (Südausgang bei x = +0.5)
+      b.pbox(P.line, 1.0, 0.012, 0.86, 0.32, 0.06, 0.4);
+      b.top(T.team, -0.12, 0.05, 0.76, 0.05, 0.0735, 0.03).top(T.team, -0.12, 0.75, 0.25, 0.75, 0.0735, 0.03);
+      for (i = 0; i < 3; i++) b.pbox(P.shell2, 0.05, 0.012, 0.05, 0.05 + i * 0.25, 0.072, 0.4);
+      flagPole(b, T, P, 0.86, -0.1, 0.95);
+      b.box(P.shell2, 0.09, 0.5, 0.12, 0.2, 0.06, 0.9).box(P.shell2, 0.09, 0.5, 0.12, 0.8, 0.06, 0.9).box(T.team, 0.78, 0.09, 0.16, 0.5, 0.56, 0.9);
+      g.pbox(P.glow, 0.5, 0.025, 0.02, 0.5, 0.6, 0.985);
+      var dr = new MB(); dr.pbox('#ffffff', 0.5, 0.48, 0.02, 0, 0, 0); M.xparts.kdoor = dr.geo(false); M.kDoor = [0.5, 0.07, 0.9];
+      M.h = 1.05; M.act = { k: 'barracks', cells: [-0.95, 0.97, -0.25, 0.97, 0.062] };
+    } else if (type === 'factory') {                        // Kriegsfabrik: Gewölbehalle hinten, Portal mit Greifarmen über offener Montagebucht, Rampe
+      b.box(P.base, 2.8, 0.3, 1.3, 0, 0.06, -0.77).box(T.team, 2.82, 0.06, 1.32, 0, 0.3, -0.77);
+      kVault(b, P.shell, 0.64, 2.76, 0, 0.36, -0.77, false, 14);
+      for (i = 0; i < 3; i++) b.add(new THREE.TorusGeometry(0.655, 0.05, 4, 12, Math.PI), T.team, -0.95 + i * 0.95, 0.36, -0.77, Math.PI / 2);
+      b.box(P.dark, 1.2, 0.56, 0.06, 0, 0.06, -0.11);                               // Hallentor zur Bucht
+      g.pbox(P.glow, 1.24, 0.035, 0.02, 0, 0.62, -0.075).pbox(P.glow, 0.035, 0.56, 0.02, -0.62, 0.06, -0.075).pbox(P.glow, 0.035, 0.56, 0.02, 0.62, 0.06, -0.075);
+      b.box(P.dark, 0.8, 0.36, 0.04, 0, 0.06, -1.43).pbox(T.team, 0.86, 0.04, 0.06, 0, 0.42, -1.43);   // Nordtor
+      // Montagebucht: Boden, Leitpfeile, Rampe nach Süd
+      b.pbox(P.base2, 2.3, 0.03, 1.32, 0, 0.06, 0.54);
+      for (i = 0; i < 3; i++) { z = 0.15 + i * 0.36; b.top(T.teamL, -0.2, z, 0, z + 0.12, 0.0915, 0.04).top(T.teamL, 0.2, z, 0, z + 0.12, 0.0915, 0.04); }
+      b.pbox(P.base2, 1.0, 0.018, 0.3, 0, 0.06, 1.34);
+      // Portal (Pylonen + Träger)
+      for (sd = -1; sd <= 1; sd += 2) {
+        b.box(P.base, 0.3, 0.12, 0.34, sd * 1.22, 0.06, 0.55).box(P.shell2, 0.16, 0.94, 0.22, sd * 1.22, 0.18, 0.55).box(T.team, 0.18, 0.08, 0.24, sd * 1.22, 0.62, 0.55);
+      }
+      b.box(P.shell, 2.62, 0.18, 0.22, 0, 1.0, 0.55).box(T.team, 2.5, 0.1, 0.03, 0, 1.04, 0.668).box(T.team, 2.5, 0.03, 0.18, 0, 1.18, 0.55);
+      g.pbox(P.glow, 2.2, 0.025, 0.06, 0, 0.985, 0.55);
+      if (hi) { roofFan(b, P, 0.9, 0.98, -0.95, 0.09); kSpire(b, g, -1.25, -1.3, 0.06, 0.9, 0.05); }
+      var am = new MB(); am.box(P.base, 0.26, 0.1, 0.26, 0, 0.9, 0.55).cyl(T.teamL, 0.04, 0.04, 0.44, 6, 0, 0.47, 0.55).box(P.shell2, 0.18, 0.1, 0.16, 0, 0.4, 0.55);
+      am.box(P.base2, 0.05, 0.14, 0.05, -0.06, 0.27, 0.55).box(P.base2, 0.05, 0.14, 0.05, 0.06, 0.27, 0.55).cyl(P.glow, 0.02, 0.035, 0.06, 6, 0, 0.3, 0.55);
+      M.parts.karm = am.geo();
+      M.h = 1.15; M.act = { k: 'factory', cells: [-1.2, 1.42, -0.35, 1.42, 0.062], veh: [0, 0.09, 0.5, 1.75], open: true };
+    } else if (type === 'techcenter') {                     // Psi-Labor: Stufenturm, Kristall mit Halo, drei Antennen
+      var tx = 0.12, tz = -0.12;
+      kOct(b, P.base, 1.22, 1.28, 0.3, tx, 0.06, tz); kBand(b, T.team, 1.29, 0.26, 0.07, tx, tz, 8);
+      kOct(b, P.shell, 0.86, 0.94, 0.4, tx, 0.36, tz); kBand(g, P.glow, 0.9, 0.48, 0.05, tx, tz, 8);
+      kOct(b, P.shell2, 0.56, 0.62, 0.3, tx, 0.76, tz); kBand(b, T.team, 0.58, 0.96, 0.06, tx, tz, 8);
+      b.cylB(P.base, 0.24, 0.1, 8, tx, 1.06, tz, 0.012);
+      g.ico(P.glow, 0.2, tx, 1.38, tz, 1, 1.75, 1, 0);
+      for (i = 0; i < 3; i++) { a = -Math.PI / 4 + i * Math.PI * 2 / 3; kSpire(b, g, tx + Math.cos(a) * 1.02, tz + Math.sin(a) * 1.02, 0.36, 1.1, 0.06); }
+      b.box(P.dark, 0.44, 0.26, 0.1, tx - 0.84, 0.06, tz + 0.84, Math.PI / 4).box(T.team, 0.56, 0.05, 0.22, tx - 0.88, 0.32, tz + 0.88, Math.PI / 4);
+      if (hi) { acUnit(b, P, tx + 0.5, 0.76, tz + 0.5, 0.18); b.cylX(P.base2, 0.04, 0.04, 0.6, 6, -1.1, 0.12, 1.1); }
+      var hl = new MB(); hl.add(new THREE.TorusGeometry(0.4, 0.04, 5, 20), T.team, 0, 0, 0).add(new THREE.TorusGeometry(0.4, 0.03, 5, 20), T.teamL, 0, 0, 0, Math.PI / 2);
+      hl.box(P.shell, 0.09, 0.09, 0.09, 0.4, 0, 0).box(P.shell, 0.09, 0.09, 0.09, -0.4, 0, 0).box(P.shell, 0.09, 0.09, 0.09, 0, 0, 0.4).box(P.shell, 0.09, 0.09, 0.09, 0, 0, -0.4);
+      var hg = hl.geo(); hg.translate(tx, 1.38, tz); M.parts.kspin = hg; M.kPiv = [tx, tz];   // Gyroskop-Ringe um den Kristall
+      M.h = 1.7; M.act = { k: 'tech' };
+    } else if (type === 'psidome') {                        // Psi-Verstärker: offene Kuppel mit Emitter, Stützfinnen, Ladezellen vorn, schwebender Ring
+      kOct(b, P.base, 1.0, 1.06, 0.2, 0, 0.06, -0.08, 1.3, 0.85); kBand(b, T.team, 1.07, 0.2, 0.06, 0, -0.08, 8);
+      b.add(new THREE.SphereGeometry(0.86, 16, 7, 0, Math.PI * 2, 0.42, Math.PI / 2 - 0.42), P.shell, 0, 0.26, -0.08, 0, 0, 0, 1.15, 0.85, 0.85);
+      kTor(b, T.team, 0.36 * 1.0, 0.04, 0, 0.26 + 0.86 * 0.85 * Math.cos(0.42), -0.08, 5, 16);
+      b.cylB(P.dark, 0.3, 0.3, 10, 0, 0.3, -0.08, 0.01);
+      g.ico(P.glow, 0.2, 0, 0.92, -0.08, 1, 1.7, 1, 1);
+      for (i = 0; i < 4; i++) {                             // vier Zinken, die sich über der Kuppel zum Emitter neigen
+        a = Math.PI / 4 + i * Math.PI / 2;
+        b.prism(P.shell2, [[0.92, 0], [1.12, 0], [0.5, 1.28], [0.42, 1.24]], 0.1, 0, 0.06, -0.08, -a, 0.008);
+        b.prism(T.team, [[1.0, 0.3], [1.08, 0.3], [0.62, 1.1], [0.56, 1.08]], 0.11, 0, 0.06, -0.08, -a, 0.004);
+        g.ico(P.glow, 0.06, Math.cos(a) * 0.47, 1.34, -0.08 + Math.sin(a) * 0.47, 1, 1.3, 1, 0);
+      }
+      b.box(P.base2, 2.1, 0.16, 0.16, 0, 0.06, 0.86).pbox(P.dark, 2.0, 0.012, 0.12, 0, 0.22, 0.86);
+      for (i = 0; i < 8; i++) b.pbox(P.dark, 0.2, 0.1, 0.02, -0.84 + i * 0.24, 0.1, 0.94);
+      var cm2 = new MB(); cm2.box('#ffffff', 0.17, 0.08, 0.04, 0, 0, 0); M.xparts.cell = cm2.geo(false);
+      for (i = 0; i < 8; i++) M.xp.push({ p: 'cell', x: -0.84 + i * 0.24, y: 0.11, z: 0.955, k: 'cell', ci: i });
+      var sr = new MB(); kTor(sr, T.team, 0.5, 0.04, 0, 0, 0, 5, 20); for (i = 0; i < 3; i++) sr.box(P.shell, 0.1, 0.1, 0.1, Math.cos(i * 2.09) * 0.5, -0.05, Math.sin(i * 2.09) * 0.5);
+      M.xparts.spin = sr.geo(); M.xp.push({ p: 'spin', x: 0, y: 1.05, z: -0.08, k: 'spin' });
+      M.emitAt = [0, 0.95, -0.08];
+      M.h = 1.3; M.lit = false;   // Glühen über drawBldV4 (Aufladung)
+    } else if (type === 'psitower') {                       // Psi-Turm: Dreibein, Säule, Ringkopf mit Gabel (dreht), schwebende Kugel
+      kOct(b, P.base, 0.62, 0.7, 0.14, 0, 0.06, 0); kBand(b, T.team, 0.71, 0.12, 0.06, 0, 0, 8);
+      b.cylB(P.base2, 0.36, 0.1, 8, 0, 0.2, 0, 0.012);
+      for (i = 0; i < 3; i++) { a = -Math.PI / 4 + i * Math.PI * 2 / 3; strut(b, P.shell2, Math.cos(a) * 0.5, 0.2, Math.sin(a) * 0.5, Math.cos(a) * 0.1, 0.8, Math.sin(a) * 0.1, 0.045); b.box(T.team, 0.14, 0.12, 0.14, Math.cos(a) * 0.5, 0.2, Math.sin(a) * 0.5, -a); }
+      b.cyl(P.shell, 0.07, 0.15, 0.86, 8, 0, 0.2, 0).cylB(T.team, 0.12, 0.08, 8, 0, 0.7, 0, 0.01);
+      var hd = new MB();
+      kTor(hd, T.team, 0.34, 0.05, 0, 1.12, 0, 5, 18); hd.cylB(P.base, 0.13, 0.12, 8, 0, 1.04, 0, 0.012);
+      hd.box(P.shell, 0.42, 0.06, 0.06, 0.26, 1.1, 0.09).box(P.shell, 0.42, 0.06, 0.06, 0.26, 1.1, -0.09).box(P.shell2, 0.1, 0.1, 0.26, 0.06, 1.08, 0);
+      hd.ico(P.glow, 0.05, 0.48, 1.13, 0.09, 1, 1, 1, 0).ico(P.glow, 0.05, 0.48, 1.13, -0.09, 1, 1, 1, 0);
+      M.parts.head = hd.geo();
+      g.ico(P.glow, 0.15, 0, 1.52, 0, 1, 1.3, 1, 1);
+      M.muzzle = [0.45, 0.3]; M.recoil = 0; M.h = 1.6;
+    } else if (type === 'turret') {                         // Strahlkanone: Achteck-Sockel, Kapsel-Kopf, langes Emitterrohr
+      kOct(b, P.base, 0.38, 0.44, 0.14, 0, 0.04, 0); kBand(b, T.team, 0.45, 0.14, 0.05, 0, 0, 8);
+      b.cylB(P.base2, 0.3, 0.06, 8, 0, 0.18, 0, 0.01);
+      var th = new MB(), tb = new MB();
+      th.sph(P.shell, 0.2, -0.02, 0.34, 0, 1.25, 0.6, 1.05, 12).box(T.team, 0.24, 0.03, 0.08, -0.06, 0.44, 0).box(P.dark, 0.1, 0.12, 0.2, 0.14, 0.28, 0);
+      th.add(new THREE.ConeGeometry(0.05, 0.14, 4), T.team, -0.24, 0.42, 0, 0, 0, Math.PI / 2 + 0.6);
+      tb.cylX(P.shell2, 0.035, 0.045, 0.5, 8, 0.42, 0.34, 0).cylX(T.team, 0.052, 0.052, 0.04, 8, 0.3, 0.34, 0).cylX(P.base, 0.05, 0.05, 0.04, 8, 0.55, 0.34, 0);
+      tb.cylX(P.glow, 0.03, 0.03, 0.04, 8, 0.69, 0.34, 0);
+      M.parts.head = th.geo(); M.parts.barrel = tb.geo(); M.muzzle = [0.72, 0.34]; M.recoil = 0.1; M.h = 0.62; M.lit = false;
+    } else if (type === 'mg') {                             // Gatling-Stand: Ringwall mit Zinnen, Drehkopf mit Dreifachrohr
+      kOct(b, P.base, 0.4, 0.44, 0.1, 0, 0.04, 0);
+      for (i = 0; i < 8; i++) { a = i * Math.PI / 4 + Math.PI / 8; if (Math.cos(a) > 0.85) continue; b.box(i % 2 ? T.team : P.shell2, 0.16, 0.14, 0.08, Math.cos(a) * 0.36, 0.14, Math.sin(a) * 0.36, -a + Math.PI / 2); }
+      var mh = new MB();
+      mh.cyl(P.dark, 0.03, 0.06, 0.18, 6, 0, 0.06, 0).sph(P.shell, 0.09, 0, 0.26, 0, 1.2, 0.75, 1, 10).box(T.team, 0.06, 0.12, 0.2, -0.06, 0.2, 0);
+      for (i = 0; i < 3; i++) mh.cylX(P.dark, 0.016, 0.016, 0.26, 6, 0.22, 0.28 + Math.cos(i * 2.09) * 0.025, Math.sin(i * 2.09) * 0.025);
+      mh.cylX(P.shell2, 0.045, 0.045, 0.04, 8, 0.14, 0.28, 0).cylX(P.shell2, 0.04, 0.04, 0.03, 8, 0.34, 0.28, 0);
+      M.parts.head = mh.geo(); M.muzzle = [0.37, 0.28]; M.recoil = 0.02; M.h = 0.42; M.lit = false;
+    } else if (type === 'flak') {                           // Abwehrspule: Sockel, Joch (dreht), Doppelspule (hebt sich)
+      kOct(b, P.base, 0.4, 0.44, 0.12, 0, 0.0, 0); kBand(b, T.team, 0.45, 0.1, 0.04, 0, 0, 8);
+      b.cylB(P.base2, 0.3, 0.03, 8, 0, 0.12, 0, 0.006);
+      if (hi) for (i = 0; i < 3; i++) { a = i * 2.09 + 0.5; b.box(P.shell2, 0.1, 0.08, 0.12, Math.cos(a) * 0.32, 0.12, Math.sin(a) * 0.32, -a); }
+      var fh = new MB(), fb = new MB(), tr = 0.34;
+      fh.cylB(P.shell2, 0.18, 0.06, 10, 0, 0.15, 0, 0.012).box(P.shell, 0.14, 0.2, 0.04, 0, 0.2, 0.1).box(P.shell, 0.14, 0.2, 0.04, 0, 0.2, -0.1).pbox(T.team, 0.15, 0.03, 0.22, 0, 0.36, 0);
+      fb.box(P.base, 0.14, 0.08, 0.13, 0, tr - 0.04, 0);
+      for (sd = -1; sd <= 1; sd += 2) {
+        fb.cylX(P.base2, 0.026, 0.022, 0.44, 8, 0.24, tr, sd * 0.045);
+        for (i = 0; i < 3; i++) fb.cylX(i === 1 ? T.team : P.shell2, 0.042, 0.042, 0.03, 8, 0.14 + i * 0.1, tr, sd * 0.045);
+        fb.cylX(P.glow, 0.02, 0.02, 0.03, 6, 0.47, tr, sd * 0.045);
+      }
+      M.parts.head = fh.geo(); M.parts.barrel = fb.geo(); M.trun = [0, tr]; M.recoil = 0.04; M.flakL = 0.5;
+      M.muzzle = [Math.cos(0.9) * M.flakL, tr + Math.sin(0.9) * M.flakL]; M.v8b = 'flak'; M.h = 0.62; M.lit = false;
+    } else if (type === 'pbunker') {                        // Psi-Bunker: Achteckwall mit Scharten, flache Kuppel, Teamband
+      kOct(b, P.base, 0.84, 0.9, 0.42, 0, 0.06, 0); kBand(b, T.team, 0.87, 0.36, 0.06, 0, 0, 8);
+      b.dome(P.shell, 0.78, 0, 0.48, 0, 1, 0.42, 1, 14); kTor(b, P.shell2, 0.3, 0.03, 0, 0.48 + 0.78 * 0.42 * 0.92, 0, 4, 12);
+      M.win = [];
+      for (i = 0; i < 3; i++) { x = -0.5 + i * 0.5; b.pbox(P.dark, 0.3, 0.09, 0.04, x, 0.28, 0.8); g.pbox(P.glow, 0.24, 0.045, 0.012, x, 0.3, 0.822); M.win.push([x, 0.36, 0.86]); }
+      for (sd = -1; sd <= 1; sd += 2) { b.pbox(P.dark, 0.04, 0.09, 0.3, sd * 0.8, 0.28, 0.1); g.pbox(P.glow, 0.012, 0.045, 0.24, sd * 0.822, 0.3, 0.1); M.win.push([sd * 0.86, 0.36, 0.1]); }
+      b.pbox(P.dark, 0.3, 0.09, 0.04, -0.3, 0.28, -0.8); M.win.push([-0.3, 0.36, -0.86]);
+      b.box(P.dark, 0.26, 0.26, 0.06, 0.4, 0.06, -0.8);
+      b.cyl(P.metal, 0.012, 0.014, 0.5, 4, 0.55, 0.7, -0.35).pbox(T.team, 0.14, 0.09, 0.012, 0.62, 1.1, -0.35);
+      M.v5 = 'pbunker'; M.h = 0.85; M.lit = false;
+    } else if (type === 'airfield') {                       // Diskus-Hangar: vier runde Landeplätze, Gewölbehangar hinten, Leitturm mit Linsenkanzel
+      b.box(P.base2, w - 0.3, 0.012, 1.7, 0, 0.06, 0.38);
+      for (i = 0; i < 4; i++) {
+        x = -w / 2 + (i + 0.5) * w / 4; z = h * 0.55 - h / 2;
+        kOct(b, P.base, 0.44, 0.46, 0.03, x, 0.06, z, 1, 1, 16); kBand(b, T.team, 0.465, 0.06, 0.03, x, z, 16);
+        kDisc(b, P.plate, 0.0, 0.3, x, 0.091, z, 16); kDisc(b, P.shell, 0.3, 0.37, x, 0.0915, z, 16); kDisc(b, T.team, 0.0, 0.08, x, 0.092, z, 8);
+        for (a = 0; a < 6; a++) g.pbox(P.glow, 0.035, 0.02, 0.035, x + Math.cos(a * 1.047) * 0.4, 0.09, z + Math.sin(a * 1.047) * 0.4);
+      }
+      b.top(T.teamL, -w / 2 + 0.25, 0.85, w / 2 - 0.25, 0.85, 0.0735, 0.035);
+      b.box(P.base, 1.8, 0.24, 0.84, 0.95, 0.06, -1.02);
+      kVault(b, P.shell, 0.42, 1.78, 0.95, 0.3, -1.02, false, hi ? 14 : 10);
+      b.box(P.dark, 1.2, 0.5, 0.04, 0.95, 0.06, -0.6).pbox(T.team, 1.8, 0.05, 0.03, 0.95, 0.3, -0.6);
+      g.pbox(P.glow, 1.16, 0.03, 0.02, 0.95, 0.53, -0.585);
+      // Leitturm (West, hinten)
+      kOct(b, P.base, 0.26, 0.3, 0.2, -1.5, 0.06, -1.05); b.cyl(P.shell2, 0.08, 0.12, 0.62, 8, -1.5, 0.26, -1.05);
+      b.sph(P.glass, 0.24, -1.5, 0.94, -1.05, 1, 0.45, 1, 12); kTor(b, T.team, 0.24, 0.03, -1.5, 0.94, -1.05, 4, 14);
+      b.cylB(P.shell, 0.12, 0.06, 8, -1.5, 1.02, -1.05, 0.01);
+      var rd = new MB(); kTor(rd, P.shell2, 0.12, 0.018, 0, 0.05, 0, 4, 12); rd.pbox(P.glow, 0.26, 0.02, 0.03, 0, 0.05, 0).cyl(P.dark, 0.02, 0.02, 0.06, 4, 0, 0, 0);
+      M.parts.radar = rd.geo(); M.radarAt = [-1.5, 1.08, -1.05];
+      if (hi) { for (i = 0; i < 2; i++) b.sph(P.shell2, 0.14, -0.7 + i * 0.32, 0.2, -1.2, 1, 1, 1, 10); kSpire(b, g, 1.9, -1.35, 0.06, 0.6, 0.04); }
+      M.h = 1.05; M.act = { k: 'air', cells: [-1.6, 1.38, -0.4, 1.38, 0.062] };
+    } else if (type === 'shipyard') {                       // U-Boot-Werft: Kaje auf Pfählen, U-Boot-Rumpf in der Helling, Bunkergewölbe, Bogenkran
+      for (sd = -1; sd <= 1; sd += 2) {
+        for (i = 0; i < 4; i++) for (var j = 0; j < 2; j++) b.cyl(P.conc, 0.05, 0.06, 0.5, 6, sd * (0.6 + j * 0.8), -0.45, -1.3 + i * 0.86);
+        b.box(P.base, 1.02, 0.12, 3.0, sd * 1.0, -0.02, 0).box(P.edge, 1.04, 0.03, 3.02, sd * 1.0, 0.07, 0);
+        b.pbox(T.team, 0.05, 0.014, 2.4, sd * 0.52, 0.1, 0.3);
+      }
+      b.box(P.base, 1.0, 0.12, 0.62, 0, -0.02, -1.19).box(P.edge, 1.0, 0.03, 0.64, 0, 0.07, -1.19);
+      b.box('#3e3a50', 0.98, 0.03, 2.42, 0, -0.03, 0.3);
+      b.sph(P.base2, 0.2, 0, 0.06, 0.3, 0.9, 0.55, 3.0, 12).box(P.shell2, 0.16, 0.12, 0.3, 0, 0.12, 0.1).pbox(T.team, 0.17, 0.03, 0.31, 0, 0.24, 0.1);
+      // Bunkergewölbe über dem hinteren Becken (Ost) + Werkhalle
+      b.box(P.base, 0.92, 0.3, 1.0, 1.0, 0.1, -0.92);
+      kVault(b, P.shell, 0.46, 1.0, 1.0, 0.4, -0.92, true, 12);
+      b.box(P.dark, 0.5, 0.3, 0.02, 1.0, 0.1, -0.41).pbox(T.team, 0.94, 0.04, 0.03, 1.0, 0.4, -0.41);
+      g.pbox(P.glow, 0.46, 0.025, 0.02, 1.0, 0.38, -0.395);
+      for (i = 0; i < 2; i++) { b.cyl(P.metal, 0.012, 0.014, 0.5, 4, -1.45, 0.1, -1.2 + i * 2.4); g.ico(P.glow, 0.04, -1.45, 0.62, -1.2 + i * 2.4, 1, 1, 1, 0); }
+      if (hi) { b.sph(P.shell2, 0.16, -1.1, 0.26, 0.4, 1, 1, 1, 10).sph(P.shell, 0.13, -1.12, 0.23, 0.82, 1, 1, 1, 10); kSpire(b, g, 1.4, 1.3, 0.1, 0.6, 0.04); }
+      var gc = new MB(), gk = new MB();
+      for (sd = -1; sd <= 1; sd += 2) gc.box(P.shell2, 0.1, 0.9, 0.12, sd * 0.66, 0.1, 0.25).box(P.base, 0.18, 0.08, 0.2, sd * 0.66, 0.1, 0.25);
+      gc.add(new THREE.TorusGeometry(0.66, 0.06, 5, 14, Math.PI), P.shell, 0, 0.98, 0.25).pbox(T.team, 1.2, 0.04, 0.13, 0, 1.0, 0.25);
+      gk.box(P.base, 0.18, 0.1, 0.22, 0, 1.0, 0.25).cyl(P.glow, 0.008, 0.008, 0.55, 4, 0, 0.45, 0.25).box(P.shell2, 0.08, 0.05, 0.08, 0, 0.4, 0.25);
+      M.parts.gantry = gc.geo(); M.parts.trolley = gk.geo(); M.v8b = 'shipyard';
+      M.h = 1.25; M.act = { k: 'naval', cells: [-1.35, -0.6, -1.35, 0.6, 0.105] };
+    }
+    M.parts.body = b.geo();
+    if (g.list.length) M.parts.glow = g.geo(false); else M.lit = false;
+    return M;
+  }
+
+  // ================================================================== GA: Gebäude zeigen, was sie tun (alle Fraktionen) – LIEST nur den Sim-Zustand
+  // Quellen: Produktion = P.q[cat][0].prog am ERSTEN Produzenten des Typs (wie G.Sim.producerOf), Bauhof = erster nicht fertiger Eintrag aus
+  // P.q.building/P.q.defense (fertige warten auf Platzierung); „arbeitet“ = Fortschritt ist in den letzten 0,35 s (Effektzeit) gestiegen
+  // (steht bei fehlenden Credits); fertig/ausgeliefert = Fortschritt fällt von ≥ 0,97 ab. Andocken = Sammler mit hs 'unload' und refId.
+  // Strom: P.pwrUse / P.pwrProd (Auslastung), G.Sim.lowPower (Mangel → flackernde Fenster an allen Gebäuden). Landeplätze: Luftfahrzeuge mit home/pad.
+  // Alles aus Zustand + R.t (Effektzeit, steht bei Pause) – Partikel nur über R3F, ohne Allokation je Frame.
+  // Teile: pcell (Fortschrittslampen am Boden vor dem Ausgang), door2/dlit (Rolltor bzw. Schiebetür + Licht dahinter), crmast/crjib (Baukran
+  // Koalition/Syndikat), dlamp (Andocklampen), padlit (Ring auf dem Ziel-Landeplatz); Kollektiv: kboom/kbeam/kholo, kring, kfill/kdoor, karm,
+  // kbelt/kdock, kspin (siehe GB). Plätze je Modell in M.act (nach der Spiegelung, Modellkoordinaten).
+  var actFrame = 0, actProd = null, actInit = false;
+  var PCAT = { barracks: 'infantry', factory: 'vehicle', airfield: 'air', shipyard: 'naval', hq: 'building' };
+  var PCI = { infantry: 0, vehicle: 1, air: 2, naval: 3, building: 4 };
+  var aProg = 0, aAct = false, aReady = false, aType = null, aSt = null;
+  var CRANE_C = '#d97706';
+  /** Zusatzteile für die gemeinsamen Modelle (Koalition/Syndikat; nach mirrorModel, d. h. Fronten Süd + West). */
+  function actAttach(M, type, fac) {
+    if (M.act !== undefined) return M;
+    M.act = null; M.xparts = M.xparts || {};
+    var P = PAL[fac] || PAL.coalition, syn = fac === 'syndicate', m, i;
+    if (type === 'factory') {
+      M.act = { k: 'factory', cells: [-0.75, 1.42, 0.35, 1.42, 0.062], veh: [-0.2, 0, 0.2, 1.55], door: { x: -0.2, y: 0.08, z: 0.85, w: 0.98, h: 0.46, f: 's', roll: 1 } };
+    } else if (type === 'barracks') {
+      M.act = { k: 'barracks', cells: [-0.78, 0.94, -0.18, 0.94, 0.062], door: syn ? { x: -0.835, y: 0.07, z: -0.1, w: 0.38, h: 0.32, f: 'w' } : { x: 0, y: 0.065, z: 0.535, w: 0.3, h: 0.28, f: 's' } };
+    } else if (type === 'hq') {
+      M.act = { k: 'hq', cells: [-0.95, 1.43, 0.05, 1.43, 0.062], crane: [-1.3, -1.3, 1.72, Math.PI / 4] };
+      var cm = new MB(), cj = new MB(), H = 1.72;
+      cm.box(P.dark, 0.3, 0.08, 0.3, 0, 0.06, 0);
+      for (i = 0; i < 4; i++) cm.pbox(CRANE_C, 0.025, H - 0.12, 0.025, (i & 1 ? 1 : -1) * 0.055, 0.12, (i & 2 ? 1 : -1) * 0.055);
+      for (i = 0; i < 6; i++) cm.pbox(CRANE_C, 0.13, 0.02, 0.13, 0, 0.3 + i * 0.24, 0);
+      cm.box(P.dark, 0.16, 0.12, 0.16, 0, H - 0.02, 0);
+      cj.box(CRANE_C, 1.35, 0.07, 0.08, 0.5, H + 0.1, 0).box(CRANE_C, 0.42, 0.06, 0.08, -0.36, H + 0.1, 0).box(P.dark, 0.16, 0.14, 0.14, -0.52, H + 0.02, 0);
+      cj.pbox(CRANE_C, 0.05, 0.3, 0.05, 0, H + 0.1, 0).box(P.body2, 0.14, 0.1, 0.12, 0.05, H - 0.02, 0.0);
+      cj.cyl(P.dark, 0.006, 0.006, H - 0.75, 4, 0.95, 0.8, 0).box('#ffffff', 0.1, 0.07, 0.08, 0.95, 0.73, 0);
+      // Teamfarbe am Ausleger (für die Lesbarkeit der Besitzer)
+      var T = M.T0; if (T) cj.pbox(T.team, 1.3, 0.025, 0.085, 0.5, H + 0.17, 0);
+      var gm = cm.geo(), gj = cj.geo();
+      gm.translate(-1.3, 0, -1.3); gj.rotateY(-Math.PI / 4); gj.translate(-1.3, 0, -1.3);
+      M.parts.crmast = gm; M.parts.crjib = gj;
+    } else if (type === 'refinery') {
+      M.act = { k: 'refinery', dock: [[-0.6, 0.09, 0.66], [0.6, 0.09, 0.66], [-0.38, 0.09, -0.86], [0.38, 0.09, -0.86]], flare: [-1.2, 1.36, -0.62] };
+    } else if (type === 'airfield') {
+      M.act = { k: 'air', cells: [-1.6, 1.12, -0.4, 1.12, 0.062] };
+    } else if (type === 'shipyard') {
+      M.act = { k: 'naval', cells: [-0.62, -0.5, -0.62, 0.7, 0.105] };
+    } else if (type === 'power') {
+      M.act = { k: 'power' };
+    }
+    if (M.act && M.act.door) {
+      var d = M.act.door, dd = new MB(), dl = new MB();
+      if (d.f === 's') {
+        dd.box(P.body2, d.w, d.h, 0.02, 0, 0, 0);
+        if (d.roll) { for (i = 1; i < 6; i++) dd.pbox(P.dark, d.w - 0.04, 0.008, 0.024, 0, i * d.h / 6, 0); dd.pbox('#fbbf24', d.w, 0.04, 0.026, 0, 0, 0); }
+        else dd.pbox(P.dark, 0.02, d.h * 0.4, 0.026, d.w * 0.32, d.h * 0.35, 0);
+        dl.pbox('#ffffff', d.w - 0.02, d.h - 0.02, 0.01, 0, 0, -0.008);
+      } else {
+        dd.box(P.body2, 0.02, d.h, d.w, 0, 0, 0).pbox(P.dark, 0.026, d.h * 0.4, 0.02, 0, d.h * 0.35, d.w * 0.32);
+        dl.pbox('#ffffff', 0.01, d.h - 0.02, d.w - 0.02, 0.008, 0, 0);
+      }
+      M.xparts.door2 = dd.geo(false); M.xparts.dlit = dl.geo(false);
+    }
+    return M;
+  }
+  /** Gemeinsame Anzeige-Geometrien (Lampen, Ring) – je Modell einmal. */
+  function actGeo(M) {
+    var m;
+    if (M.act && M.act.cells && !M.xparts.pcell) { m = new MB(); m.flat = true; m.pbox('#ffffff', 0.15, 0.03, 0.1, 0, 0, 0); M.xparts.pcell = m.geo(false); }
+    if (M.act && M.act.k === 'air' && !M.xparts.padlit) { m = new MB(); m.flat = true; m.add(new THREE.RingGeometry(0.3, 0.45, 18), '#ffffff', 0, 0, 0, 0, -Math.PI / 2, 0); M.xparts.padlit = m.geo(false); }
+    if (M.act && M.act.dock && !M.xparts.dlamp) { m = new MB(); m.flat = true; m.pbox('#ffffff', 0.09, 0.05, 0.09, 0, 0, 0); M.xparts.dlamp = m.geo(false); }
+  }
+
+  /** Je Frame vor den Gebäuden: Produzenten je Spieler/Kategorie, angedockte Sammler, belegte Landeplätze. */
+  function actPre(S) {
+    if (!actInit) {
+      actInit = true;
+      GLOW_PARTS.pcell = 1; GLOW_PARTS.dlit = 1; GLOW_PARTS.padlit = 1; GLOW_PARTS.dlamp = 1;
+      GLOW_PARTS.kholo = 1; GLOW_PARTS.kbeam = 1; GLOW_PARTS.kfill = 1; GLOW_PARTS.kdoor = 1; GLOW_PARTS.kbelt = 1; GLOW_PARTS.kdock = 1;
+    }
+    actFrame++;
+    var np = S.players.length, ents = S.ents, i, e, c, k, st;
+    if (!actProd || actProd.length < np * 5) actProd = new Int32Array(Math.max(8, np) * 5);
+    actProd.fill(0);
+    for (i = 0; i < ents.length; i++) {
+      e = ents[i];
+      if (e.dead) continue;
+      if (e.kind === 'building') {
+        c = PCAT[e.type];
+        if (c && e.owner >= 0 && e.owner < np) { k = e.owner * 5 + PCI[c]; if (!actProd[k]) actProd[k] = e.id; }
+      } else if (e.hs === 'unload' && e.refId) { st = nst(e.refId); st.dockF = actFrame; st.dockS = e.y; }
+      else if (e.mc === 2 && e.home && e.pad >= 0) { st = nst(e.home); if (st.padF !== actFrame) { st.padF = actFrame; st.padM = 0; } st.padM |= 1 << e.pad; }
+    }
+  }
+  /** Produktionszustand des Gebäudes b → aProg/aAct/aReady/aType (+ Merker st.outT beim Ausliefern). false = produziert nichts. */
+  function prodState(b, P, st) {
+    var cat = PCAT[b.type], it = null, q, i;
+    aProg = 0; aAct = false; aReady = false; aType = null;
+    if (!cat || actProd[b.owner * 5 + PCI[cat]] !== b.id) { st.lp = 0; return false; }
+    if (cat === 'building') {
+      for (q = 0; q < 2 && !it; q++) { var bq = q ? P.q.defense : P.q.building; if (!bq) continue; for (i = 0; i < bq.length; i++) { if (!bq[i].ready) { it = bq[i]; break; } aReady = true; } }
+      if (!it && !aReady) { if ((st.lp || 0) >= 0.97) st.outT = R.t; st.lp = 0; return false; }
+    } else { q = P.q[cat]; it = q && q.length ? q[0] : null; }
+    var p = it ? it.prog : 0, lp = st.lp || 0;
+    if (lp >= 0.97 && (!it || p < lp - 0.3)) { st.outT = R.t; st.outTy = st.lty; }
+    if (it && p > lp + 1e-7) st.lpT = R.t;
+    st.lp = p; st.lty = it ? it.type : null;
+    aProg = p; aType = it ? it.type : null; aAct = !!it && R.t - (st.lpT || -9) < 0.35;
+    return !!it || aReady;
+  }
+  var NOSHADOW = { pcell: 1, dlit: 1, padlit: 1, dlamp: 1, kholo: 1, kbeam: 1, kfill: 1, kdoor: 1, kbelt: 1, kdock: 1 };
+  /** partBatch für Anzeige-Teile: ohne Schattenwurf (spart den Schatten-Durchgang je Teil). */
+  function apb(b, owner, part, M) {
+    var bt = partBatch('b', b.type, owner, part, M);
+    if (bt.shadow && NOSHADOW[part]) { bt.shadow = false; bt.mesh.castShadow = false; }
+    return bt;
+  }
+  function flick(id) { var t = R.t; return (Math.sin(t * 11.3 + id * 1.7) * Math.sin(t * 4.1 + id * 0.37) > 0.25) ? 0.7 : 0.1; }
+  /** Helligkeit der Leuchtteile (glow/wlit) eines Gebäudes: erinnert grau, Strommangel flackert, Kraftwerk nach Auslastung, Produzent heller. */
+  function litGain(b, M, owner, cr) {
+    if (cr === GREY) return 0.3;
+    var P = G.Sim.S.players[owner], st;
+    if (P.pwrUse > P.pwrProd) return flick(b.id) * (b.type === 'power' ? 0.5 : 1);
+    if (b.type === 'power') { var ld = P.pwrProd > 0 ? Math.min(1.25, P.pwrUse / P.pwrProd) : 0; return 1.0 + 0.6 * ld + 0.18 * ld * Math.sin(R.t * (2 + 3 * ld) + b.id); }
+    st = nrs.get(b.id);
+    if (st && st.actOn) return 1.12 + 0.18 * Math.sin(R.t * 4 + b.id);
+    if (st && st.dockF === actFrame) return 1.3 + 0.3 * Math.sin(R.t * 7);
+    return 1;
+  }
+  /** Rotation eines in Ruhestellung modellierten Teils um die senkrechte Achse durch (px, pz) (Modellkoordinaten). */
+  function putRot(bt, x, y, z, px, pz, ang, sy, r, g, bb) {
+    var c = Math.cos(-ang), s = Math.sin(-ang);
+    bt.put(x + px - (c * px + s * pz), y, z + pz - (-s * px + c * pz), ang, 1, sy, 1, r, g, bb);
+  }
+  /** Einheit (Modell) als „im Bau“ zeichnen: Rumpf, Turm, Rohr, Kleinteile – k = Helligkeit, sy = Höhe (wächst). */
+  function ghostUnit(type, P, owner, x, y, z, dir, k, sy) {
+    if (!type) return;
+    var Mu = model(type, P.faction, P.color), s = SCALE[type] || 1, cd = Math.cos(dir), sd = Math.sin(dir), i;
+    if (!Mu || !Mu.parts || !Mu.parts.hull) return;
+    partBatch('u', type, owner, 'hull', Mu).put(x, y, z, dir, s, s * sy, s, k, k, k);
+    if (Mu.parts.glow && !Mu.v8u) partBatch('u', type, owner, 'glow', Mu).put(x, y, z, dir, s, s * sy, s, k, k, k);
+    if (Mu.v8u) return;
+    var pv = Mu.pivot || [0, 0], pxp = x + (cd * pv[0] - sd * pv[1]) * s, pzp = z + (sd * pv[0] + cd * pv[1]) * s;
+    if (Mu.parts.turret) partBatch('u', type, owner, 'turret', Mu).put(pxp, y, pzp, dir, s, s * sy, s, k, k, k);
+    if (Mu.parts.barrel && !Mu.how) partBatch('u', type, owner, 'barrel', Mu).put(pxp, y, pzp, dir, s, s * sy, s, k, k, k);
+    if (Mu.parts.barrel2) partBatch('u', type, owner, 'barrel2', Mu).put(pxp, y, pzp, dir, s, s * sy, s, k, k, k);
+    if (Mu.xp) for (i = 0; i < Mu.xp.length; i++) {
+      var xe = Mu.xp[i]; if (!Mu.xparts[xe.p] || (xe.k !== 'wheel' && xe.k !== 'trk' && xe.k)) continue;
+      partBatch('u', type, owner, xe.p, Mu).put(x + (cd * xe.x - sd * xe.z) * s, y + xe.y * s * sy, z + (sd * xe.x + cd * xe.z) * s, dir, s, s * sy, s, k, k, k);
+    }
+  }
+  function cellsDraw(b, M, owner, x, z, rgb, prog, act, ready) {
+    var c = M.act.cells, bt = apb(b, owner, 'pcell', M), n = 6, i, f, lk, ang = Math.atan2(c[3] - c[1], c[2] - c[0]), t = R.t;
+    for (i = 0; i < n; i++) {
+      f = (i + 0.5) / n;
+      if (ready) lk = 0.9 + 0.7 * (0.5 + 0.5 * Math.sin(t * 6 - i * 0.9));
+      else { var lit = clamp(prog * n - i, 0, 1); lk = 0.12 + 1.5 * lit; if (act && lit > 0 && lit < 1) lk = 0.5 + 1.2 * (0.5 + 0.5 * Math.sin(t * 9)); }
+      bt.put(x + c[0] + (c[2] - c[0]) * f, c[4], z + c[1] + (c[3] - c[1]) * f, ang, 1, 1, 1, rgb[0] * lk + 0.05 * lk, rgb[1] * lk + 0.05 * lk, rgb[2] * lk + 0.05 * lk);
+    }
+  }
+  function doorDraw(b, M, owner, x, z, open, light) {
+    var d = M.act.door, bt = partBatch('b', b.type, owner, 'door2', M), lb = apb(b, owner, 'dlit', M);
+    if (d.roll) { var sh = Math.max(0.04, 1 - open); bt.put(x + d.x, d.y + d.h * (1 - sh), z + d.z, 0, 1, sh, 1, 1, 1, 1); }
+    else if (d.f === 's') bt.put(x + d.x + open * d.w * 0.95, d.y, z + d.z, 0, 1, 1, 1, 1, 1, 1);
+    else bt.put(x + d.x, d.y, z + d.z + open * d.w * 0.95, 0, 1, 1, 1, 1, 1, 1);
+    if (light > 0.02) lb.put(x + d.x, d.y + 0.01, z + d.z, 0, 1, 1, 1, 1.25 * light, 0.95 * light, 0.62 * light);
+  }
+
+  var FX_LOW = 1;   // Partikel-Faktor (Spar-/Schonmodus kleiner)
+  /** Bewegliche Teile in Ruhestellung (Gebäude im Aufbau: wachsen mit sy mit). */
+  function restDraw(b, M, owner, x, z, sy) {
+    var p = M.parts;
+    if (p.kboom) partBatch('b', b.type, owner, 'kboom', M).put(x, 0, z, 0, 1, sy, 1, 1, 1, 1);
+    if (p.karm) { var ab = partBatch('b', b.type, owner, 'karm', M); ab.put(x - 0.42, 0, z, 0, 1, sy, 1, 1, 1, 1); ab.put(x + 0.42, 0, z, 0, 1, sy, 1, 1, 1, 1); }
+    if (p.crmast) { partBatch('b', b.type, owner, 'crmast', M).put(x, 0, z, 0, 1, sy, 1, 1, 1, 1); partBatch('b', b.type, owner, 'crjib', M).put(x, 0, z, 0, 1, sy, 1, 1, 1, 1); }
+    if (p.kring) partBatch('b', b.type, owner, 'kring', M).put(x, 0, z, 0, 1, sy, 1, 1, 1, 1);
+    if (p.kspin) partBatch('b', b.type, owner, 'kspin', M).put(x, 0, z, 0, 1, sy, 1, 1, 1, 1);
+  }
+  /** Aktivität eines lebenden, sichtbaren Gebäudes (nach drawBuildingInst). sy < 1 = noch im Aufbau → nur Grundzustand. */
+  function actDraw(b, M, x, z, sy, inV, dt) {
+    var S = G.Sim.S, owner = b.owner, P = S.players[owner], st = nst(b.id), A = M.act, t = R.t, i, k, f, open;
+    if (!A || !P) return;
+    actGeo(M);
+    FX_LOW = (R.safeGPU || (R.Q && R.Q.mode === 'low')) ? 0.4 : 1;
+    var rgb = teamRGB(P.color), low = P.pwrUse > P.pwrProd, built = sy >= 0.999;
+    if (!built) { restDraw(b, M, owner, x, z, sy); st.lp = 0; return; }   // im Aufbau: bewegliche Teile in Ruhestellung, mitwachsend
+    var has = prodState(b, P, st);
+    st.actOn = has && aAct;
+    var since = t - (st.outT == null ? -99 : st.outT);
+    if (A.cells && has && !low) cellsDraw(b, M, owner, x, z, rgb, aProg, aAct, aReady && !aType);
+    else if (A.cells && has) cellsDraw(b, M, owner, x, z, rgb, aProg * flick(b.id + 3), false, false);
+    switch (A.k) {
+      case 'factory': {
+        var vp = A.veh, vt = aType || st.outTy;
+        if (A.open) {                                        // Kollektiv: offene Montagebucht unter dem Portal
+          var ab = partBatch('b', b.type, owner, 'karm', M), sw = has && aAct ? Math.sin(t * 2.2) : 0, ar = 0.42 + 0.08 * Math.sin(t * 0.4);
+          ab.put(x - ar - 0.12 * sw, 0, z, 0, 1, 1, 1, 1, 1, 1); ab.put(x + ar + 0.12 * Math.sin(t * 2.2 + 1.3) * (has && aAct ? 1 : 0), 0, z, 0, 1, 1, 1, 1, 1, 1);
+          if (has && aType) {
+            var gp = clamp(aProg / 0.88, 0, 1), roll = clamp((aProg - 0.88) / 0.12, 0, 1);
+            ghostUnit(aType, P, owner, x + vp[0], vp[1], z + vp[2] + (vp[3] - vp[2]) * smooth(roll), Math.PI / 2, 0.35 + 0.65 * gp, 0.15 + 0.85 * smooth(gp));
+            if (aAct && inV && aProg < 0.88 && rnd() < dt * 7 * FX_LOW) {
+              var sx = x + (rnd() < 0.5 ? -1 : 1) * (ar - 0.05), sz = z + 0.55;
+              for (k = 0; k < 3; k++) G.R3F.bSpark ? G.R3F.bSpark(sx, 0.38, sz, (rnd() - 0.5) * 0.9, 0.3 + rnd() * 0.8, (rnd() - 0.5) * 0.9) : 0;
+            }
+          }
+        } else {                                             // Halle mit Rolltor: Fahrzeug erscheint im Tor und rollt hinaus
+          open = 0;
+          if (has && aType && aProg > 0.85) open = smooth((aProg - 0.85) / 0.05);
+          if (since < 2.2) open = Math.max(open, 1 - smooth((since - 0.8) / 1.2));
+          doorDraw(b, M, owner, x, z, open, has && aAct ? 0.55 + 0.45 * open + 0.15 * Math.sin(t * 13) : open * 0.8);
+          if (has && aType && aProg > 0.89) ghostUnit(aType, P, owner, x + vp[0], vp[1], z + vp[2] + (vp[3] - vp[2]) * smooth((aProg - 0.89) / 0.11), Math.PI / 2, 1, 1);
+          if (has && aAct && inV && aProg < 0.85 && rnd() < dt * 5 * FX_LOW && G.R3F.bSpark) {
+            var dx2 = x + A.door.x + (rnd() - 0.5) * 0.8;
+            for (k = 0; k < 3; k++) G.R3F.bSpark(dx2, 0.1, z + A.door.z + 0.02, (rnd() - 0.5) * 0.6, 0.2 + rnd() * 0.6, 0.2 + rnd() * 0.5);
+          }
+        }
+        void vt;
+        break;
+      }
+      case 'barracks': {
+        open = 0;
+        if (has && aType && aProg > 0.92) open = smooth((aProg - 0.92) / 0.06);
+        if (since < 1.8) open = Math.max(open, 1 - smooth((since - 0.6) / 1.0));
+        if (A.door) doorDraw(b, M, owner, x, z, open, has && aAct ? 0.45 + 0.6 * open : open * 0.7);
+        if (M.kTubes) {                                      // Kollektiv: Klonröhren füllen sich nacheinander, Torfeld öffnet
+          var fb = apb(b, owner, 'kfill', M), pg = has ? aProg : 0;
+          for (i = 0; i < 3; i++) {
+            f = clamp(pg * 3 - i, 0, 1); var tu = M.kTubes[i], fk = low ? 0.3 : (has && aAct && f > 0 && f < 1 ? 1.2 + 0.4 * Math.sin(t * 6 + i) : 0.95);
+            if (f > 0.02) fb.put(x + tu[0], tu[1], z + tu[2], 0, 1, f, 1, 0.92 * fk, 0.66 * fk, 1.0 * fk);
+            else if (!has) fb.put(x + tu[0], tu[1], z + tu[2], 0, 1, 0.9, 1, 0.42, 0.26, 0.62);   // Ruhe: Nährlösung, gedämpft
+          }
+          var kd = apb(b, owner, 'kdoor', M), dsh = 1 - open, dk2 = low ? 0.25 : 0.55 + 0.15 * Math.sin(t * 2 + b.id);
+          if (dsh > 0.03) kd.put(x + M.kDoor[0], M.kDoor[1], z + M.kDoor[2], 0, dsh, 1, 1, 0.9 * dk2, 0.62 * dk2, 1.0 * dk2);
+        }
+        break;
+      }
+      case 'hq': {
+        var work = has && aAct;
+        if (A.crane) {                                       // Koalition/Syndikat: Baukran schwenkt beim Bauen, ruht sonst
+          st.crA = (st.crA || 0) + dt * (work ? 1 : 0.12);
+          var ca = work ? 0.75 * Math.sin(st.crA * 0.7 + st.ph) : 0.12 * Math.sin(st.crA * 0.9 + st.ph);
+          partBatch('b', b.type, owner, 'crmast', M).put(x, 0, z, 0, 1, 1, 1, 1, 1, 1);
+          putRot(partBatch('b', b.type, owner, 'crjib', M), x, 0, z, A.crane[0], A.crane[1], ca, 1, 1, 1, 1);
+          if (work && inV && rnd() < dt * 4 * FX_LOW && G.R3F.bSpark) {
+            var ha = A.crane[3] - ca, hx2 = x + A.crane[0] + Math.cos(ha) * 0.95, hz2 = z + A.crane[1] + Math.sin(ha) * 0.95;
+            for (k = 0; k < 2; k++) G.R3F.bSpark(hx2, 0.72, hz2, (rnd() - 0.5) * 0.6, 0.3 + rnd() * 0.5, (rnd() - 0.5) * 0.6);
+          }
+        }
+        if (M.kPiv) {                                        // Kollektiv: Traktor-Ausleger, Strahl und Hologramm auf der Bauplattform
+          st.crA = (st.crA || 0) + dt * (work ? 1 : 0.1);
+          var ka = work ? 0.22 * Math.sin(st.crA * 1.3 + st.ph) : 0.06 * Math.sin(st.crA + st.ph);
+          putRot(partBatch('b', b.type, owner, 'kboom', M), x, 0, z, M.kPiv[0], M.kPiv[1], ka, 1, 1, 1, 1);
+          if (has) {
+            var c = Math.cos(-ka), s = Math.sin(-ka), tdx = M.kTip[0] - M.kPiv[0], tdz = M.kTip[2] - M.kPiv[1];
+            var tx = x + M.kPiv[0] + c * tdx + s * tdz, tz = z + M.kPiv[1] - s * tdx + c * tdz, pd = M.kPad;
+            var hp = aReady && !aType ? 1 : aProg, hk = low ? 0.35 : (aReady && !aType ? 1.0 + 0.4 * Math.sin(t * 5) : 0.85 + 0.25 * Math.sin(t * 8));
+            apb(b, owner, 'kholo', M).put(x + pd[0], pd[1], z + pd[2], t * 0.4, 1, Math.max(0.04, hp), 1, 0.85 * hk, 0.6 * hk, 1.0 * hk);
+            if (work) {
+              var bk = 0.8 + 0.3 * Math.sin(t * 17);
+              apb(b, owner, 'kbeam', M).put(tx, pd[1], tz, 0, 1, Math.max(0.1, M.kTip[1] - pd[1]), 1, 0.85 * bk, 0.6 * bk, 1.0 * bk);
+              if (inV && rnd() < dt * 6 * FX_LOW) emit(0, x + pd[0] + (rnd() - 0.5) * 0.5, pd[1] + rnd() * 0.5 * hp, z + pd[2] + (rnd() - 0.5) * 0.5, 0, 0.35, 0, 0.6, 0.09, 0.02, 0.9, 0.6, 1.0, 0.9, 0.5, 0.3, 1.0, 0);
+            }
+          }
+          if (since < 0.6 && inV) { if (rnd() < dt * 30) emit(0, x + M.kPad[0] + (rnd() - 0.5) * 0.6, 0.2 + rnd() * 0.5, z + M.kPad[2] + (rnd() - 0.5) * 0.6, 0, 0.6, 0, 0.5, 0.12, 0.02, 1, 0.8, 1, 1, 0.6, 0.4, 1, 0); }
+        }
+        break;
+      }
+      case 'refinery': {
+        var dock = built && st.dockF === actFrame;
+        if (A.dock && dock) {
+          var dlb = apb(b, owner, 'dlamp', M), on = dock ? (Math.sin(t * 8) > 0 ? 1.6 : 0.35) : 0.18, north = dock && st.dockS < b.y;
+          for (i = 0; i < 4; i++) { var dp = A.dock[i], li = dock && ((i >= 2) === north) ? on : 0.18; dlb.put(x + dp[0], dp[1], z + dp[2], 0, 1, 1, 1, 1.0 * li, 0.62 * li, 0.15 * li); }
+          if (dock && inV && rnd() < dt * 10 * FX_LOW) emit(0, x + A.flare[0] + (rnd() - 0.5) * 0.06, A.flare[1], z + A.flare[2] + (rnd() - 0.5) * 0.06, (rnd() - 0.5) * 0.1, 0.7 + rnd() * 0.4, (rnd() - 0.5) * 0.1, 0.45, 0.2, 0.05, 1, 0.75, 0.3, 1, 1, 0.3, 0.05, 0);
+        }
+        if (M.kBelt && dock) {                               // Kollektiv: Förderstollen laufen, Andocklampen (nur beim Andocken)
+          var kb = apb(b, owner, 'kbelt', M), bl = M.kBelt, ph = (st.blt = (st.blt || 0) + dt * (dock ? 0.9 : 0)) % 0.25;
+          for (i = 0; i < 4; i++) { f = (ph + i * 0.25) / 1.0; var bk2 = dock ? 1.3 : 0.4; kb.put(x + bl[0] + (bl[3] - bl[0]) * f, bl[1] + (bl[4] - bl[1]) * f, z + bl[2] + (bl[5] - bl[2]) * f, 0, 1, 1, 1, bk2, bk2 * 0.75, bk2 * 0.35); }
+          var kdl = apb(b, owner, 'kdock', M), on2 = dock ? (Math.sin(t * 8) > 0 ? 1.5 : 0.4) : 0.2, north2 = dock && st.dockS < b.y;
+          for (i = 0; i < 4; i++) { var kp = M.kDockL[i], l2 = dock && ((i >= 2) === north2) ? on2 : 0.2; kdl.put(x + kp[0], kp[1], z + kp[2], 0, 1, 1, 1, 1.0 * l2, 0.65 * l2, 0.2 * l2); }
+          if (dock && inV && rnd() < dt * 9 * FX_LOW) emit(0, x + (rnd() - 0.5) * 0.4, 0.62, z + 0.55 + (rnd() - 0.5) * 0.4, 0, 0.5 + rnd() * 0.3, 0, 0.6, 0.07, 0.02, 1, 0.75, 0.3, 1, 1, 0.5, 0.1, 0);
+        } else if (!M.kBelt && dock && inV && rnd() < dt * 6 * FX_LOW) {
+          var dz = st.dockS < b.y ? -0.86 : 0.66;
+          emit(0, x + (rnd() - 0.5) * 0.5, 0.15, z + dz + (rnd() - 0.5) * 0.2, 0, 0.45 + rnd() * 0.3, 0, 0.55, 0.06, 0.02, 1, 0.75, 0.3, 1, 1, 0.5, 0.1, 0);
+        }
+        break;
+      }
+      case 'power': {
+        var ld = P.pwrProd > 0 ? Math.min(1.3, P.pwrUse / P.pwrProd) : 0;
+        if (M.parts.kring) {                                 // Kollektiv: Ringe drehen und schweben nach Auslastung
+          st.rgA = (st.rgA || 0) + dt * (low ? 2.6 : 0.25 + 1.4 * ld);
+          var bob = 0.03 * Math.sin(t * 1.1 + st.ph);
+          partBatch('b', b.type, owner, 'kring', M).put(x, bob * sy, z, st.rgA, 1, sy, 1, 1, 1, 1);
+          if (built && inV && rnd() < dt * (1 + 5 * ld) * FX_LOW) { var wa = rnd() * 6.283; emit(0, x + Math.cos(wa) * 0.12, 0.45 + rnd() * 0.5, z + Math.sin(wa) * 0.12, Math.cos(wa) * 0.05, 0.5 + 0.5 * ld, Math.sin(wa) * 0.05, 0.7, 0.08, 0.02, 0.5, 0.95, 1, 0.9, 0.3, 0.6, 1, 0); }
+          if (low && inV && rnd() < dt * 2 && G.R3F.bSpark) G.R3F.bSpark(x, 1.1, z, (rnd() - 0.5) * 1.2, 0.5, (rnd() - 0.5) * 1.2);
+        }
+        break;
+      }
+      case 'tech': {
+        if (M.parts.kspin) { st.rgA = (st.rgA || 0) + dt * (low ? 0.05 : 0.45); putRot(partBatch('b', b.type, owner, 'kspin', M), x, 0, z, M.kPiv[0], M.kPiv[1], st.rgA, sy, 1, 1, 1); }
+        break;
+      }
+      case 'air': {
+        if (has && aType) {
+          var free = 0, pm = st.padF === actFrame ? st.padM : 0;
+          while (free < 4 && (pm & (1 << free))) free++;
+          if (free < 4) {
+            var bw = b.w || 4, bh = b.h || 3, px2 = x - bw / 2 + (free + 0.5) * bw / 4, pz2 = z - bh / 2 + bh * 0.55, pk = (0.35 + 1.1 * aProg) * (aAct ? 0.85 + 0.25 * Math.sin(t * 6) : 0.7);
+            apb(b, owner, 'padlit', M).put(px2, 0.1, pz2, 0, 1, 1, 1, rgb[0] * pk + 0.1, rgb[1] * pk + 0.1, rgb[2] * pk + 0.1);
+            if (aProg > 0.7) ghostUnit(aType, P, owner, px2, 0, pz2, -Math.PI / 2, 0.3 + 0.7 * smooth((aProg - 0.7) / 0.3), 0.3 + 0.7 * smooth((aProg - 0.7) / 0.3));
+          }
+        }
+        break;
+      }
+      case 'naval': {
+        if (has && aType) ghostUnit(aType, P, owner, x, WL8, z + 0.3, Math.PI / 2, 0.3 + 0.7 * aProg, 0.25 + 0.75 * smooth(aProg));
+        break;
+      }
+    }
+    if (st.actOn && !st.wasOn && inV && t - (st.pulT || -9) > 4) { st.pulT = t; addPulse(x, z, P.color, Math.max(b.w || 2, b.h || 2) * 0.55, 0.6); }
+    st.wasOn = st.actOn;
+  }
+
+  /** Schaden: feste Brandstellen je Gebäude (aus der ID), Rauch ab 60 %, Funken ab 40 %, Flammen ab 25 % HP. */
+  function dmgFx(b, M, x, z, hf, dt) {
+    if (hf >= 0.6) return;
+    var w = b.w || 2, h = b.h || 2, q = FX_LOW, k, sx, sz, sy, sev = 1 - hf / 0.6;
+    for (k = 0; k < (hf < 0.4 ? 2 : 1); k++) {
+      sx = x + (hash(b.id, k, 11) - 0.5) * w * 0.55; sz = z + (hash(b.id, k, 23) - 0.5) * h * 0.55; sy = M.h * (0.45 + 0.4 * hash(b.id, k, 37));
+      if (rnd() < dt * (2.5 + 7 * sev) * q) { var gg = hf < 0.3 ? 0.12 : 0.3; F3.puff(sx, sy, sz, 0.08 + rnd() * 0.08, 0.45 + rnd() * 0.3, 0.03, 2.2 + rnd(), 0.22, 0.95 + sev * 0.4, gg, 0.62, hf < 0.25 ? 0.4 : 0); }
+      if (hf < 0.25 && rnd() < dt * 9 * q) { if (F3.bFlame) F3.bFlame(sx + (rnd() - 0.5) * 0.12, sy - 0.05, sz + (rnd() - 0.5) * 0.12, 0.32 + rnd() * 0.15); else emit(0, sx, sy, sz, 0, 0.6, 0, 0.4, 0.3, 0.08, 1, 0.6, 0.15, 1, 0.9, 0.2, 0.05, 0); }
+      if (hf < 0.4 && k === 1 && rnd() < dt * 1.4 * q && F3.bSpark) { for (var n = 0; n < 4; n++) F3.bSpark(sx, sy, sz, (rnd() - 0.5) * 1.6, 0.6 + rnd() * 1.2, (rnd() - 0.5) * 1.6); }
+    }
+  }
+
   function model(type, fac, color) {
     var M;
     if (NEUT[type]) { var nk = 'N|' + type + (HI() ? '' : '|lo'); M = modelCache[nk]; if (!M) { curKind = 'bld'; M = modelCache[nk] = mirrorModel(buildNeutral(type)); curKind = 'env'; } return M; }
     var key = type + '|' + fac + '|' + color + (LOD[type] && !HI() ? '|lo' : '');   // W10: Detailstufe (Flag hiPoly/V) im Schlüssel
+    if (!modelCache[key] && fac === 'kollektiv' && KB[type]) {   // GB: eigene Kollektiv-Gebäude (nicht gespiegelt, siehe buildKB)
+      curKind = 'bld';
+      try { modelCache[key] = buildKB(type, color); } finally { curKind = 'env'; }
+      modelCache[key].mkey = key;
+    }
     if (!modelCache[key] && K10M[type]) {   // v1.0 Kollektiv-Typen (PLATZHALTER v1.0)
       curKind = D.BUILDINGS[type] ? 'bld' : 'unit';
       try { modelCache[key] = D.BUILDINGS[type] ? mirrorModel(buildK10(type, color)) : buildK10(type, color); } finally { curKind = 'env'; }
@@ -2711,7 +3391,10 @@ var G = (typeof G !== 'undefined') ? G : {};
     if (!modelCache[key]) {
       var bld = !!(D.BUILDINGS[type] || V4B[type] || V5B[type]);
       curKind = bld ? 'bld' : 'unit';
-      try { modelCache[key] = bld ? (type === 'wall' ? buildBuilding(type, fac, color) : mirrorModel(buildBuilding(type, fac, color))) : buildUnit(type, fac, color); } finally { curKind = 'env'; }
+      try {
+        modelCache[key] = bld ? (type === 'wall' ? buildBuilding(type, fac, color) : mirrorModel(buildBuilding(type, fac, color))) : buildUnit(type, fac, color);
+        if (bld && type !== 'wall') { modelCache[key].T0 = teamCols(color); actAttach(modelCache[key], type, fac); }   // GA: Aktivitäts-Teile (Tor, Kran, Lampen)
+      } finally { curKind = 'env'; }
       modelCache[key].mkey = key;   // Zusammenführung: Batch-Schlüssel je Modell (Fraktion/Farbe), nicht nur je Besitzer – sonst behielt eine neue Partie mit anderer Fraktion die alten Modelle
     }
     return modelCache[key];
@@ -3340,11 +4023,11 @@ var G = (typeof G !== 'undefined') ? G : {};
     }
     if (M.parts.radar) partBatch('b', b.type, owner, 'radar', M).put(x + M.radarAt[0], M.radarAt[1] * sy, z + M.radarAt[2], R.t * 1.6 + owner, 1, sy, 1, cr, cg, cb);
     if (M.lit) {   // Fensterlicht / Signallichter (Glühteil): bei Stromausfall gedimmt, erinnerte Gebäude grau
-      var lg = cr === GREY ? 0.3 : (G.Sim.lowPower(owner) ? 0.22 : 1);
+      var lg = litGain(b, M, owner, cr);   // GA: Strommangel flackert, Kraftwerk nach Auslastung, Produzent heller
       partBatch('b', b.type, owner, 'glow', M).put(x, 0, z, 0, 1, sy, 1, lg, lg, lg);
     }
     if (M.parts.wlit) {   // W10: beleuchtete Fenster (v0.4/v0.5-Gebäude): Stromausfall gedimmt, erinnert grau
-      var wg2 = cr === GREY ? 0.3 : (G.Sim.lowPower(owner) ? 0.22 : 1);
+      var wg2 = litGain(b, M, owner, cr);
       partBatch('b', b.type, owner, 'wlit', M).put(x, 0, z, 0, 1, sy, 1, wg2, wg2, wg2);
     }
     if (M.xp && M.xp.length) drawBldV4(b, M, owner, x, z, sy, cr, cr === GREY);
@@ -3361,6 +4044,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     // --- Mauern (Raster + automatische Verbindungen)
     wallPass(S, P, pid, fogOff, alpha, dt, selSet, inView);
     // --- Gebäude
+    actPre(S);   // GA: Produzenten, angedockte Sammler, Landeplätze
     for (i = 0; i < ents.length; i++) {
       e = ents[i];
       if (e.kind !== 'building' || e.dead || e.type === 'wall') continue;
@@ -3386,18 +4070,15 @@ var G = (typeof G !== 'undefined') ? G : {};
       inV5 = inView(x, z);
       drawBuildingInst(e, M, e.owner, x, z, e.tdir || 0, sy, dk, dk, dk);
       if (selSet[e.id]) selSquare.put(x, 0.04, z, 0, e.w * 0.62 + 0.08, 1, e.h * 0.62 + 0.08, 0.6, 1, 0.6);
+      if (M.act) actDraw(e, M, x, z, sy, inV5, dt);   // GA: Produktion, Tor, Kran, Andocken, Auslastung
       if (!inView(x, z)) continue;
-      // Schaden: Rauch/Feuer
-      if (hf < 0.55 && rnd() < dt * (hf < 0.3 ? 14 : 6)) {
-        var sx2 = x + (rnd() - 0.5) * e.w * 0.6, sz2 = z + (rnd() - 0.5) * e.h * 0.6, sh2 = M.h * (0.5 + rnd() * 0.4);
-        emit(1, sx2, sh2, sz2, 0.15, 0.5 + rnd() * 0.3, 0.05, 2 + rnd(), 0.25, 0.9, 0.16, 0.15, 0.14, 0.75, 0.3, 0.3, 0.3, 0, 0, 0.3);
-        if (hf < 0.3) emit(0, sx2, sh2, sz2, 0, 0.6, 0, 0.4, 0.3, 0.08, 1, 0.6, 0.15, 1, 0.9, 0.2, 0.05, 0);
-      }
-      // Kraftwerk-Dampf
-      if (M.steam && age > BUILD && P.pwrProd >= 0) {
-        for (var st = 0; st < M.steam.length; st++) if (rnd() < dt * 5) {
-          var sp = M.steam[st];
-          emit(1, x + sp[0] + (rnd() - 0.5) * 0.2, sp[1], z + sp[2] + (rnd() - 0.5) * 0.2, 0.12 + rnd() * 0.08, 0.5 + rnd() * 0.25, 0.04, 2.6 + rnd(), 0.28, 0.85, 0.93, 0.94, 0.95, 0.55, 0.95, 0.96, 0.97, 0, 0, 0.25);
+      dmgFx(e, M, x, z, hf, dt);   // GA: Schaden – feste Brandstellen (Rauch, Funken, Flammen)
+      // Kraftwerk-Dampf (GA: Menge/Größe nach Auslastung des Besitzers, bei Strommangel stoßweise)
+      if (M.steam && age > BUILD) {
+        var ldS = Pm.pwrProd > 0 ? Math.min(1.25, Pm.pwrUse / Pm.pwrProd) : 0, lowS = Pm.pwrUse > Pm.pwrProd, rS = lowS ? (Math.sin(R.t * 3 + e.id) > 0.3 ? 9 : 0.5) : 1.5 + 5 * ldS;
+        for (var st = 0; st < M.steam.length; st++) if (rnd() < dt * rS * (R.safeGPU ? 0.6 : 1)) {
+          var sp = M.steam[st], sk = 0.75 + 0.4 * ldS;
+          emit(1, x + sp[0] + (rnd() - 0.5) * 0.2, sp[1], z + sp[2] + (rnd() - 0.5) * 0.2, 0.12 + rnd() * 0.08, (0.4 + rnd() * 0.25) * sk, 0.04, 2.2 + rnd() + ldS, 0.24 * sk, 0.8 * sk, 0.93, 0.94, 0.95, 0.55, 0.95, 0.96, 0.97, 0, 0, 0.25);
         }
       }
       if (e.repairing && rnd() < dt * 6) emit(0, x + (rnd() - 0.5) * e.w * 0.7, M.h * (0.4 + rnd() * 0.6), z + (rnd() - 0.5) * e.h * 0.7, 0, 0.8, 0, 0.35, 0.12, 0.04, 0.4, 1, 0.5, 1, 0.1, 0.6, 0.2, 0);
