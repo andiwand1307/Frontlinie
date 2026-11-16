@@ -293,6 +293,32 @@ var G = (typeof G !== 'undefined') ? G : {};
   };
 })();
 
+/* ---- Erfahrung (Rangstufen) – eigener Block; alle Zahlen hier nachstellbar ----
+ * Kampfeinheiten sammeln Erfahrung (e.xp) durch ausgeteilten Schaden: Punkte = Schadensanteil am Ziel × Wert des Ziels (Kosten / 100,
+ * Gebäude × bldWeight). Nicht-Kämpfer (ohne Waffe, Sammler, Ingenieur, Bauhof) steigen nicht auf, Gebäude/Türme auch nicht.
+ * ranks[i]: xp = Schwelle, dmg = Schadensfaktor, hp = Schadensminderung (Treffer / hp), rof = Faktor auf die Nachladezeit (<1 = schneller),
+ * regen = Selbstheilung (Anteil maxHp je Sekunde, nur ohne Gefecht seit regenDelay s). Wirksame Werte liefert G.Sim.mods(e) (sim.js). */
+(function () {
+  'use strict';
+  var D = G.DATA;
+  D.EXP = {
+    ranks: [
+      { id: 'recruit', name: 'Rekrut',   xp: 0,  dmg: 1.0,  hp: 1.0,  rof: 1.0,  regen: 0 },
+      { id: 'vet',     name: 'Veteran',  xp: 8, dmg: 1.1,  hp: 1.1,  rof: 1.0,  regen: 0 },
+      { id: 'elite',   name: 'Elite',    xp: 24, dmg: 1.2,  hp: 1.2,  rof: 1.0,  regen: 0 },
+      { id: 'hero',    name: 'Held',     xp: 55, dmg: 1.3,  hp: 1.3,  rof: 0.9,  regen: 0.008 }
+    ],
+    costDiv: 100,       // Wert des Ziels = Kosten / costDiv
+    bldWeight: 0.5,     // Gebäude als Ziel zählen nur halb
+    regenDelay: 10,     // s ohne Schuss/Treffer, bevor die Selbstheilung (Rang mit regen > 0) einsetzt
+    flashT: 40          // Ticks Aufblitzen des Abzeichens nach einem Aufstieg (nur Darstellung)
+  };
+  /** Rang (0..3) zu Erfahrungspunkten. */
+  D.expRank = function (xp) { var r = D.EXP.ranks, i = r.length - 1; while (i > 0 && xp < r[i].xp) i--; return i; };
+  /** Kann diese Einheit (Werte aus unitStats) Erfahrung sammeln? */
+  D.expEligible = function (st) { return !!(st && st.weapon && !st.harvester && !st.engineer && !st.mcv && !st.weapon.psi); };
+})();
+
 /* ---- v0.8 (SPEC_v08): Luftwaffe & Marine – eigener Block, damit Zusammenführungen mit parallelen Änderungen sauber bleiben ----
  * Neue Bewegungsklassen: 'air' (fliegt geradlinig, ignoriert Gelände/Gebäude) und 'naval' (nur Wasser + unter Brücken).
  * Neue Panzerung 'air' (Luftfahrzeuge in der Luft); nur Waffen mit antiAir:true treffen fliegende Ziele, airOnly:true trifft nur Luftziele.

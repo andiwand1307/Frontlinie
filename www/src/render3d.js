@@ -1202,6 +1202,21 @@ var G = (typeof G !== 'undefined') ? G : {};
     octx.fillStyle = frac > 0.6 ? '#22c55e' : (frac > 0.3 ? '#facc15' : '#ef4444');
     octx.fillRect(x, y, Math.max(1, Math.round(w * frac)), h);
   }
+  /** Erfahrung: Rangabzeichen (1–3 Winkel). Mit Lebensbalken links daneben, sonst dezent über der Einheit; fl (0..1) = Aufblitzen nach Aufstieg. */
+  function rankBadge(cx, cy, w, rank, bar, fl) {
+    var s = 1.25 + 0.5 * fl, x = bar ? Math.round(cx - w / 2) - 8 : cx, y = bar ? cy + 2.5 : cy - 4, i,
+        col = rank >= 3 ? '#ffd23f' : (rank === 2 ? '#fbbf24' : '#e5e7eb');
+    if (fl > 0) { octx.beginPath(); octx.arc(x, y, 7 + 7 * fl, 0, 6.2832); octx.fillStyle = 'rgba(255,255,255,' + (0.55 * fl).toFixed(2) + ')'; octx.fill(); }
+    octx.save(); octx.globalAlpha = bar || fl > 0 ? 1 : 0.8; octx.lineCap = 'round'; octx.lineJoin = 'round';
+    for (var pass = 0; pass < 2; pass++) {
+      octx.lineWidth = pass ? 2 : 4.2; octx.strokeStyle = pass ? col : 'rgba(0,0,0,0.85)';
+      for (i = 0; i < rank; i++) {
+        var yy = y + (i - (rank - 1) / 2) * 3.6 * s;
+        octx.beginPath(); octx.moveTo(x - 4.5 * s, yy + 2 * s); octx.lineTo(x, yy - 1.6 * s); octx.lineTo(x + 4.5 * s, yy + 2 * s); octx.stroke();
+      }
+    }
+    octx.restore();
+  }
   var ovP = { x: 0, y: 0 }, ovQ = { x: 0, y: 0 };
   function groundArc(cx, cy, rx, ry, a0, a1) { octx.beginPath(); octx.ellipse(cx, cy, rx, ry, 0, a0, a1); octx.stroke(); }
   /** Eroberungsring (capT in capBy-Farbe), Artillerie-Ladering, Besatzungs-Pips (gar.length / cap) als scharfe 2D-Überlagerung. */
@@ -1312,14 +1327,17 @@ var G = (typeof G !== 'undefined') ? G : {};
     // Lebensbalken: ausgewählte oder beschädigte
     for (i = 0; i < ents.length; i++) {
       e = ents[i];
-      if (e.dead || e.inside || e.ruin || !(e.maxHp > 0) || (e.hp >= e.maxHp && !selSet[e.id])) continue;
+      var noBar = e.hp >= e.maxHp && !selSet[e.id];   // Erfahrung: Rangabzeichen auch ohne Lebensbalken
+      if (e.dead || e.inside || e.ruin || !(e.maxHp > 0) || (noBar && !(e.rk > 0))) continue;
       if (e.owner !== pid && !fogOff && !G.Sim.isVisible(pid, e)) continue;
       if (e.kind === 'unit') {
         var ux = (e.px + (e.x - e.px) * alpha) / TILE, uz = (e.py + (e.y - e.py) * alpha) / TILE;
         var M = unitModelOf(e), s = SCALE[e.type] || 1;
         project(ux, groundAt(ux, uz) + M.h * s + 0.12 + airH(e), uz, pp);
         if (pp.x < -40 || pp.y < -20 || pp.x > V.vw + 40 || pp.y > V.vh + 20) continue;
-        hpBar(pp.x, pp.y - 6, Math.round(clamp(e.r * 2 * V.ppx() * 0.95, 20, 44)), e.hp / e.maxHp);
+        var bw0 = Math.round(clamp(e.r * 2 * V.ppx() * 0.95, 20, 44));
+        if (!noBar) hpBar(pp.x, pp.y - 6, bw0, e.hp / e.maxHp);
+        if (e.rk > 0) rankBadge(pp.x, pp.y - 6, bw0, e.rk, !noBar, Math.max(0, 1 - (S.tick - (e.rankT || -999)) / G.DATA.EXP.flashT));
       } else {
         var bx = e.x / TILE, bz = e.y / TILE;
         // Oberkante des Gebäudes in Bildschirm-oben-Richtung (v0.7: FWD statt fest Norden)

@@ -3079,6 +3079,21 @@ var G = (typeof G !== 'undefined') ? G : {};
     ctx.fillStyle = frac > 0.6 ? '#22c55e' : (frac > 0.3 ? '#facc15' : '#ef4444');
     ctx.fillRect(x, y, Math.max(1, Math.round(w * frac)), h);
   }
+  /** Erfahrung: Rangabzeichen (1–3 Winkel). Mit Lebensbalken links daneben, sonst dezent über der Einheit; fl (0..1) = Aufblitzen nach Aufstieg. */
+  function rankBadge(cx, cy, w, rank, bar, fl) {
+    var s = 1.25 + 0.5 * fl, x = bar ? Math.round(cx - w / 2) - 8 : cx, y = bar ? cy + 2.5 : cy - 4, i,
+        col = rank >= 3 ? '#ffd23f' : (rank === 2 ? '#fbbf24' : '#e5e7eb');
+    if (fl > 0) { ctx.beginPath(); ctx.arc(x, y, 7 + 7 * fl, 0, 6.2832); ctx.fillStyle = 'rgba(255,255,255,' + (0.55 * fl).toFixed(2) + ')'; ctx.fill(); }
+    ctx.save(); ctx.globalAlpha = bar || fl > 0 ? 1 : 0.8; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    for (var pass = 0; pass < 2; pass++) {
+      ctx.lineWidth = pass ? 2 : 4.2; ctx.strokeStyle = pass ? col : 'rgba(0,0,0,0.85)';
+      for (i = 0; i < rank; i++) {
+        var yy = y + (i - (rank - 1) / 2) * 3.6 * s;
+        ctx.beginPath(); ctx.moveTo(x - 4.5 * s, yy + 2 * s); ctx.lineTo(x, yy - 1.6 * s); ctx.lineTo(x + 4.5 * s, yy + 2 * s); ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
   function arcRing(X, Y, rw, rh, a0, a1, lw, col) {
     ctx.lineWidth = lw; ctx.strokeStyle = col; ctx.beginPath(); ctx.ellipse(X, Y, rw, rh, 0, a0, a1); ctx.stroke();
   }
@@ -3145,14 +3160,16 @@ var G = (typeof G !== 'undefined') ? G : {};
     for (i = 0; i < ents.length; i++) {
       e = ents[i];
       if (e.dead || e.inside || e.ruin || !(e.maxHp > 0)) continue;
-      var isSel = selSet[e.id];
-      if (e.hp >= e.maxHp && !isSel) continue;
+      var isSel = selSet[e.id], noBar = e.hp >= e.maxHp && !isSel;   // Erfahrung: Rangabzeichen auch ohne Lebensbalken
+      if (noBar && !(e.rk > 0)) continue;
       if (e.owner !== pid && !fogOff && !G.Sim.isVisible(pid, e)) continue;
       if (e.kind === 'unit') {
         var ux = e.px + (e.x - e.px) * alpha, uy = e.py + (e.y - e.py) * alpha, X = PX(ux, uy), Y = PY(ux, uy) - unitLiftPx(e) - 5;
         if (X < -40 || Y < -20 || X > VW + 40 || Y > VH + 40) continue;
-        hpBar(X, Y, Math.round(clamp(e.r * 2 * kx * 0.95, 20, 44)), e.hp / e.maxHp);
-        if (e.type === 'apc' || (e.gar && e.cap)) apcPips(e, X, Y - 4);   // v0.8: alle Transporter
+        var bw0 = Math.round(clamp(e.r * 2 * kx * 0.95, 20, 44));
+        if (!noBar) hpBar(X, Y, bw0, e.hp / e.maxHp);
+        if (e.rk > 0) rankBadge(X, Y, bw0, e.rk, !noBar, Math.max(0, 1 - (S.tick - (e.rankT || -999)) / G.DATA.EXP.flashT));
+        if (!noBar && (e.type === 'apc' || (e.gar && e.cap))) apcPips(e, X, Y - 4);   // v0.8: alle Transporter
       } else {
         var hg = bHeight(e.type), X2, Y2, bw = Math.round(clamp(e.w * TILE * kx * 0.75, 24, 120));
         bgeom(e); X2 = GCX; Y2 = GCY - GH / 2 - hg - 9;

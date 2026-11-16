@@ -24,6 +24,9 @@
  * GEBÄUDE { id, kind:'building', type, owner, tx, ty, w, h, x, y (Mitte px), hp, maxHp, placedT,
  *           rx, ry (Sammelpunkt px, -1 = keiner), repairing, tdir, tgt, fireT, dead }
  *
+ * ERFAHRUNG (Rangstufen, Abschnitt „Erfahrung“ vor damage()): EINHEIT zusätzlich xp (Punkte), rk (Rang 0..3), rankT (Tick des letzten Aufstiegs);
+ *   Ereignis rankup {id, owner, rank}. Tabelle D.EXP (data.js); wirksame Werte zentral über G.Sim.mods(e) (dmg/hp/rof/regen).
+ *
  * v0.3 (SPEC_v03, additiv):
  *   GEBÄUDE zusätzlich: neutral (bool; Kartengebäude aus map.structures, Startbesitzer −1),
  *           gar (Insassen-IDs), cap, ruin, capT (0..1), capBy (pid|-1), charge (0..1, nur artillery)
@@ -205,6 +208,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       if (P.st.captures == null) P.st.captures = 0;
       if (P.st.oil == null) P.st.oil = 0;
       if (P.st.walls == null) { P.st.walls = 0; P.st.deploys = 0; }   // v0.5
+      if (P.st.heroes == null) P.st.heroes = 0;   // Erfahrung: Anzahl Beförderungen zum höchsten Rang
       // v0.8: eigene Verteidigungs-Warteschlange; Altstände: Verteidigungseinträge aus q.building umziehen
       if (!P.q.defense) {
         P.q.defense = [];
@@ -221,6 +225,7 @@ var G = (typeof G !== 'undefined') ? G : {};
         if (e.inside == null) { e.inside = 0; e.enterId = 0; e.ftgt = 0; e.fleeT = -9999; e.lastAtkT = -9999; e.retal = 0; }
         if (e.setup == null) { e.setup = 0; e.barrel = 0; }
         if (e.breach == null) e.breach = 0;   // v0.5
+        if (e.xp == null) { e.xp = 0; e.rk = 0; }   // Erfahrung: Altstände ohne Feld → Rekrut
         if (e.salvoN == null) { e.salvoN = 0; e.salvoI = 0; e.salvoT0 = 0; e.salvoX = 0; e.salvoY = 0; e.salvoTid = 0; e.htgt = 0; e.healT = -100; e.follow = 0; e.loadId = 0; }   // v0.7
         if (!e.fac) e.fac = S.players[e.owner].faction;   // v1.0
         var ust0 = D.unitStats(e.fac, e.type);
@@ -291,7 +296,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       hp: st.hp, maxHp: st.hp, r: st.radius, dir: Math.PI / 2, tdir: Math.PI / 2, mc: D.MOVE_CLASS[st.move] || 0,
       ord: 'idle', tgt: 0, gx: x, gy: y, hx: x, hy: y, path: null, pi: 0, pp: false, pend: 1,
       moving: false, cd: 0, fireT: -100, scanT: 0, stuck: 0, lastX: x, lastY: y, repathT: -1, giveUp: 0,
-      cargo: 0, hs: '', oreT: -1, refId: 0, kills: 0, lastAtk: 0, dead: false, chase: false, amx: null, amy: null, mineT: 0,
+      cargo: 0, hs: '', oreT: -1, refId: 0, kills: 0, xp: 0, rk: 0, lastAtk: 0, dead: false, chase: false, amx: null, amy: null, mineT: 0,
       inside: 0, enterId: 0, ftgt: 0, fleeT: -9999, lastAtkT: -9999, retal: 0, setup: 0, barrel: 0, breach: 0,
       // v0.7
       salvoN: 0, salvoI: 0, salvoT0: 0, salvoX: 0, salvoY: 0, salvoTid: 0, htgt: 0, healT: -100, follow: 0, loadId: 0
@@ -1177,7 +1182,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       if (!t && (S.tick + u.id) % 5 === 0) { t = findTarget(u, b.x, b.y, rangePx, w.type); if (t) u.tgt = t.id; }
       if (t && u.cd <= 0) {
         fire(b, t, w); b.tgt = t.id;
-        u.cd = reloadT(w);
+        u.cd = reloadT(w, u);
       }
     }
     if (!b.gar.length && !d.garrisonOwn) { b.owner = -1; b.tgt = 0; }
@@ -1334,12 +1339,44 @@ var G = (typeof G !== 'undefined') ? G : {};
     return true;
   }
 
+  // ------------------------------------------------------------------ Erfahrung (Rangstufen; Tabelle: D.EXP in data.js)
+  var MODS = { dmg: 1, hp: 1, rof: 1, regen: 0 };
+  /** ZENTRALE STELLE für wirksame Einheitenwerte: Schadensfaktor (dmg), Schadensminderung (hp: Treffer / hp), Nachladefaktor (rof, <1 = schneller),
+   *  Selbstheilung (regen, Anteil maxHp/s). Gilt für Einheiten beider Seiten; Gebäude und Rekruten → neutrale Werte.
+   *  Spätere Systeme (Forschung, Fähigkeiten) hier weitere Faktoren aufmultiplizieren. Gibt ein wiederverwendetes Objekt zurück: sofort auslesen. */
+  function mods(e) {
+    var r = D.EXP.ranks[e.rk || 0] || D.EXP.ranks[0];
+    MODS.dmg = r.dmg; MODS.hp = r.hp; MODS.rof = r.rof; MODS.regen = r.regen;
+    return MODS;
+  }
+  /** src hat dealt Lebenspunkte Schaden an t verursacht → Erfahrung nach Wert des Ziels (Schadensanteil × Kosten / costDiv). */
+  function expGain(src, t, dealt) {
+    var E = D.EXP;
+    if (!(dealt > 0) || !(t.maxHp > 0) || src.rk == null || !D.expEligible(ust(src))) return;
+    var val = t.kind === 'unit' ? (ust(t).cost || 0) : (isWall(t) ? 0 : (D.BUILDINGS[t.type].cost || 0) * E.bldWeight);
+    if (!(val > 0)) return;
+    src.xp = (src.xp || 0) + dealt / t.maxHp * val / E.costDiv;
+    var r = D.expRank(src.xp);
+    if (r > (src.rk || 0)) { src.rk = r; src.rankT = S.tick; if (r === E.ranks.length - 1) S.players[src.owner].st.heroes++; emit('rankup', src.x, src.y, { id: src.id, owner: src.owner, rank: r }); }
+  }
+  /** Selbstheilung (Rang mit regen > 0) außerhalb des Gefechts. */
+  function expRegen(e) {
+    if (!e.rk || e.hp >= e.maxHp || e.hp <= 0) return;
+    var rg = mods(e).regen;
+    if (rg > 0 && S.tick - Math.max(e.fireT, e.lastAtkT || -9999) > D.EXP.regenDelay * HZ) e.hp = Math.min(e.maxHp, e.hp + rg * e.maxHp / HZ);
+  }
+
   // ------------------------------------------------------------------ Schaden / Tod
   function damage(t, amount, src) {
     if (t.dead || t.inside || t.owner < 0) return;
     if (t.neutral && (t.ruin || D.BUILDINGS[t.type].invuln)) return;
     if (src && !(src.owner >= 0)) src = null;
+    var xpSrc = src && src.kind === 'unit' && src.owner !== t.owner ? src : null;   // Erfahrung: nur Einheiten, nur gegen Feinde
+    if (xpSrc) amount *= mods(xpSrc).dmg;
+    if (t.kind === 'unit') amount /= mods(t).hp;
+    var hp0 = t.hp;
     t.hp -= amount;
+    if (xpSrc) expGain(xpSrc, t, Math.min(amount, hp0));
     var P = S.players[t.owner];
     if (src && src.owner !== t.owner) {
       if (S.tick - P.alert.tick > 20 || (t.kind === 'building') || t.type === 'harvester') {
@@ -1772,6 +1809,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     var st = ust(e);
     e.px = e.x; e.py = e.y;
     if (e.cd > 0) e.cd--;
+    expRegen(e);                                                                 // Erfahrung: Selbstheilung (Held)
     if (e.magT > S.tick && tickHeld(e)) return;                                  // v1.0: vom Magnet-Werfer festgehalten
     if (e.mcList && e.mcList.length && tickPsiCtl(e, st)) return;               // v1.0: Gedankenkontrolle (Überlastung)
     if (e.spin > 0 && S.tick - e.fireT > 20) e.spin = Math.max(0, e.spin - 0.025);   // v1.0 Gatling kühlt ab
@@ -1906,7 +1944,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     }
   }
   function minPx(st) { return st.weapon && st.weapon.minRange ? st.weapon.minRange * TILE : 0; }
-  function reloadT(w, e) { var rof = w.spin && e ? w.rof + (w.spin.min - w.rof) * (e.spin || 0) : w.rof; return Math.round(rof * HZ / (w.barrels || 1)); }   // v1.0: Gatling-Hochdrehen
+  function reloadT(w, e) { var rof = w.spin && e ? w.rof + (w.spin.min - w.rof) * (e.spin || 0) : w.rof; if (e && e.kind === 'unit') rof *= mods(e).rof; return Math.round(rof * HZ / (w.barrels || 1)); }   // v1.0: Gatling-Hochdrehen
   function dist2(ax, ay, bx, by) { return (ax - bx) * (ax - bx) + (ay - by) * (ay - by); }
 
   // ------------------------------------------------------------------ Sammler
@@ -2439,7 +2477,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     var t = e.atgt ? byId.get(e.atgt) : null;
     if (t && (!hostile(e.owner, t) || !airborne(t) || distTo(t, e.x, e.y) > R || !isVisible(e.owner, t))) { t = null; e.atgt = 0; }
     if (!t && (S.tick + e.id) % 5 === 0) { t = findTarget(e, e.x, e.y, R, w.type, 0, w); e.atgt = t ? t.id : 0; }
-    if (t && !(e.cd2 > 0)) { fire(e, t, w); e.cd2 = reloadT(w); }
+    if (t && !(e.cd2 > 0)) { fire(e, t, w); e.cd2 = reloadT(w, e); }
   }
   function salvoAA(e, wpn, t) {
     var idx = e.salvoI, dd = Math.sqrt(dist2(t.x, t.y, e.x, e.y));
@@ -2719,7 +2757,7 @@ var G = (typeof G !== 'undefined') ? G : {};
 
   G.Sim = {
     S: null, create: create, step: step, setState: setState, rebuild: rebuild,
-    get: get, statsOf: statsOf, unitStats: function (pid, type) { return stats[pid][type]; },
+    get: get, statsOf: statsOf, mods: mods, unitStats: function (pid, type) { return stats[pid][type]; },
     isVisible: isVisible, distTo: distTo, entityAt: entityAt, unitsInRect: unitsInRect,
     canPlace: canPlace, canProduce: canProduce, hasBuilding: hasBuilding, countOf: countOf,
     costOf: costOf, timeOf: timeOf, lowPower: lowPower, producerOf: producerOf, tileOf: tileOf,

@@ -684,6 +684,7 @@ var MUSIC_DATA = {
       case 'spawn':
         if (ev.owner === me) say('unitReady');
         break;
+      case 'rankup': if (ev.owner === me) sfxAt('ready', ev.x, ev.y, 400, 0.6, 0.05); break;   // Erfahrung: Aufstieg
       case 'sell': if (ev.owner === me) sfxAt('sell', ev.x, ev.y, 120, 0.8, 0, 0.5); break;
       case 'enter': sfxAt('enter', ev.x, ev.y, 80, 0.8, 0.1); if (ev.capture && ev.owner === me) { /* Erobern meldet capture */ } break;
       case 'capture':

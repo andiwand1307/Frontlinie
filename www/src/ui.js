@@ -483,6 +483,19 @@ var G = (typeof G !== 'undefined') ? G : {};
     }
     return h;
   }
+  /** Erfahrung: Rang und Fortschritt (eine Einheit) bzw. Rangübersicht (mehrere) der Auswahl; leer bei Nicht-Kämpfern. */
+  function rankText(units) {
+    var R = D.EXP.ranks, cnt = [0, 0, 0, 0], n = 0, last = null;
+    units.forEach(function (u) { if (D.expEligible(G.Sim.statsOf(u))) { cnt[u.rk || 0]++; n++; last = u; } });
+    if (!n) return '';
+    if (n === 1) {
+      var r = last.rk || 0, nx = R[r + 1];
+      return R[r].name + (nx ? ' · Erfahrung ' + Math.floor(last.xp || 0) + ' / ' + nx.xp : ' · höchster Rang');
+    }
+    var parts = [];
+    for (var i = R.length - 1; i > 0; i--) if (cnt[i]) parts.push(cnt[i] + '× ' + R[i].name);
+    return parts.length ? parts.join(', ') : '';
+  }
   function refreshContext(force) {
     var sel = V.mySel(), box = $('selinfo'), bar = $('cmdbar');
     var units = sel.filter(function (e) { return e.kind === 'unit'; });
@@ -515,7 +528,7 @@ var G = (typeof G !== 'undefined') ? G : {};
         hs = '<div class="chips">' + order.map(function (t) {
           return '<button class="chip" data-act="narrow" data-type="' + t + '" aria-label="' + esc(uName(t)) + ' (' + counts[t] + ')"><canvas width="76" height="56"></canvas><span>' + counts[t] + '</span></button>';
         }).join('') + (order.length === 1 ? '<span class="nmx">' + esc(uName(order[0])) + '</span>' : '<span class="nmx"></span>') + '<button class="x chip" data-act="desel" aria-label="Abwählen">' + ic('close') + '</button></div>';
-        hs += '<div class="bar"><div data-dyn="hp"></div></div>';
+        hs += '<div class="bar"><div data-dyn="hp"></div></div><div class="help" data-dyn="rank" style="display:none"></div>';   // Erfahrung: Rang/Fortschritt
         var onlyMcv = order.length === 1 && order[0] === 'mcv';
         hb = '<div class="row">' + (counts.mcv ? cb('deploy', 'building', 'Aufbauen', 'D', 'go') : '') + (pas > 0 ? cb('unload', 'exit', 'Aussteigen (' + pas + ')', 'E', 'go') : '') + cb('stop', 'stop', 'Stopp', 'S') + (onlyMcv ? '' : cb('am', 'attack', 'Angriff', 'A')) + (onlyMcv ? '' : cb('box', 'frame', 'Rahmen') + cb('add', 'plus', '', '', '', null, ' aria-label="Zur Auswahl hinzufügen"')) + groupBtns() + '</div>';
         if (counts.rifle || counts.rocket) { /* Hinweis nur im Panel */ }
@@ -566,6 +579,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     } else if (units.length) {
       var tot = 0, mx = 0; units.forEach(function (u) { tot += u.hp; mx += u.maxHp; });
       var hp2 = box.querySelector('[data-dyn="hp"]'); if (hp2) hp2.style.width = (tot / mx * 100) + '%';
+      var rk2 = box.querySelector('[data-dyn="rank"]'); if (rk2) { var rt2 = rankText(units); rk2.textContent = rt2; rk2.style.display = rt2 ? '' : 'none'; }
       var q = function (a) { return bar.querySelector('[data-act="' + a + '"]'); };
       if (q('am')) q('am').classList.toggle('on', V.amArmed);
       if (q('add')) q('add').classList.toggle('on', V.addMode);
@@ -1182,7 +1196,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     var S = G.Sim.S, me = S.players[V.pid], en = S.players[1 - V.pid];
     var win = S.winner === V.pid;
     var rows = [['Einheiten gebaut', 'unitsBuilt'], ['Einheiten verloren', 'unitsLost'], ['Gebäude gebaut', 'buildingsBuilt'],
-      ['Gebäude verloren', 'buildingsLost'], ['Abschüsse', 'kills'], ['Erz gesammelt', 'ore'], ['Gebäude erobert', 'captures']];
+      ['Gebäude verloren', 'buildingsLost'], ['Abschüsse', 'kills'], ['Helden befördert', 'heroes'], ['Erz gesammelt', 'ore'], ['Gebäude erobert', 'captures']];
     var h = '<div class="card panel"><div class="banner ' + (win ? 'win' : 'lose') + '"><h1>' + (win ? 'SIEG!' : 'NIEDERLAGE') + '</h1></div>';
     h += '<div class="sub">Dauer ' + fmtTime(S.tick) + '</div><table class="stats"><tr><th></th><th>Du</th><th>Gegner</th></tr>';
     rows.forEach(function (r) { if (me.st[r[1]] == null) return; h += '<tr><td>' + r[0] + '</td><td>' + fmtNum(me.st[r[1]]) + '</td><td>' + fmtNum(en.st[r[1]] || 0) + '</td></tr>'; });
