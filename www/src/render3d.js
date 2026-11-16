@@ -26,6 +26,11 @@
  *   eingebacken); Wracks und erinnerte Gebäude nutzen dieselben Meshes mit dunkler/grauer Instanzfarbe.
  *   Statisches (Bäume, Felsbrocken, Erz, Brücken) ist instanziert bzw. zusammengeführt. Keine Allokation pro Frame.
  * Nebel des Krieges: kleine DataTexture (Kartengröße, linear gefiltert) – per onBeforeCompile in alle Lambert-Materialien.
+ * Grafik-Anhebung „Android“ (Markierungen A1–A3 hier, B1/C1 in r3-terrain.js) – alles ohne zusätzlichen Durchgang/Render-Target:
+ *   A1 Bildschärfe: FXAA-Abschluss mit weniger Subpixel-Weichzeichnung + begrenztem Nachschärfen im selben Durchgang (MODERN_LOOK.sharp).
+ *   A2 Lichtstimmung: wärmere Sonne, kühleres/stärkeres Himmelslicht, Schatten 0.84, AO 0.65, Kontrast/Vignette, weniger Bildrand-Dunst;
+ *      klassische Stufen: etwas mehr Richtungskontrast.
+ *   A3 Kartenrand: SH.uEdge dunkelt die äußerste Kachelreihe ab (in fowify + Wasser), davor liegt das Vorland aus r3-terrain.js (buildApron).
  */
 var G = (typeof G !== 'undefined') ? G : {};
 (function () {
@@ -200,21 +205,22 @@ var G = (typeof G !== 'undefined') ? G : {};
       if (hasPrev) prev.call(mat, sh, rr);
       sh.uniforms.uFow = SH.uFow; sh.uniforms.uFowScale = SH.uFowScale; sh.uniforms.uFowOn = SH.uFowOn;
       sh.uniforms.uHazeCol = SH.uHazeCol; sh.uniforms.uHaze = SH.uHaze;
-      sh.uniforms.uGrade = SH.uGrade; sh.uniforms.uWarm = SH.uWarm; sh.uniforms.uLift = SH.uLift; sh.uniforms.uRes = SH.uRes;   // W11-look
+      sh.uniforms.uEdge = SH.uEdge; sh.uniforms.uGrade = SH.uGrade; sh.uniforms.uWarm = SH.uWarm; sh.uniforms.uLift = SH.uLift; sh.uniforms.uRes = SH.uRes;   // W11-look
       sh.vertexShader = 'varying vec3 vFowW;\n' + sh.vertexShader.replace('#include <project_vertex>',
         '#include <project_vertex>\n  vec4 fwp = vec4(transformed, 1.0);\n#ifdef USE_INSTANCING\n  fwp = instanceMatrix * fwp;\n#endif\n' +
         '  fwp = modelMatrix * fwp;\n  vFowW = vec3(fwp.xz, -mvPosition.z);');
-      sh.fragmentShader = 'uniform sampler2D uFow; uniform vec2 uFowScale; uniform float uFowOn; uniform vec3 uHazeCol; uniform vec3 uHaze; varying vec3 vFowW;\n' +
+      sh.fragmentShader = 'uniform sampler2D uFow; uniform vec2 uFowScale; uniform float uFowOn; uniform vec3 uHazeCol; uniform vec3 uHaze; uniform vec2 uEdge; varying vec3 vFowW;\n' +
         'uniform vec4 uGrade; uniform vec3 uWarm; uniform vec3 uLift; uniform vec2 uRes;\n' +   // W11-look: Farbabstimmung (nur ohne Nachbearbeitung aktiv)
         sh.fragmentShader.replace('#include <tonemapping_fragment>',
           '#include <tonemapping_fragment>\n  if (uGrade.x > 0.5) { vec3 gc = gl_FragColor.rgb; float gl = dot(gc, vec3(0.2126, 0.7152, 0.0722)); gc = mix(vec3(gl), gc, uGrade.y);' +
           ' gc = clamp((gc - 0.5) * uGrade.z + 0.5, 0.0, 1.0); vec2 vq = gl_FragCoord.xy * uRes - 0.5; gc *= 1.0 - uGrade.w * dot(vq, vq) * 2.0; gl_FragColor.rgb = gc; }')
         .replace('#include <opaque_fragment>',
-          '  float fowV = mix(1.0, texture2D(uFow, vFowW.xy * uFowScale).r, uFowOn);\n' +
+          '  vec2 fowUV = vFowW.xy * uFowScale; float fowV = mix(1.0, texture2D(uFow, fowUV).r, uFowOn);\n' +
+          '  vec2 edQ = min(fowUV, 1.0 - fowUV) / uFowScale; fowV *= clamp(min(edQ.x, edQ.y) * uEdge.x + uEdge.y, 0.0, 1.0);\n' +   // A3: Kartenrand läuft weich ins Dunkle aus
           '  float hz = clamp((vFowW.z - uHaze.x) / (uHaze.y - uHaze.x), 0.0, 1.0) * uHaze.z * uFowOn;\n' +
           '  outgoingLight = mix(outgoingLight, uHazeCol, hz) * fowV;\n  if (uGrade.x > 0.5) outgoingLight = outgoingLight * uWarm + uLift;\n#include <opaque_fragment>');
     };
-    mat.customProgramCacheKey = function () { return 'fow2' + mat.type + (hasPrev && prevKey ? prevKey.call(mat) : ''); };
+    mat.customProgramCacheKey = function () { return 'fow3' + mat.type + (hasPrev && prevKey ? prevKey.call(mat) : ''); };
     return mat;
   }
 
@@ -275,18 +281,22 @@ var G = (typeof G !== 'undefined') ? G : {};
   // Stimmung (zentral einstellbar): Sonne warm, Himmel kühl, Umgebung (PMREM aus prozeduralem Himmel) für weiches Umgebungslicht + Reflexe.
   var MODERN_LOOK = {
     tone: null, exposure: 1.0,                    // tone wird in applyLook gesetzt (THREE erst dann sicher da)
-    sun: '#ffdcae', sunI: 3.6, hemiSky: '#bcd4ff', hemiGround: '#5a5038', hemiI: 0.32, envI: 0.55,
+    // A2 (Lichtstimmung): Sonne wärmer + etwas kräftiger, Himmelslicht kühler und stärker → warme Lichtseiten, bläuliche Schatten
+    // (vorher sun '#ffdcae' 3.6, Schatten 0.92, hemiSky '#bcd4ff' 0.32, envI 0.55)
+    sun: '#ffd9a8', sunI: 3.8, hemiSky: '#a6c6ff', hemiGround: '#5a5038', hemiI: 0.6, envI: 0.5,
     hemiNoEnv: 1.15, hemiSkyNoEnv: '#c4d6f2',     // v0.8: Ersatz, wenn das Umgebungslicht (Flag env) aus ist
     sunDir: [-0.62, 0.68, -0.4],                  // tiefer als Pixel-Look → längere, weiche Schatten. W11: Wert gilt für die alte Diagonale (YAW = π/4);
                                                   // benutzt wird G.view.lightDir(sunDir) → dreht mit der Kamera (gleiche Lichtseite am Bildschirm)
-    shadowRadius: 2.6, shadowIntensity: 0.92,
+    shadowRadius: 2.6, shadowIntensity: 0.84,
     bloom: { strength: 0.5, radius: 0.4, threshold: 2.6, mips: 3 },   // v10: 1.08 → 2.6 – helle Flächen (Mauern, Beton, Dächer: Sonne ≈ 1.1–2.4 HDR) glühten wie Neon; nur echte Leuchtteile/FX (> 2.6 HDR) blühen
-    ao: { radius: 1.3, thickness: 1.6, distanceExponent: 1.3, scale: 2.4, samples: 8, intensity: 1.0 },
-    grade: { sat: 1.0, contrast: 1.07, lift: [0.004, 0.006, 0.014], warm: [1.04, 0.985, 0.95], vignette: 0.16 },
+    ao: { radius: 1.3, thickness: 1.6, distanceExponent: 1.3, scale: 2.4, samples: 8, intensity: 0.65 },   // A2: 1.0 → 0.65 – die Verdeckung legte sich als breiter grauer Hof um Bäume/Gebäude und machte Wald schwarz
+    grade: { sat: 1.0, contrast: 1.1, lift: [0.004, 0.007, 0.018], warm: [1.04, 0.985, 0.95], vignette: 0.22 },   // A2: Kontrast 1.07 → 1.1, Vignette 0.16 → 0.22
+    sharp: { base: 0.4, perScale: 1.2 },          // A1: Nachschärfen im FXAA-Durchgang; + perScale · (1 − dynamische Skalierung)
     // W11-look: ohne Nachbearbeitung (PowerVR „M-U“) mit Flag liteLook: Farbabstimmung im Material (grade oben) + Lichtfaktoren als Ersatz
     // für die fehlende Umgebungsverdeckung (AO dunkelt im Modern-Bild Flächen im Mittel ab) – abgestimmt mit tests/look-w11.js
-    lite: { sunK: 1.0, hemiK: 0.9, envK: 0.9, exposure: 0.93, con: 1.07, sat: 1.0 }
+    lite: { sunK: 1.0, hemiK: 0.9, envK: 0.9, exposure: 0.93, con: 1.1, sat: 1.0 }
   };
+  var EDGE_DIM = [0.6, 0.46];             // A3: Helligkeit am Kartenrand 0.46 → voll nach 0.9 Kacheln (gleiche Werte im Rand-Vorland, r3-terrain.js)
   var pipe = null;                        // Nachbearbeitungs-Kette (nur Modern, nicht Lite)
   var dyn = { scale: 1, slowT: 0, fastT: 0, lock: false, avg: 16 };   // dynamische Render-Skalierung
   var envRT = null;
@@ -311,8 +321,10 @@ var G = (typeof G !== 'undefined') ? G : {};
       scene.background = new THREE.Color('#0b0f14');
       liteGrade();
     } else {
-      sun.color.set('#fff3dc'); sun.intensity = 2.6;
-      hemi.color.set('#dbe8ff'); hemi.groundColor.set('#5b5a3c'); hemi.intensity = 1.35;
+      // A2: auch die klassischen Stufen (Pixel/Scharf/Spar) bekommen etwas mehr Richtungskontrast – Sonne wärmer/kräftiger, Himmelslicht kühler/schwächer
+      // (vorher Sonne '#fff3dc' 2.6, Himmel '#dbe8ff' 1.35); kostet nichts
+      sun.color.set('#ffe8c6'); sun.intensity = 2.95;
+      hemi.color.set('#cddfff'); hemi.groundColor.set('#5b5a3c'); hemi.intensity = 1.18;
       sun.shadow.radius = 1; sun.shadow.intensity = 1; sun.shadow.bias = -0.0006; sun.shadow.normalBias = 0.02;
       scene.environment = null;
       if (envRT) { envRT.dispose(); envRT = null; }
@@ -363,7 +375,7 @@ var G = (typeof G !== 'undefined') ? G : {};
   }
 
   /** Nachbearbeitung: Szene (HDR, HalfFloat + Tiefentextur) → Bloom (halbe Aufl., 3 Mips, nur Werte > Schwelle) →
-   *  GTAO (halbe Aufl., Normalen aus Tiefe, 8 Abtastungen + Entrauschen) → Abschluss (AO, Farbkorrektur, ACES, sRGB) → FXAA. */
+   *  GTAO (halbe Aufl., Normalen aus Tiefe, 8 Abtastungen + Entrauschen) → Abschluss (AO, Farbkorrektur, ACES, sRGB) → FXAA + Nachschärfen (A1, ein Durchgang). */
   function makePipe() {
     var L = MODERN_LOOK, w = Math.max(2, bufW), h = Math.max(2, bufH);
     var dt = new THREE.DepthTexture(w, h); dt.type = THREE.UnsignedIntType;
@@ -407,7 +419,25 @@ var G = (typeof G !== 'undefined') ? G : {};
         '}'].join('\n')
     });
     var fq = new THREE.FullScreenQuad(fin);
-    var fx = new THREE.ShaderMaterial({ uniforms: THREE.UniformsUtils.clone(THREE.FXAAShader.uniforms), vertexShader: THREE.FXAAShader.vertexShader, fragmentShader: THREE.FXAAShader.fragmentShader, depthTest: false, depthWrite: false });
+    // A1 (Bildschärfe): die mitgelieferte FXAA-Fassung glättet mit vollem Subpixel-Anteil und sehr niedriger Schwelle auch Texturkorn → weiches Bild.
+    // Hier (nur in unserer Kopie des Shader-Texts): Subpixel-Anteil 1.0 → 0.4, Schwellen höher (mehr Pixel verlassen den Shader früh = billiger),
+    // dazu im SELBEN Durchgang ein begrenztes Nachschärfen (4 Nachbarn, auf deren Min/Max geklemmt → kein Überschwingen an Kanten).
+    // uSharp wächst, wenn die dynamische Auflösung herunterregelt (Hochskalieren macht weich). Schlägt die Ersetzung fehl, bleibt der Originaltext.
+    var fxFS = THREE.FXAAShader.fragmentShader, fxU = THREE.UniformsUtils.clone(THREE.FXAAShader.uniforms);
+    fxU.uSharp = { value: L.sharp.base };
+    var fxMain = 'gl_FragColor = ApplyFXAA( tDiffuse, resolution.xy, vUv );';
+    if (fxFS.indexOf(fxMain) >= 0 && fxFS.indexOf('_SubpixelBlending = 1.0') >= 0) {
+      fxFS = 'uniform float uSharp;\n' + fxFS.replace('_SubpixelBlending = 1.0', '_SubpixelBlending = 0.4')
+        .replace('_ContrastThreshold = 0.0312', '_ContrastThreshold = 0.05').replace('_RelativeThreshold = 0.063', '_RelativeThreshold = 0.1')
+        .replace(fxMain, [
+          'vec4 c = ApplyFXAA( tDiffuse, resolution.xy, vUv );',
+          '  vec3 n1 = texture( tDiffuse, vUv + vec2( 0.0, resolution.y ) ).rgb, n2 = texture( tDiffuse, vUv - vec2( 0.0, resolution.y ) ).rgb;',
+          '  vec3 n3 = texture( tDiffuse, vUv + vec2( resolution.x, 0.0 ) ).rgb, n4 = texture( tDiffuse, vUv - vec2( resolution.x, 0.0 ) ).rgb;',
+          '  vec3 mn = min( c.rgb, min( min( n1, n2 ), min( n3, n4 ) ) ), mx = max( c.rgb, max( max( n1, n2 ), max( n3, n4 ) ) );',
+          '  c.rgb = clamp( c.rgb + ( c.rgb - ( n1 + n2 + n3 + n4 ) * 0.25 ) * uSharp, mn, mx );',
+          '  gl_FragColor = c;'].join('\n'));
+    }
+    var fx = new THREE.ShaderMaterial({ uniforms: fxU, vertexShader: THREE.FXAAShader.vertexShader, fragmentShader: fxFS, depthTest: false, depthWrite: false });
     fx.uniforms.tDiffuse.value = rtLdr.texture; fx.uniforms.resolution.value.set(1 / w, 1 / h);
     var aq = new THREE.FullScreenQuad(fx);
     var P = {
@@ -426,6 +456,7 @@ var G = (typeof G !== 'undefined') ? G : {};
         bloom.render(renderer, null, rtScene, dtS || 0, false);         // addiert Glühen in rtScene
         ao.render(renderer, null, rtScene, dtS || 0, false);
         renderer.setRenderTarget(rtLdr); fq.render(renderer);
+        fx.uniforms.uSharp.value = L.sharp.base + (1 - dyn.scale) * L.sharp.perScale;
         renderer.setRenderTarget(null); aq.render(renderer);
       },
       info: function () { return { w: P.w, h: P.h, ao: true, bloom: true, aa: 'fxaa' }; },
@@ -461,6 +492,8 @@ var G = (typeof G !== 'undefined') ? G : {};
     SH = {
       uFow: { value: null }, uFowScale: { value: new THREE.Vector2(1, 1) }, uFowOn: { value: 1 },
       uHazeCol: { value: new THREE.Color('#9db4cc') }, uHaze: { value: new THREE.Vector3(0, 1, 0.3) },
+      // A3 (Kartenrand): Abdunklung der äußersten Kachelreihe = clamp(Randabstand · x + y); (0, 1) = aus (Symbol-Aufnahmen)
+      uEdge: { value: new THREE.Vector2(EDGE_DIM[0], EDGE_DIM[1]) },
       // W11-look: Farbabstimmung ohne Nachbearbeitung (Flag liteLook): x an, y Sättigung, z Kontrast, w Vignette; Wärme/Anhebung wie der Abschluss-Shader
       uGrade: { value: new THREE.Vector4(0, 1, 1, 0) }, uWarm: { value: new THREE.Vector3(1, 1, 1) }, uLift: { value: new THREE.Vector3(0, 0, 0) }, uRes: { value: new THREE.Vector2(1, 1) }
     };
@@ -806,7 +839,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     camera.updateMatrixWorld();
     // Dunst: Tiefe des oberen Bildrands = weit
     var dTop = CAM_DIST + halfH / SIN * COS, dMid = CAM_DIST;
-    SH.uHaze.value.set(dMid - 2, dTop + 4, 0.28);
+    SH.uHaze.value.set(dMid - 2, dTop + 4, 0.15);   // A2: Dunst zum oberen Bildrand 0.28 → 0.15 (wusch die obere Bildhälfte grau aus)
     F3.setPointScale(bufH / (2 * halfH));
     return { cx: cx, cz: cz, halfW: halfW, halfH: halfH };
   }
@@ -1324,7 +1357,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       iconCam.aspect = w / h; iconCam.updateProjectionMatrix();
       iconCam.position.set(ctr.x + dist * 0.42, ctr.y + dist * 0.62, ctr.z + dist * 0.66);
       iconCam.lookAt(ctr);
-      var fo = SH.uFowOn.value; SH.uFowOn.value = 0;
+      var fo = SH.uFowOn.value; SH.uFowOn.value = 0; SH.uEdge.value.set(0, 1);
       var KEY = 0xff00ff, oldCol = new THREE.Color(), oldA = renderer.getClearAlpha(), oldExp = renderer.toneMappingExposure;
       renderer.getClearColor(oldCol);
       var oldBg = iconScene.background; iconScene.background = new THREE.Color(KEY);
@@ -1334,7 +1367,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       renderer.toneMappingExposure = Q.std ? 1.05 : 1.15;
       var oldSh = renderer.shadowMap.enabled; renderer.shadowMap.enabled = false;
       renderer.render(iconScene, iconCam);
-      SH.uFowOn.value = fo;
+      SH.uFowOn.value = fo; SH.uEdge.value.set(EDGE_DIM[0], EDGE_DIM[1]);
       iconScene.remove(grp);
       if (tintMat) tintMat.dispose();
       var out = document.createElement('canvas'); out.width = w; out.height = h;

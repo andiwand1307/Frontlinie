@@ -19,6 +19,9 @@
  *   fill(S, dt, fogOff, P)     je Frame vor dem Abschluss (Erz-Funkeln, Spuren)
  *   update(dt)                 je Frame nach den Effekten (Decals, Wasserzeit, Wind, Büschel)
  *   info()                     { texBytes, genMs, buildMs, ... } (Messwerte der letzten Welt)
+ * Grafik-Anhebung „Android“: B1 = ruhigere/natürlichere Bodenschichten + weichere Erdflecken + sanftere Makro-Tönung (wirkt in allen Stufen,
+ *   auch gebacken); C1 = rund schattierte Baumkronen/Felsen (Acc.add round, gleiche Dreieckszahl); A3 = Vorland am Kartenrand (buildApron,
+ *   ersetzt die schwarze Sockelfläche; world.apron) + Rand-Abdunklung im Wasser (R.SH.uEdge vom Kern).
  */
 var G = (typeof G !== 'undefined') ? G : {};
 (function () {
@@ -330,7 +333,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       A1[k] = fa(u, v); A2[k] = fb(u, v); A3[k] = fc(u, v); B1[k] = ga(u, v); B2[k] = gb(u, v); B3[k] = gc(u, v);
     }
     var hb = new Float32Array(N), L;
-    var NSTR = [4.5, 3.6, 4.5, 2.4, 6.0, 2.4, 4.5];
+    var NSTR = [3.4, 3.0, 4.2, 2.4, 6.0, 2.4, 4.2];   // B1: Gras/Trockengras flacher (weniger Flimmern)
     var TAU = Math.PI * 2;
     for (L = 0; L < NL; L++) {
       var o = L * N * 4, rr = new Float32Array(N);
@@ -339,20 +342,22 @@ var G = (typeof G !== 'undefined') ? G : {};
         var u2 = i / S, v2 = j / S, n1 = A1[k], n2 = A2[k], n3 = A3[k], m1 = B1[k], m2 = B2[k], m3 = B3[k];
         var r, g, b, h, rg, t, sp = fh(i, j, 40 + L);
         if (L === 0) {            // Gras
-          t = clamp(0.2 + 0.55 * n1 + 1.1 * (n2 - 0.5) + 0.7 * (n3 - 0.5), 0, 1);
-          r = mix(44, 112, t); g = mix(92, 164, t); b = mix(32, 62, t);
-          var y = sstep(0.6, 0.85, n2) * 0.4; r += 34 * y; g += 10 * y;
-          if (sp > 0.965) { r += 18; g += 20; }
+          // B1 (Boden): ruhiger – feines Korn (n2/n3) trägt nur noch halb so stark zur Farbe bei (vorher 1.1 / 0.7 → „Fernsehrauschen“),
+          // engerer Tonumfang, natürlicheres Grün statt Giftgrün (vorher 44,92,32 … 112,164,62); das Feindetail bleibt in Höhe/Normale
+          t = clamp(0.26 + 0.5 * n1 + 0.5 * (n2 - 0.5) + 0.3 * (n3 - 0.5), 0, 1);
+          r = mix(70, 110, t); g = mix(103, 141, t); b = mix(52, 72, t);
+          var y = sstep(0.6, 0.85, n2) * 0.26; r += 26 * y; g += 8 * y;
+          if (sp > 0.975) { r += 9; g += 11; }
           h = clamp(0.4 + 0.9 * (n2 - 0.5) + 0.55 * (n3 - 0.5) + 0.25 * (n1 - 0.5), 0, 1); rg = 0.9;
         } else if (L === 1) {     // Trockengras (Stroh)
-          t = clamp(0.25 + 0.5 * m1 + 0.7 * (m2 - 0.5) + 0.4 * (n3 - 0.5), 0, 1);
-          r = mix(128, 204, t); g = mix(108, 176, t); b = mix(52, 100, t);
-          var dk = sstep(0.62, 0.8, n2) * 0.28; r *= 1 - dk; g *= 1 - dk; b *= 1 - dk;
-          if (sp > 0.96) { r += 22; g += 20; b += 8; }
+          t = clamp(0.28 + 0.5 * m1 + 0.42 * (m2 - 0.5) + 0.24 * (n3 - 0.5), 0, 1);
+          r = mix(136, 192, t); g = mix(118, 168, t); b = mix(66, 102, t);
+          var dk = sstep(0.62, 0.8, n2) * 0.18; r *= 1 - dk; g *= 1 - dk; b *= 1 - dk;
+          if (sp > 0.97) { r += 12; g += 11; b += 5; }
           h = clamp(0.4 + 0.8 * (m2 - 0.5) + 0.6 * (n3 - 0.5), 0, 1); rg = 0.93;
         } else if (L === 2) {     // Erde
           t = clamp(0.3 + 0.5 * n1 + 0.5 * (m2 - 0.5), 0, 1);
-          r = mix(98, 152, t); g = mix(72, 116, t); b = mix(48, 80, t);
+          r = mix(104, 150, t); g = mix(83, 122, t); b = mix(60, 90, t);   // B1: weniger Rotbraun
           var pb = sstep(0.7, 0.76, m3), cr = 1 - Math.abs(2 * n2 - 1), ck = sstep(0.93, 0.985, cr);
           r = mix(r, 168, pb * 0.55); g = mix(g, 156, pb * 0.55); b = mix(b, 142, pb * 0.55);
           r *= 1 - ck * 0.4; g *= 1 - ck * 0.4; b *= 1 - ck * 0.4;
@@ -361,7 +366,7 @@ var G = (typeof G !== 'undefined') ? G : {};
           var rip = Math.sin((v2 * 12 + (n1 - 0.5) * 5 + (m2 - 0.5) * 1.5) * TAU) * 0.5 + 0.5;
           t = clamp(0.35 + 0.35 * n1 + 0.25 * (n3 - 0.5) + 0.18 * (rip - 0.5), 0, 1);
           r = mix(204, 238, t); g = mix(180, 216, t); b = mix(126, 160, t);
-          if (sp > 0.97) { r -= 28; g -= 30; b -= 28; }
+          if (sp > 0.97) { r -= 15; g -= 16; b -= 15; }
           h = clamp(0.5 + 0.28 * (rip - 0.5) + 0.2 * (n3 - 0.5), 0, 1); rg = 0.92;
         } else if (L === 4) {     // Fels (Schichten, Risse)
           var ra = 1 - Math.abs(2 * n1 - 1), rb = 1 - Math.abs(2 * m2 - 1), st = Math.sin((v2 * 9 + n1 * 3 + (n2 - 0.5)) * TAU) * 0.5 + 0.5;
@@ -380,9 +385,9 @@ var G = (typeof G !== 'undefined') ? G : {};
           h = clamp(0.5 + 0.3 * (n3 - 0.5) - ck2 * 0.4, 0, 1); rg = 0.78 + 0.18 * n2 - 0.2 * oil * 4;
         } else {                  // Erzboden: dunkle Erde mit Bernstein-Splittern
           t = clamp(0.3 + 0.5 * n1 + 0.5 * (n2 - 0.5), 0, 1);
-          r = mix(58, 112, t); g = mix(42, 78, t); b = mix(32, 52, t);
+          r = mix(76, 118, t); g = mix(68, 106, t); b = mix(60, 92, t);       // B1: neutraler, etwas heller (vorher 58,42,32 … 112,78,52 = harter rotbrauner Fleck)
           var sk = sstep(0.82, 0.9, m3) + sstep(0.86, 0.93, n3) * 0.8;
-          if (sk > 0) { sk = Math.min(1, sk); r = mix(r, 250, sk * 0.85); g = mix(g, 198, sk * 0.85); b = mix(b, 74, sk * 0.85); }
+          if (sk > 0) { sk = Math.min(1, sk); r = mix(r, 244, sk * 0.72); g = mix(g, 194, sk * 0.72); b = mix(b, 84, sk * 0.72); }
           h = clamp(0.4 + 0.45 * (n2 - 0.5) + 0.35 * (n3 - 0.5) + sk * 0.35, 0, 1); rg = sk > 0.2 ? 0.45 : 0.92;
         }
         hb[k] = h; rr[k] = rg;
@@ -594,7 +599,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       var gW = chn[0][k], sW = chn[1][k], rW = chn[2][k], wW = chn[3][k], fW = Math.min(chn[4][k], gW), oW = chn[5][k];
       var nD = dryN(wx, wz), nM = dirtN(wx, wz), mc = macN(wx, wz) * 0.75 + mac2(wx, wz) * 0.25, bk = bankN(wx, wz);
       var sdw = sdW[k], sdr = sdR[k];
-      var dry = sstep(0.5, 0.7, nD) * 0.92 * (1 - fW * 0.85), dirtP = sstep(0.64, 0.8, nM) * 0.8 * (1 - fW * 0.6);
+      var dry = sstep(0.5, 0.7, nD) * 0.92 * (1 - fW * 0.85), dirtP = sstep(0.62, 0.88, nM) * 0.62 * (1 - fW * 0.6);   // B1: Erdflecken weicher und nur teildeckend (vorher 0.64–0.8 · 0.8)
       var Lg = gW * (1 - dry) * (1 - dirtP), Ld = gW * dry * (1 - dirtP), Le = gW * dirtP, Ls = sW, Lr = rW, Lo = 0;
       Le += fW * 0.42 * (0.5 + 0.5 * nM); Lg -= Math.min(Lg, fW * 0.42 * (0.5 + 0.5 * nM));
       // Sandufer (Land nahe Wasser), Wasserbett
@@ -644,6 +649,7 @@ var G = (typeof G !== 'undefined') ? G : {};
 
   // ------------------------------------------------------------------ Gelände: Mesh, Material
   var TREP = [0.62, 0.62, 0.85, 0.85, 0.5, 0.75, 1.0];
+  var TINT_A = [0.9, 0.96, 0.93], TINT_B = [1.08, 1.05, 0.9];   // B1: großflächige Tönung kühl ↔ warm (vorher 0.84,0.94,0.92 ↔ 1.14,1.08,0.86); Shader und Bake
   var VS_TERRAIN = ['varying vec3 vTW; varying vec3 vTN;'].join('\n');
   var FS_HEAD = [
     'uniform sampler2DArray uAlb; uniform sampler2DArray uNrm;',
@@ -709,9 +715,9 @@ var G = (typeof G !== 'undefined') ? G : {};
     '  if (totT < 0.001) { colT = vec3(0.1, 0.2, 0.05); rghT = 0.9; aoT = 1.0; }',
     // Makro-Färbung (Gras/Erde) + Waldboden
     '  float kgT = sA.x + sA.y + sA.z + sA.w * 0.5;',
-    '  vec3 tintT = mix(vec3(0.84, 0.94, 0.92), vec3(1.14, 1.08, 0.86), sB.y);',
+    '  vec3 tintT = mix(vec3(' + TINT_A.join(', ') + '), vec3(' + TINT_B.join(', ') + '), sB.y);',
     '  colT *= mix(vec3(1.0), tintT, clamp(kgT, 0.0, 1.0) * 0.95);',
-    '  colT *= mix(vec3(1.0), vec3(0.62, 0.74, 0.58), sB.w * 0.85);',
+    '  colT *= mix(vec3(1.0), vec3(0.7, 0.8, 0.68), sB.w * 0.85);',   // Waldboden (B1: etwas heller – mit den kräftigeren Schatten sonst schwarz)
     // Straße
     '  if (rcT > 0.0) {',
     '    vec4 n5T = textureGrad(uNrm, vec3(tP * TREP[5], 5.0), dxw * TREP[5], dyw * TREP[5]);',
@@ -728,6 +734,66 @@ var G = (typeof G !== 'undefined') ? G : {};
     '  diffuseColor.rgb *= colT * mix(1.0, aoT, 0.85);',
     '  float tRough = clamp(rghT, 0.2, 1.0); vec2 tNrm = nrmT;'
   ].join('\n');
+
+  /** A3 (Kartenrand): Vorland rund um die Karte. EIN Ring (8 Dreiecke, 1 Draw-Call, unbeleuchteter Shader, keine Schatten): setzt die Farbe der
+   *  äußersten Kacheln fort (kleine Farbkarte W×H aus den Schicht-Mittelwerten, Rand-Texel per Clamp, mit Rauschen entlang der Kante verwischt),
+   *  genauso abgedunkelt wie der Kartenrand selbst (SH.uEdge) und über ~7 Kacheln in dunklen Dunst auslaufend. Nebel des Krieges wie überall
+   *  (Rand-Texel der Nebelkarte) → vor unerkundetem Gebiet bleibt es schwarz. Liegt knapp unter dem Wasserspiegel und reicht eine halbe Kachel
+   *  unter die Karte (kein Spalt an der vorderen Kante). */
+  function buildApron(m, fl, ly) {
+    var W = m.w, H = m.h, N = ly.S * ly.S, mean = [], L, k, x, y;
+    for (L = 0; L < NL; L++) {   // mittlere Farbe je Schicht (linear), grob abgetastet
+      var r = 0, g = 0, b = 0, n = 0;
+      for (k = 0; k < N; k += 37) { var q = (L * N + k) * 4; r += Math.pow(ly.alb[q] / 255, 2.2); g += Math.pow(ly.alb[q + 1] / 255, 2.2); b += Math.pow(ly.alb[q + 2] / 255, 2.2); n++; }
+      mean.push([r / n, g / n, b / n]);
+    }
+    var d = new Uint8Array(W * H * 4), F = fl.F, cw = fl.cw, ch = fl.ch;
+    for (y = 0; y < H; y++) for (x = 0; x < W; x++) {
+      var kc = Math.min(ch - 1, y * F + (F >> 1)) * cw + Math.min(cw - 1, x * F + (F >> 1)), q4 = kc * 4, o = (y * W + x) * 4;
+      var w = [fl.splA[q4], fl.splA[q4 + 1], fl.splA[q4 + 2], fl.splA[q4 + 3], fl.splB[q4], 0, fl.splB[q4 + 2]], cr = 0, cg = 0, cb = 0, ws = 0;
+      for (L = 0; L < NL; L++) { cr += mean[L][0] * w[L]; cg += mean[L][1] * w[L]; cb += mean[L][2] * w[L]; ws += w[L]; }
+      if (ws > 0) { cr /= ws; cg /= ws; cb /= ws; }
+      var wet = sstep(-0.1, 0.5, (fl.shore[kc * 2] / 255 - 0.5) * 6);   // Wasser: dunkles Blau wie die tiefe See
+      cr = mix(cr, 0.03, wet); cg = mix(cg, 0.1, wet); cb = mix(cb, 0.17, wet);
+      d[o] = Math.pow(cr, 1 / 2.2) * 255; d[o + 1] = Math.pow(cg, 1 / 2.2) * 255; d[o + 2] = Math.pow(cb, 1 / 2.2) * 255; d[o + 3] = 255;
+    }
+    var tex = makeSplatTex(d, W, H); tex.colorSpace = THREE.SRGBColorSpace; world.texs.push(tex);
+    var IN = 0.5, OUT = 70, yy = WL - 0.012;
+    var P = [IN, IN, W - IN, IN, W - IN, H - IN, IN, H - IN, -OUT, -OUT, W + OUT, -OUT, W + OUT, H + OUT, -OUT, H + OUT], pos = new Float32Array(24);
+    for (k = 0; k < 8; k++) { pos[k * 3] = P[k * 2]; pos[k * 3 + 1] = yy; pos[k * 3 + 2] = P[k * 2 + 1]; }
+    var geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setIndex([0, 4, 5, 0, 5, 1, 1, 5, 6, 1, 6, 2, 2, 6, 7, 2, 7, 3, 3, 7, 4, 3, 4, 0]);
+    var mat = new THREE.ShaderMaterial({
+      side: THREE.DoubleSide,
+      uniforms: { uCol: { value: tex }, uInv: { value: new THREE.Vector2(1 / W, 1 / H) }, uLit: { value: R.std ? APRON.litStd : APRON.litClassic },
+        uFar: { value: new THREE.Vector3().fromArray(R.std ? APRON.far : APRON.farClassic) }, uFow: SH.uFow, uFowOn: SH.uFowOn, uEdge: SH.uEdge },
+      vertexShader: 'varying vec2 vP; void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vP = w.xz; gl_Position = projectionMatrix * viewMatrix * w; }',
+      fragmentShader: [
+        'uniform sampler2D uCol; uniform sampler2D uFow; uniform vec2 uInv; uniform float uLit; uniform vec3 uFar; uniform float uFowOn; uniform vec2 uEdge;',
+        'varying vec2 vP;',
+        'float hsh(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }',
+        'float vn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);',
+        '  return mix(mix(hsh(i), hsh(i + vec2(1.0, 0.0)), f.x), mix(hsh(i + vec2(0.0, 1.0)), hsh(i + vec2(1.0, 1.0)), f.x), f.y); }',
+        'void main(){',
+        '  vec2 uv = vP * uInv;',
+        '  float d = length(max(max(-uv, uv - 1.0), 0.0) / uInv);',                                  // Abstand zur Karte in Kacheln
+        '  float n1 = vn(vP * 0.42), n2 = vn(vP * 1.7 + 7.3);',
+        '  vec2 cuv = clamp(uv + (vec2(n1, n2) - 0.5) * uInv * 3.0 * min(d, 1.5), 0.5 * uInv, 1.0 - 0.5 * uInv);',
+        '  vec3 c = texture2D(uCol, cuv).rgb * (uLit * uEdge.y * (0.86 + 0.28 * n2));',
+        '  c = mix(c, uFar, smoothstep(0.0, 7.0, d + (n1 - 0.5) * 2.2));',
+        '  c *= mix(1.0, texture2D(uFow, uv).r, uFowOn);',
+        '  gl_FragColor = vec4(c, 1.0);',
+        '  #include <tonemapping_fragment>',
+        '  #include <colorspace_fragment>',
+        '}'].join('\n')
+    });
+    var mesh = new THREE.Mesh(geo, mat);
+    mesh.frustumCulled = false;
+    world.apron = mesh;
+    return mesh;
+  }
+  var APRON = { far: [0.046, 0.052, 0.06], farClassic: [0.02, 0.025, 0.032], litStd: 1.0, litClassic: 1.5 };   // Dunstfarbe (linear) + Helligkeits-Angleich an den beleuchteten Boden
 
   function makeSplatTex(data, w, h, fmt) {
     var t = new THREE.DataTexture(data, w, h, fmt || THREE.RGBAFormat, THREE.UnsignedByteType);
@@ -814,8 +880,8 @@ var G = (typeof G !== 'undefined') ? G : {};
         if (tot > 0) { cr /= tot; cg /= tot; cb /= tot; ao /= tot * 255; } else { cr = 0.07; cg = 0.18; cb = 0.03; ao = 1; }
         if (withAO) { var aof = 1 + (ao - 1) * 0.85; cr *= aof; cg *= aof; cb *= aof; }   // v0.8: wie der Boden-Shader (Hohlraum-Abdunklung der Schichten)
         var kk = clamp(kg, 0, 1) * 0.95;
-        cr *= 1 + (0.84 + 0.30 * mc - 1) * kk; cg *= 1 + (0.94 + 0.14 * mc - 1) * kk; cb *= 1 + (0.92 - 0.06 * mc - 1) * kk;
-        cr *= 1 - 0.38 * fo * 0.85; cg *= 1 - 0.26 * fo * 0.85; cb *= 1 - 0.42 * fo * 0.85;
+        cr *= 1 + (mix(TINT_A[0], TINT_B[0], mc) - 1) * kk; cg *= 1 + (mix(TINT_A[1], TINT_B[1], mc) - 1) * kk; cb *= 1 + (mix(TINT_A[2], TINT_B[2], mc) - 1) * kk;
+        cr *= 1 - 0.30 * fo * 0.85; cg *= 1 - 0.20 * fo * 0.85; cb *= 1 - 0.32 * fo * 0.85;
         if (rc > 0) {
           var rq2 = 5 * SS * 4 + ((((wz * TREP[5]) % 1 * S) | 0) & mk) * S * 4 + ((((wx * TREP[5]) % 1 * S) | 0) & mk) * 4;
           var wf2 = 1 - 0.26 * rwear, ar = lin[alb[rq2]] * wf2, ag = lin[alb[rq2 + 1]] * wf2, ab = lin[alb[rq2 + 2]] * wf2;
@@ -954,14 +1020,12 @@ var G = (typeof G !== 'undefined') ? G : {};
     terrain.receiveShadow = true;
     world.group.add(terrain);
     // Rand um die Karte (dunkler „Sockel“, damit der Kartenrand nicht im Nichts endet)
-    var skirt = new THREE.Mesh(new THREE.PlaneGeometry(W + 60, H + 60), new THREE.MeshBasicMaterial({ color: new THREE.Color('#0d1218') }));
-    skirt.rotation.x = -Math.PI / 2; skirt.position.set(W / 2, -0.6, H / 2);
-    world.group.add(skirt);
+    world.group.add(buildApron(m, fl, ly));   // A3: abgedunkeltes Vorland, das in Dunst ausläuft (vorher einfarbig fast schwarze Fläche)
     // Texturspeicher (Näherung, Byte)
     var tb2 = 0;
     if (cf.array) tb2 = (ly.alb.length + ly.nrm.length) * 1.34 + fl.splA.length + fl.splB.length + (fl.road ? fl.road.length : 4);
     else if (std && world.texCanvas) tb2 = world.texCanvas.width * world.texCanvas.height * 4 * 1.34 + (world.detailBytes || 0);
-    tb2 += fl.shore.length;
+    tb2 += fl.shore.length + W * H * 4;   // + Farbkarte des Vorlands (A3)
     world.fl = fl;
     buildWater(m, fl);
     buildStatics(m, fl);
@@ -1038,10 +1102,10 @@ var G = (typeof G !== 'undefined') ? G : {};
     return new THREE.ShaderMaterial({
       transparent: true, depthWrite: false,
       uniforms: { uTime: { value: 0 }, uShore: { value: shore }, uInv: { value: new THREE.Vector2(1 / W, 1 / H) },
-        uFow: SH.uFow, uFowScale: SH.uFowScale, uFowOn: SH.uFowOn, uHazeCol: SH.uHazeCol, uHaze: SH.uHaze },
+        uFow: SH.uFow, uFowScale: SH.uFowScale, uFowOn: SH.uFowOn, uHazeCol: SH.uHazeCol, uHaze: SH.uHaze, uEdge: SH.uEdge },
       vertexShader: 'varying vec3 vW; varying float vD; void main(){ vec4 w = modelMatrix * vec4(position,1.0); vW = w.xyz; vec4 mv = viewMatrix * w; vD = -mv.z; gl_Position = projectionMatrix * mv; }',
       fragmentShader: [
-        'uniform float uTime; uniform sampler2D uShore; uniform vec2 uInv; uniform sampler2D uFow; uniform vec2 uFowScale; uniform float uFowOn; uniform vec3 uHazeCol; uniform vec3 uHaze;',
+        'uniform float uTime; uniform sampler2D uShore; uniform vec2 uInv; uniform sampler2D uFow; uniform vec2 uFowScale; uniform float uFowOn; uniform vec3 uHazeCol; uniform vec3 uHaze; uniform vec2 uEdge;',
         'varying vec3 vW; varying float vD;',
         'void main(){',
         '  vec2 uv = vW.xz * uInv; float m = texture2D(uShore, uv).r; float t = uTime;',
@@ -1053,7 +1117,8 @@ var G = (typeof G !== 'undefined') ? G : {};
         '  float foam = smoothstep(0.66, 0.5, m) * (0.55 + 0.45 * sin(t*2.0 + vW.x*7.0 + vW.z*5.0)) * smoothstep(0.3, 0.5, m);',
         '  col = mix(col, vec3(0.75, 0.82, 0.85), foam * 0.75);',
         '  float a = mix(0.45, 0.9, smoothstep(0.5, 0.9, m)) * smoothstep(0.32, 0.5, m);',
-        '  float fowV = mix(1.0, texture2D(uFow, vW.xz * uFowScale).r, uFowOn);',
+        '  vec2 fowUV = vW.xz * uFowScale; float fowV = mix(1.0, texture2D(uFow, fowUV).r, uFowOn);',
+        '  vec2 edQ = min(fowUV, 1.0 - fowUV) / uFowScale; fowV *= clamp(min(edQ.x, edQ.y) * uEdge.x + uEdge.y, 0.0, 1.0);',
         '  float hz = clamp((vD - uHaze.x) / (uHaze.y - uHaze.x), 0.0, 1.0) * uHaze.z * uFowOn;',
         '  col = mix(col, uHazeCol, hz) * fowV;',
         '  gl_FragColor = vec4(col, a);',
@@ -1072,12 +1137,12 @@ var G = (typeof G !== 'undefined') ? G : {};
       uniforms: { uTime: { value: 0 }, uShore: { value: shore }, uInv: { value: new THREE.Vector2(1 / W, 1 / H) },
         uView: { value: new THREE.Vector3((V.sy || 0) * cs, sn, (V.cy == null ? 1 : V.cy) * cs) },   // W11: Kern führt uView/uSun jedes Frame nach (YAW)
         uSun: { value: new THREE.Vector3().fromArray(V.lightDir ? V.lightDir([-0.62, 0.68, -0.4]) : [-0.62, 0.68, -0.4]).normalize() },
-        uFow: SH.uFow, uFowScale: SH.uFowScale, uFowOn: SH.uFowOn, uHazeCol: SH.uHazeCol, uHaze: SH.uHaze },
+        uFow: SH.uFow, uFowScale: SH.uFowScale, uFowOn: SH.uFowOn, uHazeCol: SH.uHazeCol, uHaze: SH.uHaze, uEdge: SH.uEdge },
       vertexShader: 'varying vec3 vW; varying float vD; void main(){ vec4 w = modelMatrix * vec4(position,1.0); vW = w.xyz; vec4 mv = viewMatrix * w; vD = -mv.z; gl_Position = projectionMatrix * mv; }',
       fragmentShader: [
         (lite ? '#define W_LITE' : ''),
         'uniform float uTime; uniform sampler2D uShore; uniform vec2 uInv; uniform vec3 uView; uniform vec3 uSun;',
-        'uniform sampler2D uFow; uniform vec2 uFowScale; uniform float uFowOn; uniform vec3 uHazeCol; uniform vec3 uHaze;',
+        'uniform sampler2D uFow; uniform vec2 uFowScale; uniform float uFowOn; uniform vec3 uHazeCol; uniform vec3 uHaze; uniform vec2 uEdge;',
         'varying vec3 vW; varying float vD;',
         'float hsh(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }',
         'float vn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);',
@@ -1115,7 +1180,8 @@ var G = (typeof G !== 'undefined') ? G : {};
         '  col = mix(col, vec3(0.9, 0.94, 0.94), foam * 0.85);',
         '  float a = mix(0.32, 0.97, smoothstep(0.0, 0.55, dep)) + foam * 0.35;',
         '  a *= smoothstep(-0.16, -0.01, sdf);',
-        '  float fowV = mix(1.0, texture2D(uFow, vW.xz * uFowScale).r, uFowOn);',
+        '  vec2 fowUV = vW.xz * uFowScale; float fowV = mix(1.0, texture2D(uFow, fowUV).r, uFowOn);',
+        '  vec2 edQ = min(fowUV, 1.0 - fowUV) / uFowScale; fowV *= clamp(min(edQ.x, edQ.y) * uEdge.x + uEdge.y, 0.0, 1.0);',
         '  float hz = clamp((vD - uHaze.x) / (uHaze.y - uHaze.x), 0.0, 1.0) * uHaze.z * uFowOn;',
         '  col = mix(col, uHazeCol, hz) * fowV;',
         '  gl_FragColor = vec4(col, clamp(a, 0.0, 1.0));',
@@ -1127,10 +1193,14 @@ var G = (typeof G !== 'undefined') ? G : {};
 
   // ------------------------------------------------------------------ Vegetation: Bausteine
   /** kleiner Geometrie-Sammler: flach schattiert, Vertexfarbe, Wind-Gewicht (Höhe) */
-  function Acc() { this.p = []; this.c = []; this.y = []; }
-  Acc.prototype.add = function (geo, col, x, y, z, sx, sy, sz, ry, jit) {
+  // C1 (Vegetation/Felsen): optional „rund“ (round 0..1) – die Normale eines Teils wird zur Richtung vom Teil-Mittelpunkt hin gemischt
+  // (Kugel-Normalen): Kronen und Brocken wirken weich und bauschig statt kantig-klotzig, OHNE ein einziges Dreieck mehr; dazu wird die
+  // Unterseite jedes runden Teils abgedunkelt (Eigenschatten/Laubtiefe). round = 0/undefined → wie bisher flach schattiert.
+  function Acc() { this.p = []; this.c = []; this.y = []; this.n = []; }
+  Acc.prototype.add = function (geo, col, x, y, z, sx, sy, sz, ry, jit, round, up) {
     var g = geo.index ? geo.toNonIndexed() : geo, p = g.attributes.position, C = new THREE.Color(col), v = new THREE.Vector3();
-    var cy = Math.cos(ry || 0), sy2 = Math.sin(ry || 0), i;
+    var cy = Math.cos(ry || 0), sy2 = Math.sin(ry || 0), i, y0 = 1e9, y1 = -1e9;
+    if (round) for (i = 0; i < p.count; i++) { var py = p.getY(i) * sy; if (py < y0) y0 = py; if (py > y1) y1 = py; }
     for (i = 0; i < p.count; i++) {
       v.fromBufferAttribute(p, i);
       if (jit) { var hh = hash((v.x * 977) | 0, (v.y * 977 + v.z * 131) | 0, 7 + ((jit * 10) | 0)); var rr = 1 + (hh - 0.5) * 2 * jit; v.multiplyScalar(rr); }
@@ -1138,6 +1208,11 @@ var G = (typeof G !== 'undefined') ? G : {};
       var rx = v.x * cy + v.z * sy2, rz = -v.x * sy2 + v.z * cy;
       this.p.push(rx + x, v.y + y, rz + z);
       var f = 0.74 + 0.4 * clamp((v.y + y) / 0.8, 0, 1);
+      if (round) {
+        f *= 0.66 + 0.36 * sstep(0, 1, (v.y - y0) / Math.max(1e-4, y1 - y0));
+        var ym = (y0 + y1) * 0.5, nl = Math.sqrt(rx * rx + (v.y - ym) * (v.y - ym) + rz * rz) || 1;
+        this.n.push(round, rx / nl, (v.y - ym) / nl + (up || 0.25), rz / nl);
+      } else this.n.push(0, 0, 0, 0);
       this.c.push(C.r * f, C.g * f, C.b * f); this.y.push(v.y + y);
     }
     if (g !== geo) g.dispose();
@@ -1151,6 +1226,14 @@ var G = (typeof G !== 'undefined') ? G : {};
     out.setAttribute('color', new THREE.Float32BufferAttribute(this.c, 3));
     out.setAttribute('aWind', new THREE.BufferAttribute(w, 1));
     out.computeVertexNormals();
+    var na = out.attributes.normal, nn = this.n;
+    for (i = 0; i < n; i++) {
+      var k = nn[i * 4];
+      if (k > 0) {
+        var ax = na.getX(i) * (1 - k) + nn[i * 4 + 1] * k, ay = na.getY(i) * (1 - k) + nn[i * 4 + 2] * k, az = na.getZ(i) * (1 - k) + nn[i * 4 + 3] * k, al = Math.sqrt(ax * ax + ay * ay + az * az) || 1;
+        na.setXYZ(i, ax / al, ay / al, az / al);
+      }
+    }
     out.computeBoundingSphere();
     return out;
   };
@@ -1178,25 +1261,26 @@ var G = (typeof G !== 'undefined') ? G : {};
   function treeGeos() {
     var lowp = !(world && world.cfg && world.cfg.hiPoly);   // v0.8: Flag hiPoly (V); Lite/klassisch wie bisher grob
     var det = lowp ? 0 : 1, T = THREE;
+    // C1: Kronen „rund“ schattiert (Kugel-Normalen, dunklere Unterseite), Farben etwas gedeckter und zum neuen Gras passend; gleiche Dreieckszahl
     // Kiefer
     var pine = new Acc();
     pine.add(new T.CylinderGeometry(0.026, 0.04, 0.2, 5), '#5b3d24', 0, 0.1, 0, 1, 1, 1, 0);
-    pine.add(new T.ConeGeometry(0.22, 0.34, 7), '#1f5233', 0, 0.3, 0, 1, 1, 1, 0.3, 0.06);
-    pine.add(new T.ConeGeometry(0.18, 0.32, 7), '#25603a', 0, 0.5, 0, 1, 1, 1, 0.9, 0.06);
-    pine.add(new T.ConeGeometry(0.13, 0.3, 7), '#2d6c42', 0, 0.68, 0, 1, 1, 1, 0.5, 0.05);
-    pine.add(new T.ConeGeometry(0.075, 0.2, 6), '#347a4a', 0, 0.84, 0, 1, 1, 1, 0.2);
+    pine.add(new T.ConeGeometry(0.22, 0.34, 7), '#356d4c', 0, 0.3, 0, 1, 1, 1, 0.3, 0.06, 0.8, 0.6);   // Kegel: Normalen stärker nach oben (Mantel stand fast senkrecht → von der Kamera aus schwarz)
+    pine.add(new T.ConeGeometry(0.18, 0.32, 7), '#3c7854', 0, 0.5, 0, 1, 1, 1, 0.9, 0.06, 0.8, 0.6);
+    pine.add(new T.ConeGeometry(0.13, 0.3, 7), '#44845c', 0, 0.68, 0, 1, 1, 1, 0.5, 0.05, 0.8, 0.6);
+    pine.add(new T.ConeGeometry(0.075, 0.2, 6), '#4d9064', 0, 0.84, 0, 1, 1, 1, 0.2, 0, 0.8, 0.6);
     // Eiche / Laubbaum
     var oak = new Acc();
     oak.add(new T.CylinderGeometry(0.035, 0.055, 0.3, 6), '#5f4126', 0, 0.15, 0, 1, 1, 1, 0);
-    oak.add(new T.IcosahedronGeometry(0.25, det), '#3f7d2e', 0, 0.5, 0, 1, 0.9, 1, 0.4, 0.14);
-    oak.add(new T.IcosahedronGeometry(0.17, det), '#4f9137', 0.13, 0.64, 0.04, 1, 0.9, 1, 1.2, 0.14);
-    oak.add(new T.IcosahedronGeometry(0.15, det), '#35722a', -0.13, 0.54, -0.08, 1, 0.85, 1, 2.0, 0.14);
-    oak.add(new T.IcosahedronGeometry(0.13, 0), '#5aa040', 0.02, 0.72, -0.05, 1, 0.9, 1, 0.1, 0.12);
+    oak.add(new T.IcosahedronGeometry(0.25, det), '#3f6e3a', 0, 0.5, 0, 1, 0.9, 1, 0.4, 0.14, 0.8);
+    oak.add(new T.IcosahedronGeometry(0.17, det), '#4a7f42', 0.13, 0.64, 0.04, 1, 0.9, 1, 1.2, 0.14, 0.8);
+    oak.add(new T.IcosahedronGeometry(0.15, det), '#37633a', -0.13, 0.54, -0.08, 1, 0.85, 1, 2.0, 0.14, 0.8);
+    oak.add(new T.IcosahedronGeometry(0.13, 0), '#56894a', 0.02, 0.72, -0.05, 1, 0.9, 1, 0.1, 0.12, 0.8);
     // Birke / Pappel (schlank, hell)
     var birch = new Acc();
     birch.add(new T.CylinderGeometry(0.02, 0.032, 0.5, 5), '#d8d2c0', 0, 0.25, 0, 1, 1, 1, 0);
-    birch.add(new T.IcosahedronGeometry(0.2, det), '#74a83a', 0, 0.66, 0, 0.62, 1.45, 0.62, 0.7, 0.12);
-    birch.add(new T.IcosahedronGeometry(0.13, 0), '#8cbc46', 0.05, 0.9, 0.03, 0.7, 1.2, 0.7, 1.9, 0.1);
+    birch.add(new T.IcosahedronGeometry(0.2, det), '#6a9148', 0, 0.66, 0, 0.62, 1.45, 0.62, 0.7, 0.12, 0.8);
+    birch.add(new T.IcosahedronGeometry(0.13, 0), '#7da254', 0.05, 0.9, 0.03, 0.7, 1.2, 0.7, 1.9, 0.1, 0.8);
     return [pine.geo(0.95), oak.geo(0.85), birch.geo(1.0)];
   }
   function rockGeos() {
@@ -1211,10 +1295,10 @@ var G = (typeof G !== 'undefined') ? G : {};
         tmp.multiplyScalar(sc); if (tmp.y < -0.12) tmp.y = -0.12 - (tmp.y + 0.12) * 0.15;
         p.setXYZ(q, tmp.x, tmp.y, tmp.z);
       }
-      a.add(g, base, 0, 0.1, 0, 1, v === 1 ? 1.1 : 0.78, v === 2 ? 1.25 : 0.95, v * 1.7);
+      a.add(g, base, 0, 0.1, 0, 1, v === 1 ? 1.1 : 0.78, v === 2 ? 1.25 : 0.95, v * 1.7, 0, 0.4);   // C1: Facetten bleiben, aber weicher
       if (v !== 1) {
         var g2 = new T.DodecahedronGeometry(0.17, 0);
-        a.add(g2, ['#7b766d', '#9a948a'][v >> 1], 0.22, 0.05, 0.1, 1, 0.7, 1, 0.6);
+        a.add(g2, ['#7b766d', '#9a948a'][v >> 1], 0.22, 0.05, 0.1, 1, 0.7, 1, 0.6, 0, 0.4);
       }
       out.push(a.geo(0.6));
     }
@@ -1223,8 +1307,8 @@ var G = (typeof G !== 'undefined') ? G : {};
   function tuftGeo(bush) {
     var a = new Acc(), T = THREE;
     if (bush) {
-      a.add(new T.IcosahedronGeometry(0.15, 0), '#3d7a2c', 0, 0.08, 0, 1, 0.72, 1, 0, 0.16);
-      a.add(new T.IcosahedronGeometry(0.1, 0), '#4a8c34', 0.1, 0.06, 0.05, 1, 0.7, 1, 1, 0.16);
+      a.add(new T.IcosahedronGeometry(0.15, 0), '#3d7a2c', 0, 0.08, 0, 1, 0.72, 1, 0, 0.16, 0.7);
+      a.add(new T.IcosahedronGeometry(0.1, 0), '#4a8c34', 0.1, 0.06, 0.05, 1, 0.7, 1, 1, 0.16, 0.7);
       return a.geo(0.25);
     }
     // 7 Halme (Dreiecke, leicht geneigt), Farbverlauf Fuß → Spitze
@@ -1233,7 +1317,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       var ang = i / n * 6.283 + (i % 2) * 0.4, rr = 0.012 + (i % 3) * 0.012, hh = 0.1 + 0.07 * hash(i, 3, 5), lean = 0.045 + 0.04 * hash(i, 4, 5);
       var cx = Math.cos(ang) * rr, cz = Math.sin(ang) * rr, tx = Math.cos(ang) * (rr + lean), tz = Math.sin(ang) * (rr + lean), px = -Math.sin(ang) * 0.011, pz = Math.cos(ang) * 0.011;
       pos.push(cx - px, 0, cz - pz, cx + px, 0, cz + pz, tx, hh, tz);
-      col.push(0.2, 0.32, 0.12, 0.2, 0.32, 0.12, 0.5, 0.72, 0.26); yy.push(0, 0, hh);
+      col.push(0.21, 0.31, 0.13, 0.21, 0.31, 0.13, 0.45, 0.62, 0.27);   // B1: Spitzen gedeckter (vorher 0.5, 0.72, 0.26) yy.push(0, 0, hh);
     }
     var gg = new T.BufferGeometry();
     gg.setAttribute('position', new T.Float32BufferAttribute(pos, 3)); gg.setAttribute('color', new T.Float32BufferAttribute(col, 3));
@@ -1365,7 +1449,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       var ox = tx + 0.16 + 0.68 * hash(tx, ty, 20 + k), oz = ty + 0.16 + 0.68 * hash(tx, ty, 30 + k);
       var c = cn(tx + 0.5, ty + 0.5), sp = c > 0.56 ? 0 : (c < 0.4 ? 2 : 1);
       var rr = hash(tx, ty, 60 + k); if (rr > 0.82) sp = (sp + 1 + ((rr * 7) | 0) % 2) % 3;
-      var s = 0.78 + 0.6 * hash(tx, ty, 40 + k), tint = 0.84 + 0.3 * hash(tx, ty, 50 + k);
+      var s = 0.78 + 0.6 * hash(tx, ty, 40 + k), tint = 0.8 + 0.24 * hash(tx, ty, 50 + k);   // C1: etwas gedeckter (vorher 0.84 + 0.3)
       var hue = hash(tx, ty, 90 + k), cr = tint, cg = tint, cb = tint;
       if (sp === 1) { if (hue > 0.9) { cr = tint * 1.35; cg = tint * 1.05; cb = tint * 0.55; } else { cr = tint * (0.9 + 0.2 * hue); cb = tint * 0.9; } }
       else if (sp === 2) { cr = tint * (0.95 + 0.25 * hue); cg = tint * 1.05; cb = tint * 0.8; }
