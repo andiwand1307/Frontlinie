@@ -2011,20 +2011,24 @@ var G = (typeof G !== 'undefined') ? G : {};
   // V12[stufe]: Höchstzahlen/Schalter der neuen Mittel. „Sehr leicht/Leicht“ nutzen sie sparsamer.
   //   flakT = Flakpanzer (nur wenn gegnerische Luftfahrzeuge/Flugfeld gesehen)
   //   silo = Erzsilos (wenn der Kontostand an die Lagerkapazität stößt)
+  //   radar = Radarwagen (erst wenn Getarntes/Minen Schaden angerichtet haben: P.st.stealthHits), sab = Saboteure (ab Tech-Zentrum),
+  //   mines/mineAt = Minenfelder gleichzeitig / frühestens ab s (insgesamt höchstens doppelt so viele)
   //   dock/dockAt = Reparaturdocks / frühestens ab s; gates = Tore in Mauer-Durchlässen
   var V12 = {
-    veryeasy: { flakT: 1, silo: 1, dock: 0, dockAt: 0, gates: 0 },
-    easy:     { flakT: 1, silo: 2, dock: 0, dockAt: 0, gates: 0 },
-    medium:   { flakT: 3, silo: 3, dock: 1, dockAt: 420, gates: 1 },
-    hard:     { flakT: 4, silo: 4, dock: 1, dockAt: 360, gates: 2 }
+    veryeasy: { flakT: 1, radar: 1, sab: 0, mines: 0, mineAt: 0, silo: 1, dock: 0, dockAt: 0, gates: 0 },
+    easy:     { flakT: 1, radar: 1, sab: 0, mines: 2, mineAt: 600, silo: 2, dock: 0, dockAt: 0, gates: 0 },
+    medium:   { flakT: 3, radar: 1, sab: 1, mines: 4, mineAt: 330, silo: 3, dock: 1, dockAt: 420, gates: 1 },
+    hard:     { flakT: 4, radar: 2, sab: 2, mines: 6, mineAt: 270, silo: 4, dock: 1, dockAt: 360, gates: 2 }
   };
-  var SPOT12 = { gate: spotGate };
+  var SPOT12 = { gate: spotGate, minefield: spotMine };
   function X12() { return V12[P.ai] || V12.medium; }
   function inQ(cat, t) { var q = P.q[cat] || [], n = 0; for (var i = 0; i < q.length; i++) if (q[i].type === t) n++; return n; }
   function v12() {
     var X = X12();
     v12Flak(X);
     v12Repair(X);
+    v12Radar(X);
+    v12Sab(X);
   }
   /** Bauentscheidung (aus chooseInner): Reparaturdock, sobald eine Fahrzeugarmee steht. */
   function choose12(cnt, secs) {
@@ -2039,6 +2043,8 @@ var G = (typeof G !== 'undefined') ? G : {};
   function chooseDef12(cnt, secs) {
     var X = X12();
     if (A.allIn) return null;
+    if (X.mines && secs >= X.mineAt && !A.defending && cnt('minefield') < X.mines && (A.minesBuilt || 0) < X.mines * 2 && (A.mineFails || 0) < 3 && P.credits > 500 &&
+        G.Sim.canProduce(pid, 'minefield').ok) return 'minefield';
     if (X.gates && A.gateT && A.gateT.length && cnt('gate') < Math.min(X.gates, A.wallLines || 0) && P.credits > 500 && G.Sim.canProduce(pid, 'gate').ok) return 'gate';
     return null;
   }
@@ -2049,6 +2055,73 @@ var G = (typeof G !== 'undefined') ? G : {};
       if (G.Sim.canPlace(pid, 'gate', tx, ty).ok) return { tx: tx, ty: ty };
     }
     return null;
+  }
+  /** Minenfeld auf dem Anmarschweg des Gegners (Fahrzeugpfad Basis → Gegner), 4–9 Kacheln vor der Basis, leicht seitlich gestreut. */
+  function spotMine() {
+    var w = S.map.w, hs = G.Path.nearestPassable(1, Math.floor(A.homeX / TILE), Math.floor(A.homeY / TILE) + 2, 5);
+    var en = G.Path.nearestPassable(1, Math.floor(A.enemyX / TILE), Math.floor(A.enemyY / TILE) + 3, 6);
+    if (hs < 0 || en < 0) { A.mineFails = (A.mineFails || 0) + 1; return null; }
+    var path = G.Path.find(1, hs % w, Math.floor(hs / w), en % w, Math.floor(en / w), 6000, undefined, flipped());
+    for (var tr = 0; tr < 12; tr++) {
+      var k = 4 + Math.floor(G.Sim.rand() * 8), c = path[Math.min(k, path.length - 1)];
+      if (c == null) break;
+      var tx = c % w + Math.floor(G.Sim.rand() * 5) - 2, ty = Math.floor(c / w) + Math.floor(G.Sim.rand() * 5) - 2;
+      if (G.Sim.canPlace(pid, 'minefield', tx, ty).ok && !nearOre(ty * w + tx, 2)) { A.minesBuilt = (A.minesBuilt || 0) + 1; A.mineFails = 0; return { tx: tx, ty: ty }; }
+    }
+    A.mineFails = (A.mineFails || 0) + 1;
+    return null;
+  }
+  /** Radarwagen: sobald Getarntes (Saboteur, Minen, U-Boot) Schaden angerichtet hat. Der erste begleitet die Angriffswelle (Minen vor der
+   *  gegnerischen Basis), sonst steht er am Sammelpunkt; ein zweiter (Schwer) bleibt in der Basis. */
+  function v12Radar(X) {
+    var sh = P.st.stealthHits || 0;
+    if (sh > (A.shSeen || 0)) { A.shSeen = sh; A.wantRadar = S.tick; }
+    if (!A.wantRadar || !X.radar) return;
+    var cars = myUnits(function (e) { return e.type === 'radarcar'; });
+    if (cars.length + inQ('vehicle', 'radarcar') < X.radar && G.Sim.hasBuilding(pid, 'factory') && P.q.vehicle.length < cfg.armyQ + 1 && G.Sim.canProduce(pid, 'radarcar').ok) G.cmd.produce(pid, 'radarcar');
+    if ((S.tick + pid) % (cfg.interval * 2) >= cfg.interval) return;
+    for (var i = 0; i < cars.length; i++) {
+      var c = cars[i], gx = i === 0 ? A.rallyX : A.homeX, gy = i === 0 ? A.rallyY : A.homeY + 3 * TILE;
+      if (i === 0 && A.attack && A.attack.length >= 3) { var gc = centroid(A.attack); gx = gc.x; gy = gc.y; }
+      if (d2(c.x, c.y, gx, gy) > 3.5 * 3.5 * TILE * TILE && d2(c.gx, c.gy, gx, gy) > 3 * 3 * TILE * TILE) G.cmd.move(pid, [c.id], gx, gy);
+    }
+  }
+  /** Saboteure (ab Tech-Zentrum, nach dem frühesten Angriffszeitpunkt): schleichen zu bekannten gegnerischen Wirtschafts-/Technikgebäuden abseits
+   *  bekannter Türme und des Hauptquartiers (Detektoren), sprengen oder legen (Superwaffe/Produktion) lahm und ziehen sich zum Nachladen zurück. */
+  var SABVAL = { power: 5, refinery: 6, factory: 5, techcenter: 6, airfield: 4, shipyard: 3, barracks: 3, orbital: 7, silo: 7, psidome: 7, oresilo: 3, repairdock: 3 };
+  function v12Sab(X) {
+    if (!X.sab || !canAttack() || !G.Sim.hasBuilding(pid, 'techcenter')) return;
+    var sabs = myUnits(function (e) { return e.type === 'saboteur'; });
+    if (sabs.length + inQ('infantry', 'saboteur') < X.sab && S.tick - (A.sabT || -1e9) > 20 * 45 && P.credits > 900 && P.q.infantry.length < cfg.armyQ + 1 && G.Sim.canProduce(pid, 'saboteur').ok) {
+      A.sabT = S.tick; G.cmd.produce(pid, 'saboteur');
+    }
+    if ((S.tick + pid) % (cfg.interval * 2) >= cfg.interval) return;
+    for (var i = 0; i < sabs.length; i++) {
+      var s = sabs[i];
+      if (s.ord === 'sab') continue;
+      if (s.cd > 0) {   // lädt nach: zurück zum Sammelpunkt
+        if (s.ord === 'idle' && d2(s.x, s.y, A.rallyX, A.rallyY) > 8 * 8 * TILE * TILE) G.cmd.move(pid, [s.id], A.rallyX, A.rallyY);
+        continue;
+      }
+      var best = null, bs = 0;
+      for (var id in P.mem) {
+        var m = P.mem[id];
+        if (m.owner === pid || m.owner < 0 || m.neutral || !SABVAL[m.type]) continue;
+        var live = G.Sim.get(m.id); if (live && live.dead) continue;
+        var mx = (m.tx + m.w / 2) * TILE, my = (m.ty + m.h / 2) * TILE, risk = 0;
+        for (var id2 in P.mem) {
+          var t = P.mem[id2]; if (t.owner === pid || t.owner < 0) continue;
+          var dr = D.BUILDINGS[t.type] && D.BUILDINGS[t.type].detect; if (!dr) continue;
+          if (d2(mx, my, (t.tx + t.w / 2) * TILE, (t.ty + t.h / 2) * TILE) < Math.pow((dr + 2.5) * TILE, 2)) risk++;
+        }
+        var sc = SABVAL[m.type] - risk * 4 + ((m.id * 7 + s.id) % 5) * 0.3;
+        if (sc > bs) { bs = sc; best = m; }
+      }
+      if (!best) { if (s.ord === 'idle' && d2(s.x, s.y, A.rallyX, A.rallyY) > 8 * 8 * TILE * TILE) G.cmd.move(pid, [s.id], A.rallyX, A.rallyY); continue; }
+      var stun = !!D.BUILDINGS[best.type].superweapon || (best.maxHp > 1600 && G.Sim.rand() < 0.4);
+      G.cmd.sabMode(pid, [s.id], stun ? 1 : 0);
+      G.cmd.sabotage(pid, [s.id], best.id);
+    }
   }
   /** Reparaturdock nutzen: angeschlagene, teure Fahrzeuge außerhalb des Gefechts fahren zur Reparaturstelle und sind bis zur Genesung
    *  für Wellen gesperrt (A.rep[id] = Tick des Auftrags). */

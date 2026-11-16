@@ -1034,7 +1034,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     for (i = 0; i < ents.length; i++) {
       e = ents[i];
       if (e.dead || e.kind !== 'building' || (e.type !== 'orbital' && e.type !== 'silo')) continue;
-      if (e.owner !== pid && !fogOff && !G.Sim.isVisible(pid, e)) continue;
+      if (G.Sim.hidden(pid, e) || (e.owner !== pid && !fogOff && !G.Sim.isVisible(pid, e))) continue;
       var bx = e.x / TILE, bz = e.y / TILE;
       project(bx, 0.06, bz, ovP);
       if (ovP.x < -150 || ovP.y < -150 || ovP.x > V.vw + 150 || ovP.y > V.vh + 150) continue;
@@ -1368,7 +1368,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       e = ents[i];
       var noBar = e.hp >= e.maxHp && !selSet[e.id];   // Erfahrung: Rangabzeichen auch ohne Lebensbalken
       if (e.dead || e.inside || e.ruin || !(e.maxHp > 0) || (noBar && !(e.rk > 0))) continue;
-      if (e.owner !== pid && !fogOff && !G.Sim.isVisible(pid, e)) continue;
+      if (G.Sim.hidden(pid, e) || (e.owner !== pid && !fogOff && !G.Sim.isVisible(pid, e))) continue;
       if (e.kind === 'unit') {
         var ux = (e.px + (e.x - e.px) * alpha) / TILE, uz = (e.py + (e.y - e.py) * alpha) / TILE;
         var M = unitModelOf(e), s = SCALE[e.type] || 1;
@@ -1409,7 +1409,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     for (i = 0; i < S.ents.length; i++) {
       e = S.ents[i];
       if (e.dead || e.kind !== 'unit' || e.inside) continue;
-      if (e.owner !== pid && !fogOff && !G.Sim.isVisible(pid, e)) continue;
+      if (G.Sim.hidden(pid, e) || (e.owner !== pid && !fogOff && !G.Sim.isVisible(pid, e))) continue;
       var ux = e.x / TILE, uz = e.y / TILE, M = unitModelOf(e), s = SCALE[e.type] || 1;
       project(ux, groundAt(ux, uz) + M.h * s * 0.45 + airH(e), uz, pp);   // v0.8: Luftfahrzeuge in Flughöhe
       var rad = Math.max(e.r * V.ppx(), INF[e.type] ? 9 : 12);
@@ -1424,7 +1424,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       e = S.ents[i];
       if (e.dead || e.kind !== 'building') continue;
       if (NEUT[e.type]) { if (e.ruin || !neutralShown(e, S.players[pid], fogOff)) continue; }
-      else if (e.owner !== pid && !fogOff && !G.Sim.isVisible(pid, e)) continue;
+      else if (G.Sim.hidden(pid, e) || (e.owner !== pid && !fogOff && !G.Sim.isVisible(pid, e))) continue;
       box3.min.set(e.tx, 0, e.ty); box3.max.set(e.tx + e.w, (BH[e.type] || 1) * 0.85, e.ty + e.h);
       var hit = ray.ray.intersectBox(box3, tmpV);
       if (hit) { var t = hit.distanceTo(ray.ray.origin); if (t < bestT) { bestT = t; best = e; } }
@@ -1485,7 +1485,7 @@ var G = (typeof G !== 'undefined') ? G : {};
         if (!GARR[e.type]) { mctx.fillStyle = '#0b0f14'; mctx.fillRect(e.tx * sx + e.w * sx * 0.3, e.ty * sy + e.h * sy * 0.3, e.w * sx * 0.4, e.h * sy * 0.4); }
         continue;
       }
-      if (e.owner !== pid && !fogOff && !G.Sim.isVisible(pid, e)) continue;
+      if (G.Sim.hidden(pid, e) || (e.owner !== pid && !fogOff && !G.Sim.isVisible(pid, e))) continue;
       var col = S.players[e.owner].color, mol = miniOutline(col);   // v1.0: dunkle Teamfarben (Kollektiv) mit hellem Rand – auf Wasser/dunklem Boden lesbar
       if (e.kind === 'building') {
         mctx.fillStyle = mol; mctx.fillRect(e.tx * sx - 1, e.ty * sy - 1, e.w * sx + 2, e.h * sy + 2);
@@ -1502,7 +1502,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       var rpul = 0.5 + 0.5 * Math.sin(performance.now() / 260), rs2 = ds + 1 + rpul;
       for (i = 0; i < S.ents.length; i++) {
         var re = S.ents[i];
-        if (re.dead || re.inside || re.kind !== 'unit' || re.owner === pid || G.Sim.isVisible(pid, re)) continue;
+        if (re.dead || re.inside || re.kind !== 'unit' || re.owner === pid || G.Sim.isVisible(pid, re) || G.Sim.hidden(pid, re)) continue;   // v1.2: Getarntes nicht auf dem Radar
         var rux = re.x / TILE * sx, ruy = re.y / TILE * sy;
         mctx.fillStyle = '#ffffff'; mctx.fillRect(rux - rs2 / 2 - 1, ruy - rs2 / 2 - 1, rs2 + 2, rs2 + 2);
         mctx.fillStyle = S.players[re.owner].color; mctx.fillRect(rux - rs2 / 2, ruy - rs2 / 2, rs2, rs2);

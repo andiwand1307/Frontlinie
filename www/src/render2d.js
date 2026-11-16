@@ -1543,6 +1543,22 @@ var G = (typeof G !== 'undefined') ? G : {};
     if (o.hp != null && o.hp < 0.55) smokeCol(cx, BY + BH * 0.3, 2);
     ctx.globalAlpha = 1;
   }
+  /** v1.2 TARNUNG: gestrichelter, pulsierender Ring um eigene getarnte (blau) bzw. gegnerische aufgedeckte (rot) Objekte. Unsichtbares wird nirgends gezeichnet (G.Sim.hidden). */
+  function drawCloak(S, pid) {
+    var ents = S.ents, pulse = 0.5 + 0.4 * Math.sin(fxTime * 5);
+    for (var i = 0; i < ents.length; i++) {
+      var e = ents[i];
+      if (!e.clk || e.dead || e.inside) continue;
+      var st = G.Sim.cloakState(pid, e);
+      if (st !== 1 && st !== 2) continue;
+      if (st === 2 && !S.settings.fogOff && !G.Sim.isVisible(pid, e)) continue;
+      var X = PX(e.x, e.y), Y = PY(e.x, e.y), rr = (e.kind === 'unit' ? (e.r || 8) * 1.6 : TILE * 0.55);
+      if (X < -60 || X > V.vw + 60 || Y < -60 || Y > V.vh + 60) continue;
+      ctx.save(); ctx.setLineDash([5, 4]); ctx.lineWidth = 2;
+      ctx.strokeStyle = (st === 1 ? 'rgba(96,165,250,' : 'rgba(248,113,113,') + pulse.toFixed(2) + ')';
+      groundEllipse(X, Y, rr * kx, rr * ky); ctx.stroke(); ctx.restore();
+    }
+  }
   function k10DotS(X, Y, r, col) { ctx.fillStyle = col; ctx.beginPath(); ctx.arc(X, Y, r, 0, 6.2832); ctx.fill(); }
   function k10UseB(e, fac) { return fac === 'kollektiv' && !K10KEEP[e.type] && !NEUT[e.type]; }
   /** Gedankenkontrolle sichtbar machen: Verbindung Kontrolleur → Einheit (gestrichelt, pulsierend) + Ring um die kontrollierte Einheit;
@@ -2869,13 +2885,13 @@ var G = (typeof G !== 'undefined') ? G : {};
         var bKy = bKey(e), bhx = (e.w + e.h) * TILE * kx * 0.5, bhy = (e.w + e.h) * TILE * ky * 0.5;
         if (GCX - bhx > mx1 || bKy - GH / 2 > my1 + 100 || GCX + bhx < mx0 || bKy - bhy * 2 - 160 * zoomK < my0 - 60 && bKy + 60 < my0) continue;
         if (NEUT[e.type]) { if (!neutralShown(e, P, fogOff)) continue; }
-        else if (e.owner !== pid && !fogOff && !G.Sim.isVisible(pid, e)) continue;
+        else if (G.Sim.hidden(pid, e) || (e.owner !== pid && !fogOff && !G.Sim.isVisible(pid, e))) continue;
         pushItem(1, e, bKy, null);
       } else {
         if (e.inside) continue;
         var uX = PX(e.x, e.y), uY = PY(e.x, e.y);
         if (uX < mx0 || uX > mx1 || uY < my0 || uY > my1 + 60) continue;
-        if (e.owner !== pid && !fogOff && !G.Sim.isVisible(pid, e)) continue;
+        if (G.Sim.hidden(pid, e) || (e.owner !== pid && !fogOff && !G.Sim.isVisible(pid, e))) continue;
         pushItem(2, e, uY + 0.5 + (e.mc === 2 && e.alt > 0.05 ? 4000 : 0), null);   // v0.8: Fliegendes über allem
       }
     }
@@ -3136,6 +3152,7 @@ var G = (typeof G !== 'undefined') ? G : {};
   function drawOverlay(S, P, sel, selSet, alpha, tick) {
     var pid = V.pid, fogOff = S.settings.fogOff, ents = lookEnts(S), i, e, VW = V.vw, VH = V.vh;   // v1.2 look-Rückfall
     drawMcLinks(S, pid, fogOff, alpha, tick);   // v1.0 Gedankenkontrolle / Magnet
+    drawCloak(S, pid);                          // v1.2 Tarnung
     // Sammelpunkt
     if (sel.length === 1 && sel[0].kind === 'building' && sel[0].rx >= 0) {
       var b = sel[0], X0 = PX(b.x, b.y), Y0 = PY(b.x, b.y), X1 = PX(b.rx, b.ry), Y1 = PY(b.rx, b.ry);
@@ -3154,7 +3171,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     for (i = 0; i < ents.length; i++) { // eigene Bunker: Besatzungs-Pips
       e = ents[i];
       if (e.dead || e.kind !== 'building' || e.type !== 'pbunker' || e.owner < 0) continue;
-      if (e.owner !== pid && !fogOff && !G.Sim.isVisible(pid, e)) continue;
+      if (G.Sim.hidden(pid, e) || (e.owner !== pid && !fogOff && !G.Sim.isVisible(pid, e))) continue;
       var pbX = PX(e.x, e.y);
       if (pbX < -100 || pbX > V.vw + 100) continue;
       garrisonPips(e, S, pbX, true);
@@ -3162,7 +3179,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     for (i = 0; i < ents.length; i++) { // Superwaffen-Ladering (eigene und sichtbare gegnerische)
       e = ents[i];
       if (e.dead || e.kind !== 'building' || (e.type !== 'orbital' && e.type !== 'silo')) continue;
-      if (e.owner !== pid && !fogOff && !G.Sim.isVisible(pid, e)) continue;
+      if (G.Sim.hidden(pid, e) || (e.owner !== pid && !fogOff && !G.Sim.isVisible(pid, e))) continue;
       swOverlay(e, S, pid, fogOff);
     }
     // Befehlsmarker
@@ -3198,7 +3215,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       if (e.dead || e.inside || e.ruin || !(e.maxHp > 0)) continue;
       var isSel = selSet[e.id], noBar = e.hp >= e.maxHp && !isSel;   // Erfahrung: Rangabzeichen auch ohne Lebensbalken
       if (noBar && !(e.rk > 0)) continue;
-      if (e.owner !== pid && !fogOff && !G.Sim.isVisible(pid, e)) continue;
+      if (G.Sim.hidden(pid, e) || (e.owner !== pid && !fogOff && !G.Sim.isVisible(pid, e))) continue;
       if (e.kind === 'unit') {
         var ux = e.px + (e.x - e.px) * alpha, uy = e.py + (e.y - e.py) * alpha, X = PX(ux, uy), Y = PY(ux, uy) - unitLiftPx(e) - 5;
         if (X < -40 || Y < -20 || X > VW + 40 || Y > VH + 40) continue;
@@ -3304,7 +3321,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     for (i = 0; i < LE.length; i++) {
       e = LE[i];
       if (e.dead || e.kind !== 'unit' || e.inside) continue;
-      if (e.owner !== pid && !fogOff && !G.Sim.isVisible(pid, e)) continue;
+      if (G.Sim.hidden(pid, e) || (e.owner !== pid && !fogOff && !G.Sim.isVisible(pid, e))) continue;
       var X = PX(e.x, e.y), Y = PY(e.x, e.y) - (e.mc === 2 ? airScreen(e) : unitLiftPx(e) * 0.45);   // v0.8: Luftfahrzeuge in Flughöhe
       var rad = Math.max(e.r * kx, isInf(e.type) ? 9 : 12);
       var d = Math.hypot(X - px, Y - py) - rad;
@@ -3316,7 +3333,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       e = LE[i];
       if (e.dead || e.kind !== 'building') continue;
       if (NEUT[e.type]) { if (e.ruin || !neutralShown(e, P, fogOff)) continue; }
-      else if (e.owner !== pid && !fogOff && !G.Sim.isVisible(pid, e)) continue;
+      else if (G.Sim.hidden(pid, e) || (e.owner !== pid && !fogOff && !G.Sim.isVisible(pid, e))) continue;
       var hg = bHeight(e.type), hit = false, bk;
       bgeom(e); bk = GCY + GH / 2;
       if (!ROT) { var x0 = sx(e.tx * TILE), y1 = sy((e.ty + e.h) * TILE), y0 = sy(e.ty * TILE) - hg; hit = px >= x0 && px <= x0 + e.w * TILE * kx && py >= y0 && py <= y1; }
@@ -3367,7 +3384,7 @@ var G = (typeof G !== 'undefined') ? G : {};
         if (!GARR[e.type]) { mctx.fillStyle = '#0b0f14'; mctx.fillRect(e.tx * mxs + e.w * mxs * 0.3, e.ty * mys + e.h * mys * 0.3, e.w * mxs * 0.4, e.h * mys * 0.4); }
         continue;
       }
-      if (e.owner !== pid && !fogOff && !G.Sim.isVisible(pid, e)) continue;
+      if (G.Sim.hidden(pid, e) || (e.owner !== pid && !fogOff && !G.Sim.isVisible(pid, e))) continue;
       var col = S.players[e.owner].color, mol = miniOutline(col);   // v1.0: heller Rand für dunkle Teamfarben
       if (e.kind === 'building') {
         if (e.type !== 'wall') { mctx.fillStyle = mol; mctx.fillRect(e.tx * mxs - 1, e.ty * mys - 1, e.w * mxs + 2, e.h * mys + 2); }
@@ -3383,7 +3400,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       var rpul = 0.5 + 0.5 * Math.sin(performance.now() / 260), rs2 = ds + 1 + rpul;
       for (i = 0; i < S.ents.length; i++) {
         var re = S.ents[i];
-        if (re.dead || re.inside || re.kind !== 'unit' || re.owner === pid || G.Sim.isVisible(pid, re)) continue;
+        if (re.dead || re.inside || re.kind !== 'unit' || re.owner === pid || G.Sim.isVisible(pid, re) || G.Sim.hidden(pid, re)) continue;   // v1.2: Getarntes nicht auf dem Radar
         var rux = re.x / TILE * mxs, ruy = re.y / TILE * mys;
         mctx.fillStyle = '#ffffff'; mctx.fillRect(rux - rs2 / 2 - 1, ruy - rs2 / 2 - 1, rs2 + 2, rs2 + 2);
         mctx.fillStyle = S.players[re.owner].color; mctx.fillRect(rux - rs2 / 2, ruy - rs2 / 2, rs2, rs2);

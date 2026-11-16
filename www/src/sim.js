@@ -130,7 +130,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     var map = G.MAPS.parse(def);
     S = {
       version: D.SAVE_VERSION, tick: 0, rng: (opts.seed >>> 0) || 1, nextId: 1, evSeq: 0,
-      map: map, occ: new Int32Array(map.w * map.h), ents: [], proj: [], strikes: [], sw: [], events: [], pq: [],
+      map: map, occ: new Int32Array(map.w * map.h), ents: [], proj: [], strikes: [], sw: [], events: [], pq: [], charges: [],
       players: [], over: false, winner: -1, aiState: {},
       settings: { fogOff: !!opts.fogOff, speed: opts.speed || 'normal', mapId: def.id, seed: opts.seed >>> 0,
                   peace: Math.max(0, Math.round(+opts.peace || 0)) },   // v0.7: opts.peace in SEKUNDEN (G.Main.start rechnet Minuten × 60)
@@ -188,7 +188,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     for (i = 0; i < S.ents.length; i++) if (S.ents[i].drainT > S.tick) drainEnd = Math.max(drainEnd, S.ents[i].drainT);   // v1.0
     G.Path.init(S);
     // v0.5: Mauer-Belegung für Durchbruchspfade
-    for (i = 0; i < S.ents.length; i++) { var we = S.ents[i]; if (!we.dead && isWall(we)) { G.Path.setWall(we.ty * S.map.w + we.tx, we.owner); if (D.BUILDINGS[we.type].gate) G.Path.setGate(we.ty * S.map.w + we.tx, we.owner); } }   // v1.2: Tore
+    for (i = 0; i < S.ents.length; i++) { var we = S.ents[i]; if (!we.dead && isWall(we) && !D.BUILDINGS[we.type].noOcc) { G.Path.setWall(we.ty * S.map.w + we.tx, we.owner); if (D.BUILDINGS[we.type].gate) G.Path.setGate(we.ty * S.map.w + we.tx, we.owner); } }   // v1.2: Tore
     recalcPower();
   }
 
@@ -263,9 +263,11 @@ var G = (typeof G !== 'undefined') ? G : {};
     }
     if (b.superweapon) { e.charge = 0; e.swRdy = false; }
     if (b.garrisonOwn) { e.gar = []; e.cap = b.cap || 0; }   // v0.5 baubarer Bunker
+    if (b.cloak) e.clk = 1;                                   // v1.2 Tarnung
+    if (b.mine) { e.ch = b.mine.charges; }                    // v1.2 Minenfeld: Ladungen
     S.ents.push(e); byId.set(e.id, e);
-    for (var y = ty; y < ty + b.h; y++) for (var x = tx; x < tx + b.w; x++) S.occ[y * S.map.w + x] = e.id;
-    if (b.isWall) G.Path.setWall(ty * S.map.w + tx, owner);
+    if (!b.noOcc) for (var y = ty; y < ty + b.h; y++) for (var x = tx; x < tx + b.w; x++) S.occ[y * S.map.w + x] = e.id;   // v1.2: noOcc (Minenfeld) belegt keine Kachel
+    if (b.isWall && !b.noOcc) G.Path.setWall(ty * S.map.w + tx, owner);
     if (b.gate) G.Path.setGate(ty * S.map.w + tx, owner);   // v1.2 Tor
     recalcPower();
     // Einheiten, die (durch Pfadänderung) über die Fläche wollen, planen neu
@@ -307,6 +309,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     if (st.move === 'hover') e.pc = D.HOVER_PC;               // v1.0 Schwebepanzer: Wegfindung über Land und Wasser
     if (st.transport) { e.gar = []; e.cap = st.transport; }   // v0.7 Schützenpanzer (v0.8: alle Transporter)
     if (e.mc === 2) initFlyer(e, st);                         // v0.8 Luftfahrzeug
+    if (st.cloak) e.clk = 1;                                  // v1.2 Tarnung
     S.ents.push(e); byId.set(e.id, e);
     return e;
   }
@@ -333,7 +336,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       var e = S.ents[i];
       if (e.kind !== 'building' || e.dead || e.owner < 0 || e.neutral) continue;
       var pw = D.BUILDINGS[e.type].power, P = S.players[e.owner];
-      if (pw > 0) { if (!(e.drainT > S.tick)) P.pwrProd += pw; } else P.pwrUse -= pw;   // v1.0: vom Diskus entzogen → kein Strom
+      if (pw > 0) { if (!(e.drainT > S.tick) && !(e.offT > S.tick)) P.pwrProd += pw; } else P.pwrUse -= pw;   // v1.0: vom Diskus entzogen → kein Strom
     }
     recalcCap();   // v1.2 Erzlager (gleiche Aufrufstellen wie die Energie: Bau, Verlust, Übernahme)
   }
@@ -345,6 +348,7 @@ var G = (typeof G !== 'undefined') ? G : {};
   /** Ist Entität e für Spieler pid sichtbar (Nebel)? */
   function isVisible(pid, e) {
     if (e.owner === pid) return true;
+    if (e.clk && hidden(pid, e)) return false;   // v1.2 Tarnung
     var vis = S.players[pid].vis, w = S.map.w;
     if (e.kind === 'unit') return !e.inside && vis[tileOf(e.x, e.y)] === 1;
     for (var y = e.ty; y < e.ty + e.h; y++) for (var x = e.tx; x < e.tx + e.w; x++) if (vis[y * w + x]) return true;
@@ -427,6 +431,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       if (m.ore[i] > 0) return { ok: false, reason: 'Nicht auf Erz' };
       if (S.occ[i]) return { ok: false, reason: 'Belegt' };
     }
+    if (noOccAt(tx, ty, b.w, b.h)) return { ok: false, reason: 'Belegt' };   // v1.2 Minenfeld (ohne Kachelbelegung)
     if (unitsOnRect(tx, ty, b.w, b.h, 0)) return { ok: false, reason: 'Einheiten im Weg' };
     if (!nearBase(pid, tx, ty, b.w, b.h, b.placeDist) && !(b.gate && wallAdjacent(pid, tx, ty))) return { ok: false, reason: b.gate ? 'Zu weit von Basis und Mauer' : 'Zu weit von der Basis' };   // v1.2: placeDist; Tor auch direkt an eigener Mauer
     return { ok: true, reason: '' };
@@ -492,7 +497,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       if (ti < 0 || ti >= w * m.h) r = 'Außerhalb der Karte';
       else if (!TER[m.terrain[ti]].build) r = 'Ungeeignetes Gelände';
       else if (m.ore[ti] > 0) r = 'Nicht auf Erz';
-      else if (S.occ[ti]) r = 'Belegt';
+      else if (S.occ[ti] || noOccAt(tx, ty, 1, 1)) r = 'Belegt';
       else if (unitsOnRect(tx, ty, 1, 1, 0)) r = 'Einheiten im Weg';
       why[ti] = r; state[ti] = r ? -1 : (nearBase(pid, tx, ty, 1, 1) ? 1 : 0);   // 1 = Nähe ok, 0 = braucht Kette
     }
@@ -600,6 +605,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     for (var i = 0; i < S.ents.length; i++) {
       var e = S.ents[i];
       if (e.dead || e.inside) continue;
+      if (pid != null && e.clk && hidden(pid, e)) continue;   // v1.2 Tarnung (auch ohne Nebel)
       if (pid != null && e.owner !== pid && !S.settings.fogOff && !isVisible(pid, e) && !(e.neutral && explored(pid, e))) continue;
       var d = distTo(e, x, y);
       if (e.kind === 'unit') { if (d <= slack && d < bestD) { best = e; bestD = d - 2; } }
@@ -1084,7 +1090,7 @@ var G = (typeof G !== 'undefined') ? G : {};
   }
   function swRate(b) { return DT / D.SW.charge * (lowPower(b.owner) ? 0.5 : 1); }
   function tickSWCharge(b) {
-    if (b.owner < 0) return;
+    if (b.owner < 0 || b.offT > S.tick) return;   // v1.2: lahmgelegt → lädt nicht
     if (b.charge < 1) b.charge = Math.min(1, b.charge + swRate(b));
     if (b.charge >= 1 && !b.swRdy) { b.swRdy = true; emit('swReady', b.x, b.y, { id: b.id, owner: b.owner, kind: D.BUILDINGS[b.type].superweapon }); }
   }
@@ -1266,7 +1272,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     for (var i = 0; i < bq.length; i++) if (!bq[i].ready) { cur = bq[i]; break; }
     if (cur) {
       var bd = D.BUILDINGS[cur.type];
-      if (!hasBuilding(pid, 'hq') || (bd.req && !hasBuilding(pid, bd.req))) { /* kein Bauhof / Voraussetzung verloren: pausiert */ }
+      if (!activeCount(pid, 'hq') || (bd.req && !hasBuilding(pid, bd.req))) { /* kein Bauhof / Voraussetzung verloren: pausiert (v1.2: auch wenn alle HQ lahmgelegt sind) */ }
       else advanceItem(P, cur, slow);
       if (cur.prog >= 1) { cur.ready = true; if (!P.ai) emit('ready', 0, 0, { owner: pid, type: cur.type }); }
     }
@@ -1283,7 +1289,7 @@ var G = (typeof G !== 'undefined') ? G : {};
   function tickUnitQueue(P, cat, btype, slow) {
     var q = P.q[cat];
     if (!q.length) return;
-    var nprod = countOf(P.id, btype, 'building');
+    var nprod = activeCount(P.id, btype);   // v1.2: lahmgelegte Produktionsstätten zählen nicht
     if (!nprod) return;
     var it = q[0], ust = stats[P.id][it.type];
     if (ust && ust.req && !hasBuilding(P.id, ust.req)) return; // v0.4: Tech-Zentrum verloren → pausiert
@@ -1400,6 +1406,8 @@ var G = (typeof G !== 'undefined') ? G : {};
     if (t.kind === 'unit') amount /= mods(t).hp;
     var hp0 = t.hp;
     t.hp -= amount;
+    if (src && (src.clk || src.stealth) && src.owner !== t.owner) { var Pv = S.players[t.owner]; Pv.st.stealthHits = (Pv.st.stealthHits || 0) + 1; Pv.stealthT = S.tick; }   // v1.2: Schaden durch Getarntes (KI baut Detektoren)
+    if (G.Sim._onDamage) G.Sim._onDamage(t, Math.min(amount, hp0), src);   // nur Messung (Balance-Serien)
     if (xpSrc) expGain(xpSrc, t, Math.min(amount, hp0));
     var P = S.players[t.owner];
     if (src && src.owner !== t.owner) {
@@ -1453,7 +1461,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       for (var y = e.ty; y < e.ty + e.h; y++) for (var x = e.tx; x < e.tx + e.w; x++) {
         var i = y * S.map.w + x; if (S.occ[i] === e.id) S.occ[i] = 0;
       }
-      if (D.BUILDINGS[e.type].isWall) G.Path.setWall(e.ty * S.map.w + e.tx, -1);
+      if (D.BUILDINGS[e.type].isWall && !D.BUILDINGS[e.type].noOcc) G.Path.setWall(e.ty * S.map.w + e.tx, -1);
       if (D.BUILDINGS[e.type].gate) G.Path.setGate(e.ty * S.map.w + e.tx, -1);   // v1.2 Tor
       recalcPower();
     }
@@ -1494,6 +1502,7 @@ var G = (typeof G !== 'undefined') ? G : {};
         var d = distTo(t, x, y);
         if (d > rangePx || d < minR) continue;
         if (!P.vis[tileOf(t.x, t.y)]) continue;
+        if (t.clk && hidden(pid, t)) continue;   // v1.2 Tarnung
         var sc = d;
         if (WP && WP.psi) { var pst = ust(t); sc -= Math.min(96, (pst.cost || 0) / 20) + (pst.weapon ? 0 : -64); }   // v1.0: wertvolle, bewaffnete Ziele übernehmen
         else if (preferWeapon) { var tw = ust(t).weapon; if (!tw) sc += 64; else sc -= 16 * (D.DAMAGE[preferWeapon][ust(t).armor] - 0.5); }
@@ -1506,7 +1515,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       var b = S.ents[tfl ? nE - 1 - i0 : i0];
       if (b.kind !== 'building' || b.dead || b.owner === pid || b.owner < 0) continue;
       if (b.neutral && (b.ruin || D.BUILDINGS[b.type].invuln)) continue;
-      if (D.BUILDINGS[b.type].isWall) continue;   // v0.5: Mauern nur auf Befehl / bei versperrtem Weg
+      if (D.BUILDINGS[b.type].isWall && !D.BUILDINGS[b.type].mine) continue;   // v0.5: Mauern nur auf Befehl / bei versperrtem Weg (v1.2: aufgedeckte Minenfelder schon)
       var db = distTo(b, x, y);
       if (db > rangePx || db < minR) continue;
       if (!isVisible(pid, b)) continue;
@@ -1522,6 +1531,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     if ((wpn.vehicleOnly || wpn.navalOnly) && !canHit(wpn, t)) return;
     var dmg = wpn.dmg * D.DAMAGE[wpn.type][t.kind === 'building' ? 'building' : ust(t).armor];
     var aux = e.kind === 'unit' && ust(e).aa === wpn, inAir = airborne(t);   // v0.8: Zweitwaffe (Flak) dreht den Turm nicht
+    if (e.clk) e.revT = S.tick + D.CLOAK.fireReveal * HZ;   // v1.2 Tarnung: Schuss verrät
     if (!aux) e.fireT = S.tick;
     var ang = Math.atan2(t.y - e.y, t.x - e.x);
     if (!aux) e.tdir = ang;
@@ -1594,7 +1604,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       if (o === t || !hostile(pid, o) || isWall(o) || airborne(o)) continue;
       var d = distTo(o, t.x, t.y);
       if (d > R) continue;
-      if (o.kind === 'unit' ? !P.vis[tileOf(o.x, o.y)] : !isVisible(pid, o)) continue;
+      if (o.kind === 'unit' ? (!P.vis[tileOf(o.x, o.y)] || (o.clk && hidden(pid, o))) : !isVisible(pid, o)) continue;
       c.push({ e: o, s: d + (o.kind === 'building' ? 1e6 : 0) });
     }
     c.sort(function (a, b) { return a.s - b.s || a.e.id - b.e.id; });
@@ -1650,6 +1660,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     if (b.mcList) mcList(b);   // v1.0 Psi-Turm: Liste aufräumen
     if (b.cd > 0) b.cd--;
     if (d.noFireLowPower && lowPower(b.owner)) { b.tgt = 0; return; }   // v0.5 Laser/Blitz: bei Energiemangel kein Feuer
+    if (b.offT > S.tick) { b.tgt = 0; return; }   // v1.2: vom Saboteur lahmgelegt
     var t = b.tgt ? byId.get(b.tgt) : null, rangePx = d.weapon.range * TILE;
     if (!hostile(b.owner, t) || distTo(t, b.x, b.y) > rangePx || !isVisible(b.owner, t) || !canHit(d.weapon, t)) {
       b.tgt = 0; t = null;
@@ -1849,7 +1860,8 @@ var G = (typeof G !== 'undefined') ? G : {};
       return;
     }
     var t = e.tgt ? byId.get(e.tgt) : null;
-    if (t && (!hostile(e.owner, t) || (st.weapon && !canHit(st.weapon, t)))) { t = null; e.tgt = 0; }   // v0.8: Luftziele nur mit Flugabwehr
+    if (t && (!hostile(e.owner, t) || (st.weapon && !canHit(st.weapon, t)) || (t.clk && hidden(e.owner, t)))) { t = null; e.tgt = 0; }   // v0.8: Luftziele nur mit Flugabwehr; v1.2: Getarntes verliert sich
+    if (st.saboteur && e.ord === 'sab') { tickSab(e, st); return; }   // v1.2 Saboteur
     var sightPx = st.sight * TILE;
     if (e.gar) syncPassengers(e);                       // v0.7 Schützenpanzer: Insassen fahren mit
     if (e.salvoN > 0) tickSalvo(e, st);                 // v0.7 Raketensalve läuft
@@ -2173,6 +2185,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     if (!S.peaceDone && S.settings.peace > 0 && S.tick >= S.settings.peace * HZ) { S.peaceDone = true; emit('peaceOver', 0, 0, { peace: S.settings.peace }); }
     G.Path.process(S, 3000, get);
     buildGrid();
+    if (S.tick % D.CLOAK.every === 0) tickReveal();   // v1.2 Tarnung/Aufdeckung
     var i, e, n = S.ents.length;
     for (var p0 = 0; p0 < S.players.length; p0++) { S.players[p0].radar = false; S.players[p0].trade = 0; }   // v1.2: trade = eigene Handelsposten
     for (i = 0; i < n; i++) {
@@ -2192,6 +2205,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     }
     separation();
     tickProjectiles();
+    if (S.charges.length) tickCharges();   // v1.2 Sprengladungen
     if (S.strikes.length) tickStrikes();
     if (S.sw.length) tickSW();
     for (var p = 0; p < S.players.length; p++) if (!S.players[p].defeated) tickProduction(S.players[p]);
@@ -2200,6 +2214,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     for (p = 0; p < S.players.length; p++) if (!S.players[p].defeated) tickAirSeaQueues(S.players[p]);   // v0.8 Flugfeld/Werft
     if (S.tick % 40 === 0) regrowOre();
     if (drainEnd >= 0 && S.tick % 5 === 0) { recalcPower(); if (S.tick > drainEnd + 5) drainEnd = -1; }   // v1.0 Diskus-Stromentzug läuft ab
+    if (offEnd >= 0 && S.tick % 5 === 0) { recalcPower(); if (S.tick > offEnd + 5) offEnd = -1; }       // v1.2 lahmgelegte Kraftwerke laufen wieder an
     updateFog(false);
     // Tote entfernen
     var j = 0;
@@ -2785,7 +2800,143 @@ var G = (typeof G !== 'undefined') ? G : {};
   /** Altstände (S.version < D.SAVE_VERSION) um v1.2-Felder ergänzen; danach gilt der Stand als aktuell. */
   function migrateV12() {
     S.version = D.SAVE_VERSION;
+    if (!S.charges) S.charges = [];
     for (var p = 0; p < S.players.length; p++) { var P = S.players[p]; if (P.trade == null) P.trade = 0; if (P.capFullT == null) P.capFullT = -9999; }
+    for (var i = 0; i < S.ents.length; i++) {
+      var e = S.ents[i], d = e.kind === 'unit' ? D.unitStats(e.fac || S.players[e.owner].faction, e.type) : D.BUILDINGS[e.type];
+      if (d && d.cloak && !e.clk) e.clk = 1;
+    }
+    offEnd = -1;
+    for (i = 0; i < S.ents.length; i++) if (S.ents[i].offT > S.tick) offEnd = Math.max(offEnd, S.ents[i].offT);
+  }
+
+  // ================================================================== TARNUNG / AUFDECKUNG
+  // Felder (im Spielstand): clk (1 = Typ ist getarnt), revM (Bitmaske der Spieler, in deren Detektor-Radius das Objekt gerade liegt; alle
+  //   D.CLOAK.every Ticks neu), revT (bis zu diesem Tick für ALLE sichtbar – nach Schuss/Sprengladung/Auslösung).
+  // hidden(pid, e): für Spieler pid unsichtbar? Wird von isVisible, findTarget, entityAt, Zielverfolgung, cmd.attack und den Renderern benutzt –
+  // gilt für Mensch und KI gleichermaßen (die KI liest Gegner nur über isVisible). Der Nebel bleibt davon unberührt (zusätzliche Bedingung).
+  function hidden(pid, e) { return !!e.clk && e.owner !== pid && e.owner >= 0 && !(e.revT > S.tick) && !((e.revM >> pid) & 1); }
+  /** Darstellung: 0 = nicht getarnt, 1 = eigene getarnte Einheit (Schimmer), 2 = getarnt, aber für pid aufgedeckt, 3 = für pid unsichtbar. */
+  function cloakState(pid, e) { if (!e.clk) return 0; if (e.owner === pid) return 1; return hidden(pid, e) ? 3 : 2; }
+  var rvC = [], rvD = [];
+  /** Aufdeckung neu berechnen: wenige getarnte Objekte × wenige Detektoren (ein Durchlauf über S.ents, kein Jeder-gegen-jeden). */
+  function tickReveal() {
+    rvC.length = 0; rvD.length = 0;
+    var i, e, n = S.ents.length;
+    for (i = 0; i < n; i++) {
+      e = S.ents[i];
+      if (e.dead || e.inside || e.owner < 0) continue;
+      if (e.clk) rvC.push(e);
+      var dr = e.kind === 'unit' ? ust(e).detect : D.BUILDINGS[e.type].detect;
+      if (dr && !(e.offT > S.tick)) rvD.push(e);
+    }
+    for (i = 0; i < rvC.length; i++) {
+      var c = rvC[i], m = 0;
+      for (var k = 0; k < rvD.length; k++) {
+        var d = rvD[k];
+        if (d.owner === c.owner || ((m >> d.owner) & 1)) continue;
+        var R = (d.kind === 'unit' ? ust(d).detect : D.BUILDINGS[d.type].detect) * TILE + (d.kind === 'building' ? Math.max(d.w, d.h) * TILE / 2 : 0);
+        if (dist2(d.x, d.y, c.x, c.y) <= R * R) m |= 1 << d.owner;
+      }
+      if (m && !c.revM) emit('reveal', c.x, c.y, { id: c.id, owner: c.owner, by: m, type: c.type });
+      c.revM = m;
+    }
+  }
+  /** Minenfeld (oder anderes Gebäude ohne Kachelbelegung) auf dem Rechteck? */
+  function noOccAt(tx, ty, w, h) {
+    for (var i = 0; i < S.ents.length; i++) {
+      var e = S.ents[i];
+      if (e.kind !== 'building' || e.dead || !D.BUILDINGS[e.type].noOcc) continue;
+      if (e.tx < tx + w && e.tx + e.w > tx && e.ty < ty + h && e.ty + e.h > ty) return true;
+    }
+    return false;
+  }
+  /** Nicht lahmgelegte eigene Gebäude eines Typs. */
+  function activeCount(pid, type) {
+    var n = 0;
+    for (var i = 0; i < S.ents.length; i++) { var e = S.ents[i]; if (e.kind === 'building' && !e.dead && e.owner === pid && e.type === type && !(e.offT > S.tick)) n++; }
+    return n;
+  }
+  var offEnd = -1;   // letzter Tick, an dem noch ein Gebäude lahmgelegt ist (Laufzeit-Cache wie drainEnd)
+
+  // ---- Minenfeld
+  function tickMine(b, md) {
+    if ((S.tick + b.id) % 3 !== 0 || b.cdT > S.tick) return;
+    var R = md.trig * TILE, x = b.x, y = b.y, hit = false;
+    var c0x = Math.max(0, Math.floor((x - R) / CELL)), c1x = Math.min(gw - 1, Math.floor((x + R) / CELL));
+    var c0y = Math.max(0, Math.floor((y - R) / CELL)), c1y = Math.min(gh - 1, Math.floor((y + R) / CELL));
+    for (var cy = c0y; cy <= c1y && !hit; cy++) for (var cx = c0x; cx <= c1x; cx++) {
+      for (var k = gHead[cy * gw + cx]; k !== -1; k = gNext[k]) {
+        var u = gEnts[k];
+        if (u.owner === b.owner || u.owner < 0 || u.dead || u.mc >= 2 || u.pc === 4) continue;   // nur gegnerische Bodeneinheiten (nicht schwebend)
+        if (dist2(u.x, u.y, x, y) <= (R + u.r * 0.5) * (R + u.r * 0.5)) { hit = true; break; }
+      }
+      if (hit) break;
+    }
+    if (!hit) return;
+    var AR = md.r * TILE;
+    b.ch = (b.ch || 1) - 1; b.cdT = S.tick + Math.round(md.cd * HZ); b.revT = S.tick + D.CLOAK.actReveal * HZ;
+    emit('mine', x, y, { id: b.id, owner: b.owner, r: AR, left: b.ch });
+    S.players[b.owner].st.mineHits = (S.players[b.owner].st.mineHits || 0) + 1;
+    areaDamage(b.owner, x, y, AR, { owner: b.owner, kind: 'x', stealth: true, type: 'minefield' }, function (tt, dd) {
+      if (tt.kind !== 'unit' || tt.pc === 4) return 0;
+      return md.dmg * D.DAMAGE.mine[ust(tt).armor] * (1 - 0.5 * Math.min(1, dd / AR));
+    });
+    if (b.ch <= 0) { emit('die', x, y, { owner: b.owner, type: b.type, kind: 'building', id: b.id, w: 1, h: 1, src: 0, used: true }); removeEntity(b); }
+  }
+
+  // ---- Saboteur: ord 'sab', sabId (Zielgebäude), sabMode (0 = Sprengladung, 1 = lahmlegen), cd (Ticks bis zur nächsten Ladung)
+  // S.charges: gelegte Sprengladungen { t (Zündtick), bid, owner, src, dmg, x, y }. GEBÄUDE offT (lahmgelegt bis Tick).
+  function sabBlock(pid, b) {
+    if (!b || b.dead || b.kind !== 'building') return 'Kein Gebäude';
+    if (b.owner === pid) return 'Eigenes Gebäude';
+    if (b.owner < 0 || b.neutral) return 'Nur gegnerische Basisgebäude';
+    if (hidden(pid, b)) return 'Kein Gebäude';
+    return '';
+  }
+  function orderSab(e, b) {
+    orderStop(e);
+    e.ord = 'sab'; e.sabId = b.id;
+    var bd = D.BUILDINGS[b.type];
+    if (bd.noOcc) { setGoal(e, b.x, b.y); return; }
+    var ring = ringTiles(b), w = S.map.w, best = -1, bdist = 1e18;
+    for (var i = 0; i < ring.length; i++) { var cx = (ring[i] % w + 0.5) * TILE, cy = (Math.floor(ring[i] / w) + 0.5) * TILE, d = dist2(cx, cy, e.x, e.y); if (d < bdist) { bdist = d; best = ring[i]; } }
+    if (best < 0) setGoal(e, b.x, b.y + b.h * TILE / 2 + TILE / 2);
+    else setGoal(e, (best % w + 0.5) * TILE, (Math.floor(best / w) + 0.5) * TILE);
+  }
+  function tickSab(e, st) {
+    var b = byId.get(e.sabId), sb = st.saboteur;
+    if (sabBlock(e.owner, b)) { orderStop(e); return; }
+    var near = distTo(b, e.x, e.y) <= TILE * 0.8 + e.r;
+    if (!near) {
+      if (!(followPath(e, st) || checkStuck(e))) return;
+      if (distTo(b, e.x, e.y) > TILE * 1.7 + e.r) { if ((e.sabTry = (e.sabTry || 0) + 1) <= 3) orderSab(e, b); else { e.sabTry = 0; orderStop(e); } return; }
+    }
+    e.moving = false; e.path = null; e.pp = false; e.sabTry = 0;
+    if (e.cd > 0) return;   // lädt noch nach: wartet am Gebäude
+    var P = S.players[e.owner];
+    e.cd = Math.round(sb.cd * HZ); e.revT = S.tick + D.CLOAK.actReveal * HZ; e.fireT = S.tick;
+    P.st.sabotage = (P.st.sabotage || 0) + 1;
+    if (e.sabMode === 1) {
+      b.offT = S.tick + Math.round(sb.stun * HZ); b.tgt = 0; offEnd = Math.max(offEnd, b.offT);
+      recalcPower();
+      emit('sabotage', b.x, b.y, { id: b.id, src: e.id, owner: e.owner, victim: b.owner, mode: 'stun', t2: b.offT, type: b.type });
+    } else {
+      S.charges.push({ t: S.tick + Math.round(sb.delay * HZ), bid: b.id, owner: e.owner, src: e.id, dmg: sb.dmg, x: b.x, y: b.y });
+      emit('sabotage', b.x, b.y, { id: b.id, src: e.id, owner: e.owner, victim: b.owner, mode: 'bomb', t2: S.tick + Math.round(sb.delay * HZ), type: b.type });
+    }
+    var Pv = S.players[b.owner]; if (Pv) { Pv.alert.tick = S.tick; Pv.alert.x = b.x; Pv.alert.y = b.y; Pv.alert.harv = false; Pv.alert.bld = true; Pv.st.stealthHits = (Pv.st.stealthHits || 0) + 1; Pv.stealthT = S.tick; }
+    orderStop(e);
+  }
+  function tickCharges() {
+    for (var i = S.charges.length - 1; i >= 0; i--) {
+      var c = S.charges[i];
+      if (S.tick < c.t) continue;
+      S.charges.splice(i, 1);
+      var b = byId.get(c.bid), src = byId.get(c.src);
+      emit('sabBoom', c.x, c.y, { id: c.bid, owner: c.owner });
+      if (b && !b.dead && b.owner !== c.owner) damage(b, c.dmg, src && !src.dead && src.owner === c.owner ? src : { owner: c.owner, kind: 'x', stealth: true, type: 'saboteur' });
+    }
   }
 
   // ---- Erzlager: P.oreCap = D.ORE_CAP.base + Summe store der eigenen Gebäude. Sinkt die Kapazität unter den Kontostand (Lager verloren),
@@ -2815,6 +2966,7 @@ var G = (typeof G !== 'undefined') ? G : {};
   function tickBld12(b, bd) {
     if (bd.repairPad) tickRepairPad(b, bd.repairPad);
     else if (bd.gate) { if ((S.tick + b.id) % 5 === 0) b.open = unitNear(b.owner, b.x, b.y, 1.7 * TILE); }
+    else if (bd.mine) tickMine(b, bd.mine);
   }
   /** Steht eine eigene Bodeneinheit von pid im Umkreis R px um (x,y)? (räumliches Gitter) */
   function unitNear(pid, x, y, R) {
@@ -2832,7 +2984,7 @@ var G = (typeof G !== 'undefined') ? G : {};
   // ---- Reparaturdock: repariert eigene Fahrzeuge im Umkreis gegen Credits (Mechanik der neutralen Werkstatt, aber kostenpflichtig).
   // GEBÄUDE repT (Tick der letzten Reparatur – für die Darstellung). EINHEIT repId (Ziel-Dock von G.cmd.repairAt, 0 = keins).
   function tickRepairPad(b, rp) {
-    if ((S.tick + b.id) % 10 !== 0) return;
+    if ((S.tick + b.id) % 10 !== 0 || b.offT > S.tick) return;
     var P = S.players[b.owner]; if (!P) return;
     var heal = rp.rate * 10 / HZ * (lowPower(b.owner) ? 0.5 : 1), R = rp.r * TILE;
     var x0 = b.tx * TILE - R, y0 = b.ty * TILE - R, x1 = (b.tx + b.w) * TILE + R, y1 = (b.ty + b.h) * TILE + R;
@@ -2905,6 +3057,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     controllable: controllable, mcList: function (e) { return e && e.mcList ? mcList(e) : []; }, psiOf: psiOf, pcOf: pcOf, _recycle: orderRecycle, recycleBlock: recycleBlock,
     ust: function (e) { return ust(e); },
     // v1.2 Neue Einheiten:
+    hidden: hidden, cloakState: cloakState, sabBlock: sabBlock, _orderSab: orderSab, _sabMode: function (u, m) { u.sabMode = m ? 1 : 0; }, noOccAt: noOccAt,
     isRepairSite: isRepairSite, repairSite: repairSite, canRepairUnit: canRepairUnit, _orderRepair: function (u, site) { u.repId = site.id; },
     // nur für Tests/Debug (nicht von Spiellogik/KI/UI benutzen):
     _debugSpawn: function (owner, type, x, y) { return spawnUnit(owner, type, x, y); },

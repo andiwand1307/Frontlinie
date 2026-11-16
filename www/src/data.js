@@ -591,7 +591,42 @@ var G = (typeof G !== 'undefined') ? G : {};
   B.oresilo = { id: 'oresilo', name: 'Erzsilo', w: 2, h: 2, cost: 400, time: 8, power: -5, hp: 700, req: 'refinery', sight: 3, look: 'power',
                 store: 3000, desc: 'Lager für 3000 Credits aus Erz' };
   D.TRADE = { discount: 0.10, max: 2 };
+
+  // ---- TARNUNG / AUFDECKUNG (sim.js Abschnitt „Tarnung“): Objekte mit cloak sind für Gegner unsichtbar (nicht anwählbar, kein Ziel – auch für die KI),
+  // außer im Aufdeckradius detect (Kacheln) eines gegnerischen Detektors oder fireReveal/actReveal s nach eigener Aktion (Schuss, Sprengladung, Mine).
+  // Detektoren: Radarwagen (7), Zerstörer (6), Ingenieur (3), Hauptquartier (4), Geschütz-/Abwehrtürme (3), eroberte Radarstation (8).
+  D.CLOAK = { fireReveal: 3, actReveal: 6, every: 5 };
+  B.hq.detect = 4; B.radar.detect = 8;
+  ['turret', 'mg', 'flak', 'laser', 'tesla', 'psitower'].forEach(function (t) { B[t].detect = 3; });
+  U.destroyer.detect = 6; U.engineer.detect = 3;
+  D.DAMAGE.mine = { inf: 1.0, light: 1.0, heavy: 0.8, building: 0, air: 0 };
+
+  // ---- Saboteur: getarnte, wehrlose Infanterie. G.cmd.sabotage → läuft zum gegnerischen Gebäude und legt eine Sprengladung (dmg Gebäudeschaden nach
+  // delay s) oder legt es stun s lahm (Modus e.sabMode 0|1, G.cmd.sabMode); danach cd s Nachladen. Nach der Aktion kurz sichtbar.
+  U.saboteur = {
+    id: 'saboteur', name: 'Saboteur', cat: 'infantry', armor: 'inf', move: 'foot', radius: 6, sight: 6, req: 'techcenter', look: 'engineer',
+    cloak: true, saboteur: { dmg: 700, delay: 4, stun: 20, cd: 40 }, desc: 'Getarnt – sprengt Gebäude oder legt sie lahm, wehrlos',
+    coalition: { cost: 600, time: 10, hp: 70, speed: 1.3, weapon: null },
+    syndicate: { cost: 550, time: 10, hp: 80, speed: 1.2, weapon: null },
+    kollektiv: { name: 'Infiltrator', cost: 580, time: 10, hp: 70, speed: 1.3, weapon: null }
+  };
+  // ---- Radarwagen: unbewaffnet, deckt Getarntes im Umkreis detect auf, große Sichtweite
+  U.radarcar = {
+    id: 'radarcar', name: 'Radarwagen', cat: 'vehicle', armor: 'light', move: 'wheel', radius: 11, sight: 10, detect: 7, look: 'apc',
+    desc: 'Deckt Getarntes und Minen im Umkreis auf, weite Sicht – unbewaffnet',
+    coalition: { cost: 600, time: 9, hp: 300, speed: 2.6, weapon: null },
+    syndicate: { cost: 550, time: 9, hp: 360, speed: 2.2, weapon: null },
+    kollektiv: { name: 'Psi-Sensor', cost: 580, time: 9, hp: 320, speed: 2.4, weapon: null }
+  };
+  D.UNIT_ORDER.infantry.push('saboteur');
+  D.UNIT_ORDER.vehicle.splice(D.UNIT_ORDER.vehicle.indexOf('tank'), 0, 'radarcar');
+  // ---- Minenfeld: getarntes 1×1-Feld ohne Kachelbelegung (noOcc: blockiert keine Wege). Löst aus, wenn eine gegnerische Bodeneinheit (nicht schwebend,
+  // nicht fliegend) näher als trig Kacheln kommt: Flächenschaden dmg im Radius r, charges Ladungen, dann verbraucht. Höchstens D.MINE_MAX je Spieler.
+  D.MINE_MAX = 8;
+  B.minefield = { id: 'minefield', name: 'Minenfeld', w: 1, h: 1, cost: 150, time: 4, power: 0, hp: 200, req: 'barracks', sight: 1, defense: true, look: 'mg',
+                  cloak: true, noOcc: true, x12: true, isWall: true, limit: D.MINE_MAX, placeDist: 7, buildAnim: 0.5,
+                  mine: { dmg: 260, r: 1.3, charges: 2, trig: 0.8, cd: 1 }, desc: 'Unsichtbar für den Gegner – schädigt Bodeneinheiten (2 Ladungen)' };
   D.NEUTRAL_TYPES.push('tradepost');
-  D.BUILD_ORDER.push('oresilo', 'repairdock', 'gate');
+  D.BUILD_ORDER.push('oresilo', 'repairdock', 'gate', 'minefield');
   D.NAMES_B.kollektiv.repairdock = 'Regenerator'; D.NAMES_B.kollektiv.gate = 'Kristalltor'; D.NAMES_B.kollektiv.oresilo = 'Erzspeicher';
 })();

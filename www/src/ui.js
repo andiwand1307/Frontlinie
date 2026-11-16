@@ -36,7 +36,7 @@ var G = (typeof G !== 'undefined') ? G : {};
                     medium: 'Fordernd: größere Wellen, Luftwaffe, Superwaffe.', hard: 'Für Erfahrene: schnelle, große Angriffe und mehr Erz.' };
   function diffName(d) { for (var i = 0; i < DIFFS.length; i++) if (DIFFS[i][0] === d) return DIFFS[i][1]; return 'Mittel'; }
   var peaceShown = null, peaceOverShown = false;
-  var capShown = -1, capToastT = -1e9;   // v1.2 Erzlager-Anzeige
+  var capShown = -1, capToastT = -1e9, mineToastT = -1e9;   // v1.2 Erzlager-Anzeige, Minen-Hinweis
   /** v0.7: Restzeit der Friedenszeit in Sekunden (0, wenn G.Sim.peaceLeft fehlt oder vorbei). */
   function peaceLeft() { try { return (G.Sim.peaceLeft && +G.Sim.peaceLeft()) || 0; } catch (e) { return 0; } }
 
@@ -83,7 +83,11 @@ var G = (typeof G !== 'undefined') ? G : {};
     speaker: '<path class="f" d="M4 9.5v5h3.5l4.5 4v-13l-4.5 4z"/><path d="M15.5 9.2a4.2 4.2 0 0 1 0 5.6M18.2 6.5a8 8 0 0 1 0 11"/>',
     speakerOff: '<path class="f" d="M4 9.5v5h3.5l4.5 4v-13l-4.5 4z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/>',
     wall: '<path d="M3 6h18v12H3zM3 12h18M9 6v6M15 12v6"/>',
-    warn: '<path d="M12 3.5l9.5 16.5h-19zM12 10v4.5M12 17.2h.01"/>'
+    warn: '<path d="M12 3.5l9.5 16.5h-19zM12 10v4.5M12 17.2h.01"/>',
+    // v1.2: Sprengladung, lahmlegen (Blitz), Drohnen
+    bomb: '<circle cx="11" cy="14.5" r="6.2"/><path d="M15.2 9.8l2.3-2.3M17.5 7.5c.3-1.8 1.6-2.8 3.2-2.6M20.5 2.6v.01M22 6.5v.01"/>',
+    bolt: '<path d="M13.5 2.5L5 13.5h6l-1.5 8L18.5 10h-6z"/>',
+    drone: '<circle cx="12" cy="12" r="2.6"/><path d="M12 9.4V5M12 14.6V19M9.4 12H5M14.6 12H19M3 5h4M17 5h4M3 19h4M17 19h4"/>'
   };
   function ic(n) { return '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">' + IC[n] + '</svg>'; }
 
@@ -255,6 +259,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       case 'exit': G.Input.exitSel(); break;
       case 'unload': G.Input.unloadSel(); break;
       case 'repgo': G.Input.repairSel(); break;   // v1.2: zur Reparatur
+      case 'sabmode': G.Input.sabToggle(); break; // v1.2: Saboteur-Modus
       case 'deploy': G.Input.beginDeploy(); break;
       case 'arty': if (V.arty) G.Input.cancelArty(); else G.Input.beginArty(); break;
       case 'sw': swPress(id); break;
@@ -505,6 +510,8 @@ var G = (typeof G !== 'undefined') ? G : {};
     var S = G.Sim.S, html = '', sig = '';
     var veh = units.some(function (u) { return G.Sim.canRepairUnit(u); });
     if (veh && G.Sim.repairSite(V.pid, units[0].x, units[0].y)) { html += cb('repgo', 'repair', 'Reparatur', '', ''); sig += 'r'; }
+    var sab = units.filter(function (u) { return u.type === 'saboteur'; });
+    if (sab.length) { var sm = sab[0].sabMode ? 1 : 0; html += cb('sabmode', sm ? 'bolt' : 'bomb', sm ? 'Lahmlegen' : 'Sprengen', '', 'go'); sig += 's' + sm; }
     return { html: html, sig: sig };
   }
   function refreshContext(force) {
@@ -857,6 +864,12 @@ var G = (typeof G !== 'undefined') ? G : {};
       if (ev.t === 'ready' && ev.owner === V.pid) toast(bName(ev.type) + ' fertig – antippen zum Platzieren');
       else if (ev.t === 'swBuilt' || ev.t === 'swLaunch' || ev.t === 'swReady') handleSwEvent(ev, S);
       else if (ev.t === 'mc') mcToast(ev);   // v1.0 Gedankenkontrolle
+      else if (ev.t === 'sabotage') {   // v1.2 Saboteur
+        var sbn = bName(ev.type, ev.victim);
+        if (ev.victim === V.pid) { toast(ev.mode === 'stun' ? 'Sabotage! ' + sbn + ' ist lahmgelegt' : 'Sabotage! Sprengladung an: ' + sbn, true, (function (jx, jy) { return function () { G.Main.jumpTo(jx, jy); }; })(ev.x, ev.y)); vib([80, 40, 80]); }
+        else if (ev.owner === V.pid) toast(ev.mode === 'stun' ? sbn + ' lahmgelegt (20 s)' : 'Sprengladung gelegt – zündet in 4 s');
+      }
+      else if (ev.t === 'mine' && ev.owner !== V.pid && G.Sim.S.players[V.pid] && S.tick - mineToastT > 20 * 20) { mineToastT = S.tick; toast('Minen! Radarwagen oder Ingenieur decken Minenfelder auf', true); }
       else if (ev.t === 'capLost' && ev.owner === V.pid) { toast('Lager verloren: ₵ ' + fmtNum(ev.lost) + ' Überschuss verfallen', true); }   // v1.2 Erzlager
       else if (ev.t === 'peaceOver') { if (!peaceOverShown) { peaceOverShown = true; toast('Friedenszeit vorbei – der Gegner kann angreifen', true); vib([120, 60, 120]); } }
       else if (ev.t === 'capture') {
@@ -1193,6 +1206,10 @@ var G = (typeof G !== 'undefined') ? G : {};
     h += '<h3>Neu in 1.2</h3><ul class="hl">' +
       li('Flakpanzer', 'Alle Fraktionen, Fahrzeugwerk. Mobile Flugabwehr: stark gegen Luftziele, brauchbar gegen Infanterie, schwach gegen Panzer.') +
       li('Reparaturdock', 'Braucht das Fahrzeugwerk. Repariert eigene Fahrzeuge im Umkreis von 3 Kacheln gegen Credits (volle Reparatur = 30 % der Baukosten). Fahrzeuge wählen und „Reparatur“ antippen oder das Dock antippen.') +
+      li('Tarnung', 'Saboteure und Minenfelder sind für den Gegner unsichtbar. Aufgedeckt werden sie im Umkreis von Radarwagen (7 Kacheln), Zerstörern (6), Hauptquartier (4), Geschütz- und Abwehrtürmen (3), Ingenieuren (3) und einer eroberten Radarstation (8) – und kurz nach einer eigenen Aktion.') +
+      li('Saboteur', 'Kaserne, braucht das Tech-Zentrum. Wehrlos. Gegnerisches Gebäude antippen = Sprengladung (700 Schaden nach 4 s). Mit dem Knopf „Sprengen / Lahmlegen“ den Modus wechseln: Lahmlegen schaltet das Gebäude 20 s ab (keine Produktion, kein Strom, kein Feuer). Danach 40 s Nachladen.') +
+      li('Radarwagen', 'Fahrzeugwerk. Unbewaffnet, weite Sicht, deckt Getarntes und Minen im Umkreis von 7 Kacheln auf. Mit der Truppe mitschicken.') +
+      li('Minenfeld', 'Reiter Verteidigung, höchstens 8, bis 7 Kacheln von der Basis. Unsichtbar für den Gegner; schädigt gegnerische Infanterie und Fahrzeuge, die darüberfahren (2 Ladungen). Eigene Einheiten lösen nicht aus.') +
       li('Erzsilo', 'Credits aus Erz passen nur ins Lager: Grundlager 5.000, jede Raffinerie +5.000, jedes Erzsilo +3.000. Ist es voll, warten die Sammler mit dem Abladen – die Credits-Anzeige wird orange (fast voll) bzw. rot (voll). Geht ein Lager verloren, verfällt der Überschuss.') +
       li('Tor', 'Reiter Verteidigung. Mauerstück, das eigene Bodeneinheiten durchlässt und für Gegner wie eine Mauer wirkt.') +
       li('Handelsposten', 'Neutrales Kartengebäude, mit Infanterie erobern: Fahrzeuge werden 10 % günstiger (bis zu 2 Posten zählen).') +

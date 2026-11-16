@@ -172,7 +172,7 @@
           dyn.put(x, heightAt(x, z) + 0.03, z, 0, e.w * 0.8, (BH[e.type] || 0.9), e.h * 0.8, LOOK.bldA, LOOK.soft, 0.08); n++;
           continue;
         }
-        if (e.owner !== pid && !fogOff && !G.Sim.isVisible(pid, e)) continue;
+        if (G.Sim.hidden(pid, e) || (e.owner !== pid && !fogOff && !G.Sim.isVisible(pid, e))) continue;
         if (e.type === 'wall') { dyn.put(x, heightAt(x, z) + 0.03, z, 0, 0.62, 0.6, 0.62, LOOK.bldA * 0.9, LOOK.soft * 0.8, 0.1); n++; continue; }
         Pm = S.players[e.owner]; M = M3.model(e.type, Pm.faction, Pm.color);
         b = modelBox('b' + e.type + Pm.faction + Pm.color, M, 0.3);
@@ -180,7 +180,7 @@
       } else if (e.kind === 'unit') {
         x = (e.px + (e.x - e.px) * alpha) / TILE; z = (e.py + (e.y - e.py) * alpha) / TILE;
         if (!inView(x, z)) continue;
-        if (e.owner !== pid && !fogOff && !G.Sim.isVisible(pid, e)) continue;
+        if (G.Sim.hidden(pid, e) || (e.owner !== pid && !fogOff && !G.Sim.isVisible(pid, e))) continue;
         Pm = S.players[e.owner]; M = M3.model(e.type, Pm.faction, Pm.color);
         var r = rs.get(e.id), ang = r ? r.dir : (e.dir || 0), sc = SCALE[e.type] || 1, inf = !!M3.INF[e.type];
         b = modelBox('u' + e.type + Pm.faction + Pm.color, M, 0);

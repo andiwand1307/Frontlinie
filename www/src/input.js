@@ -159,6 +159,12 @@ var G = (typeof G !== 'undefined') ? G : {};
     if (lastRecall.n === n && now() - lastRecall.t < 400 && ids.length) { var e = G.Sim.get(ids[0]); V.centerOn(e.x, e.y); }
     lastRecall.n = n; lastRecall.t = now();
   }
+  /** v1.2: Saboteur-Modus der Auswahl umschalten (Sprengladung ↔ lahmlegen). */
+  function sabToggle() {
+    var u = selUnits().filter(function (e) { return e.type === 'saboteur'; }); if (!u.length) return;
+    var m = u[0].sabMode ? 0 : 1, r = G.cmd.sabMode(V.pid, selIds(u), m);
+    if (r.ok) toast(m ? 'Modus: Gebäude lahmlegen (20 s) – gegnerisches Gebäude antippen' : 'Modus: Sprengladung – gegnerisches Gebäude antippen');
+  }
   /** v1.2: gewählte Fahrzeuge zur nächsten Reparaturstelle schicken (Knopf „Reparatur“). */
   function repairSel() {
     var u = selUnits(); if (!u.length) return;
@@ -593,6 +599,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       if (r && r.ok === false) { toast(r.reason || 'Nicht möglich', true); return true; }
       marker(wx, wy, r && r.kind === 'attack' ? 'attack' : 'move');
       if (r && r.kind === 'repair') toast('Zur Reparatur …');   // v1.2
+      if (r && r.kind === 'sabotage') toast(r.mode === 'stun' ? 'Saboteur legt das Gebäude lahm …' : 'Saboteur legt eine Sprengladung …');
       if (r && r.kind === 'enter') toast('Infanterie besetzt …'); else if (r && r.kind === 'capture') toast('Infanterie erobert …'); else if (r && r.kind === 'engineer') toast('Ingenieur übernimmt …');
       return true;
     }
@@ -879,6 +886,7 @@ var G = (typeof G !== 'undefined') ? G : {};
           else if (hasInf && ek === 'capture') { kind = 'capture'; text = 'Erobern'; }
           else if (hasInf && ek === 'full') { kind = 'no'; text = 'Voll (' + capOf(e) + '/' + capOf(e) + ')'; }
           else if (e.kind === 'building' && G.Sim.isRepairSite(V.pid, e) && units.some(function (u) { return G.Sim.canRepairUnit(u); })) { kind = 'repair'; text = 'Zur Reparatur'; }   // v1.2
+          else if (e.kind === 'building' && units.some(function (u) { return u.type === 'saboteur'; }) && !G.Sim.sabBlock(V.pid, e)) { kind = 'attack'; text = units.some(function (u) { return u.type === 'saboteur' && u.sabMode; }) ? 'Lahmlegen' : 'Sprengladung legen'; }   // v1.2
           else if (engKind(e) === 'takeover') { kind = 'capture'; text = 'Übernehmen'; }
           else if (engKind(e) === 'repair') { kind = 'repair'; text = 'Reparieren'; }
           else if (e.owner >= 0 && e.owner !== V.pid) { kind = 'attack'; text = isNeutralType(e) ? 'Besetztes Gebäude angreifen' : 'Angreifen'; }
@@ -971,7 +979,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     beginWall: beginWall, confirmWall: confirmWall, isWallMode: isWallMode, wallLine: wallLine,
     beginDeploy: beginDeploy, deployNow: deployNow, selMcv: selMcv, isGarrison: isGarrison, say: say,
     toggleRepairMode: toggleRepairMode, repairAll: repairAll,   // v0.9.2 Reparatur
-    repairSel: repairSel,   // v1.2
+    repairSel: repairSel, sabToggle: sabToggle,   // v1.2
     isTransport: isTransport, passengers: passengers, transportCap: tcap, unloadSel: unloadSel, unitsInScreenRect: unitsInScreenRect
   };
 })();

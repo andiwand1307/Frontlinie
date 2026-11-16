@@ -3801,7 +3801,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     for (i = 0; i < ents.length; i++) {
       e = ents[i];
       if (e.type !== 'wall' || e.kind !== 'building' || e.dead) continue;
-      if (e.owner !== pid && !fogOff && !G.Sim.isVisible(pid, e)) continue;
+      if (G.Sim.hidden(pid, e) || (e.owner !== pid && !fogOff && !G.Sim.isVisible(pid, e))) continue;
       wallCell(e, false, tick, alpha);
     }
     if (!fogOff) for (id in P.mem) {
@@ -4056,7 +4056,7 @@ var G = (typeof G !== 'undefined') ? G : {};
         if (selSet[e.id]) selSquare.put(x, 0.04, z, 0, e.w * 0.62 + 0.08, 1, e.h * 0.62 + 0.08, 0.6, 1, 0.6);
         continue;
       }
-      if (e.owner !== pid && !fogOff && !G.Sim.isVisible(pid, e)) continue;
+      if (G.Sim.hidden(pid, e) || (e.owner !== pid && !fogOff && !G.Sim.isVisible(pid, e))) continue;
       Pm = S.players[e.owner]; M = model(e.type, Pm.faction, Pm.color);
       x = e.x / TILE; z = e.y / TILE;
       var age = tick - e.placedT + alpha, BUILD = (e.type === 'hq' && isDeployHq(e.id)) ? DEPLOY_B : 36;
@@ -4069,6 +4069,8 @@ var G = (typeof G !== 'undefined') ? G : {};
       }
       var hf = e.hp / e.maxHp, dk = hf < 0.35 ? 0.78 : 1;
       inV5 = inView(x, z);
+      if (e.clk) { var ck = 0.75 + 0.25 * Math.sin(R.t * 4 + e.id); drawBuildingInst(e, M, e.owner, x, z, e.tdir || 0, sy * 0.55, dk * 0.45 * ck, dk * 0.7 * ck, dk * 1.25 * ck); cloakMark(e, pid, x, 0.05, z, 0.5); }   // v1.2 TARNUNG (vorläufig): flach, bläulich schimmernd + Markierung
+      else
       drawBuildingInst(e, M, e.owner, x, z, e.tdir || 0, sy, dk, dk, dk);
       if (selSet[e.id]) selSquare.put(x, 0.04, z, 0, e.w * 0.62 + 0.08, 1, e.h * 0.62 + 0.08, 0.6, 1, 0.6);
       if (M.act) actDraw(e, M, x, z, sy, inV5, dt);   // GA: Produktion, Tor, Kran, Andocken, Auslastung
@@ -4100,7 +4102,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     for (i = 0; i < ents.length; i++) {
       e = ents[i];
       if (e.kind !== 'unit' || e.dead || e.inside) continue;
-      if (e.owner !== pid && !fogOff && !G.Sim.isVisible(pid, e)) continue;
+      if (G.Sim.hidden(pid, e) || (e.owner !== pid && !fogOff && !G.Sim.isVisible(pid, e))) continue;
       x = (e.px + (e.x - e.px) * alpha) / TILE; z = (e.py + (e.y - e.py) * alpha) / TILE;
       var r = rs.get(e.id);
       if (!r) {
@@ -4112,6 +4114,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       r.dir = lerpAng(r.dir, e.dir, kr); r.tdir = lerpAng(r.tdir, e.tdir || 0, Math.min(1, dt * 14));
       Pm = S.players[e.owner]; M = model(e.type, e.fac || Pm.faction, Pm.color); s = SCALE[e.type] || 1;   // v1.0: Herkunftsfraktion, Farbe = Besitzer
       if (e.mcBy || e.magT > tick) k10Link(e, x, z, alpha, tick, selRing, pid, fogOff);   // v1.0 Gedankenkontrolle / Magnet (PLATZHALTER v1.0)
+      if (e.clk) cloakMark(e, pid, x, (e.mc === 3 ? WL8 : groundAt(x, z)) + 0.04, z, (e.r || 8) / TILE * 1.5);   // v1.2 TARNUNG (vorläufig): Schimmer-Ring
       if (M.v8u) { drawV8U(e, M, r, x, z, s, dt, tick, alpha, !!selSet[e.id], inView(x, z)); continue; }   // v0.8: Luftfahrzeuge (Flughöhe, Rotoren, Neigung) / Schiffe (Wasserlinie, Seegang, Türme)
       y = groundAt(x, z);
       if (e.pc === 4) y = Math.max(y, WL8 + 0.02) + 0.06 + 0.03 * Math.sin(R.t * 3 + e.id);   // v1.0 Schwebepanzer schwebt (auch über Wasser)
@@ -4295,6 +4298,15 @@ var G = (typeof G !== 'undefined') ? G : {};
     ghost.foot.material.color.set(pl.ok ? '#22c55e' : '#ef4444');
     MAT.ghost.color.set(pl.ok ? '#bbf7d0' : '#fecaca');
     ghost.group.visible = true;
+  }
+
+  // ------------------------------------------------------------------ v1.2 TARNUNG (vorläufige Darstellung, Haken in fill())
+  // G.Sim.cloakState(pid, e): 1 = eigenes getarntes Objekt (blauer Schimmer-Ring), 2 = gegnerisches, gerade aufgedecktes (roter Ring), 3 = unsichtbar
+  // (wird in fill() gar nicht gezeichnet – G.Sim.hidden). Endgültige Modelle können hier z. B. Halbtransparenz/Tauchtiefe anschließen.
+  function cloakMark(e, pid, x, y, z, rad) {
+    var st = G.Sim.cloakState(pid, e), k = 0.55 + 0.45 * Math.sin(R.t * 5 + e.id * 0.7);
+    if (st === 1) R.selRing.put(x, y, z, 0, rad, 1, rad, 0.25 * k, 0.75 * k, 1.0 * k);
+    else if (st === 2) R.selRing.put(x, y, z, 0, rad, 1, rad, 1.0 * k, 0.3 * k, 0.2 * k);
   }
 
   // ------------------------------------------------------------------ v1.2 look-Rückfall (ZENTRALE STELLE, vorläufige Darstellung)

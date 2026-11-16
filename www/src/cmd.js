@@ -56,6 +56,11 @@
  *  repairAt(pid, ids[, siteId])    Fahrzeuge fahren zur Reparaturstelle (eigenes Reparaturdock / eroberte Werkstatt; ohne siteId die nächste)
  *                                  → {ok, reason, kind:'repair', n}
  *  smart(...)                      Fahrzeuge + Tipp auf eigene Reparaturstelle → repairAt (res.kind = 'repair')
+ *  sabotage(pid, ids, buildingId)  Saboteure laufen zum gegnerischen Basisgebäude und legen eine Sprengladung bzw. legen es lahm (je nach Modus)
+ *                                  → {ok, reason, kind:'sabotage', n}
+ *  sabMode(pid, ids, mode)         Modus der Saboteure: 0 = Sprengladung, 1 = lahmlegen
+ *  smart(...)                      Saboteur + Tipp auf gegnerisches Basisgebäude → sabotage (res.kind = 'sabotage')
+ *  attack(...)                     getarnte, nicht aufgedeckte Ziele sind kein Ziel („Kein Ziel“)
  */
 var G = (typeof G !== 'undefined') ? G : {};
 (function () {
@@ -195,7 +200,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     attack: function (pid, ids, targetId) {
       if (!active(pid)) return FAIL('Nicht aktiv');
       var t = G.Sim.get(targetId);
-      if (!t || t.dead || t.inside) return FAIL('Kein Ziel');
+      if (!t || t.dead || t.inside || G.Sim.hidden(pid, t)) return FAIL('Kein Ziel');   // v1.2: Getarntes ist kein Ziel
       if (t.neutral) {
         if (G.DATA.BUILDINGS[t.type].invuln) return FAIL('Unzerstörbar – mit Infanterie erobern');
         if (t.ruin) return FAIL('Ruine');
@@ -299,6 +304,19 @@ var G = (typeof G !== 'undefined') ? G : {};
             if (rest2.length) formationOrder(rest2, t.x, t.y + (t.h / 2 + 1.5) * TILE, 'move');
             if (harv.length) formationOrder(harv, x, y, 'move');
             return er;
+          }
+        }
+      }
+      // v1.2: Saboteur + Tipp auf gegnerisches Basisgebäude → Sprengladung / lahmlegen
+      if (t && t.kind === 'building' && t.owner !== pid && t.owner >= 0 && !t.neutral) {
+        var sabs = ownUnits(pid, ids, function (e) { return !!G.Sim.statsOf(e).saboteur; });
+        if (sabs.length) {
+          var sr = cmd.sabotage(pid, sabs.map(function (e) { return e.id; }), t.id);
+          if (sr.ok) {
+            if (fight.length) cmd.attack(pid, fight.map(function (e) { return e.id; }), t.id);
+            var srest = ownUnits(pid, ids, function (e) { return !armed(e) && !G.Sim.statsOf(e).saboteur; });
+            if (srest.length) formationOrder(srest, x, y, 'move');
+            return sr;
           }
         }
       }
@@ -407,6 +425,23 @@ var G = (typeof G !== 'undefined') ? G : {};
       formationOrder(us, site.x + dx / dl * off, site.y + dy / dl * off, 'move');
       for (i = 0; i < us.length; i++) G.Sim._orderRepair(us[i], site);
       return { ok: true, reason: '', kind: 'repair', n: us.length };
+    },
+    /** v1.2: Saboteure sabotieren ein gegnerisches Basisgebäude (Sprengladung oder lahmlegen, je nach Modus der Einheit). */
+    sabotage: function (pid, ids, buildingId) {
+      if (!active(pid)) return FAIL('Nicht aktiv');
+      var b = G.Sim.get(buildingId), why = G.Sim.sabBlock(pid, b);
+      if (why) return FAIL(why);
+      var us = ownUnits(pid, ids, function (e) { return !!G.Sim.statsOf(e).saboteur; });
+      if (!us.length) return FAIL('Kein Saboteur');
+      for (var i = 0; i < us.length; i++) G.Sim._orderSab(us[i], b);
+      return { ok: true, reason: '', kind: 'sabotage', n: us.length, mode: us[0].sabMode ? 'stun' : 'bomb' };
+    },
+    sabMode: function (pid, ids, mode) {
+      if (!active(pid)) return FAIL('Nicht aktiv');
+      var us = ownUnits(pid, ids, function (e) { return !!G.Sim.statsOf(e).saboteur; });
+      if (!us.length) return FAIL('Kein Saboteur');
+      for (var i = 0; i < us.length; i++) G.Sim._sabMode(us[i], mode);
+      return { ok: true, reason: '', mode: mode ? 1 : 0 };
     },
     /** v0.7: Infanterie steigt in den Schützenpanzer. */
     load: function (pid, ids, apcId) {
