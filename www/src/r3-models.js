@@ -772,6 +772,7 @@ var G = (typeof G !== 'undefined') ? G : {};
   }
 
   function buildBuilding(type, fac, color) {
+    if (V12B[type]) return buildB12(type, fac, color);   // v1.2 eigene Modelle (Abschnitt „v1.2 Modelle“)
     if (V8M[type]) return buildV8(type, fac, color);   // v0.8 Luftwaffe & Marine
     if (V4B[type]) return buildBuildingV4(type, fac, color);
     if (V5B[type]) return buildBuildingV5(type, fac, color);
@@ -1542,10 +1543,11 @@ var G = (typeof G !== 'undefined') ? G : {};
   // (dish, beam, crane, gun, barrel, lamp). Fahne (pole/cloth) ist für alle Typen gemeinsam. M.win = Fensterpositionen für Mündungsfeuer.
   var NEUT = {
     house: { w: 2, h: 2 }, block: { w: 3, h: 2 }, bunker: { w: 2, h: 2 }, oilrig: { w: 2, h: 2 },
-    radar: { w: 2, h: 2 }, hospital: { w: 3, h: 2 }, workshop: { w: 3, h: 2 }, artillery: { w: 2, h: 2 }
+    radar: { w: 2, h: 2 }, hospital: { w: 3, h: 2 }, workshop: { w: 3, h: 2 }, artillery: { w: 2, h: 2 },
+    tradepost: { w: 3, h: 2 }   // v1.2 Handelsposten
   };
   var GARR = { house: 1, block: 1, bunker: 1 };
-  BH.house = 1.0; BH.block = 1.3; BH.bunker = 0.55; BH.oilrig = 1.6; BH.radar = 1.45; BH.hospital = 0.75; BH.workshop = 1.0; BH.artillery = 0.55;
+  BH.house = 1.0; BH.block = 1.3; BH.bunker = 0.55; BH.oilrig = 1.6; BH.radar = 1.45; BH.hospital = 0.75; BH.workshop = 1.0; BH.artillery = 0.55; BH.tradepost = 1.2;
   var NP = { wall: '#d6cbad', wall2: '#b8ad92', roof: '#a4604a', conc: '#a6a8a3', conc2: '#868981', dark: '#3b4249', glass: '#6fa6c4', metal: '#cfd5da',
     wood: '#7a5a3c', sand: '#b39d72', canvas: '#e9e5d4', green: '#2f9e5a', orange: '#d97706', earth: '#6b5a3c', frame: '#f3efe4' };
   var NTINT = [0.66, 0.64, 0.58]; // neutrale „Besitzerfarbe“ der Zierteile
@@ -1709,6 +1711,28 @@ var G = (typeof G !== 'undefined') ? G : {};
       M.parts.crane = d.geo(); M.at.crane = [1.2, 0.05, 0.65];
       M.flag = [-1.35, 0.85, 1.6];
       M.spark = [-0.3, 0.2, 0.3];
+    } else if (type === 'tradepost') {   // v1.2 Handelsposten: Lagerhalle mit Münzschild, Marktstände (Markisen in Besitzerfarbe), Container, Lkw, drehende Münze
+      b.box('#c9b99a', 1.9, 0.6, 0.78, -0.3, 0.05, -0.52).box(NP.conc, 1.96, 0.05, 0.84, -0.3, 0.65, -0.52);
+      for (i = 0; i < 3; i++) { b.box(NP.dark, 0.42, 0.4, 0.02, -0.95 + i * 0.62, 0.05, -0.125); b.pbox('#6b6f73', 0.42, 0.012, 0.024, -0.95 + i * 0.62, 0.15 + (i % 2) * 0.12, -0.12); }
+      t.box('#ffffff', 1.92, 0.08, 0.04, -0.3, 0.52, -0.11);
+      b.box('#3a3f45', 0.9, 0.32, 0.05, -0.3, 0.7, -0.2).cylZ('#e6b422', 0.11, 0.03, 12, -0.62, 0.86, -0.17).cylZ('#c58f12', 0.07, 0.035, 12, -0.62, 0.86, -0.17);
+      b.box('#e9e5d4', 0.42, 0.06, 0.012, -0.12, 0.89, -0.17).box('#e9e5d4', 0.34, 0.05, 0.012, -0.16, 0.79, -0.17);
+      for (i = 0; i < 2; i++) {   // Marktstände mit gestreiften Markisen
+        var mx = -0.95 + i * 0.85;
+        b.box(NP.wood, 0.58, 0.18, 0.3, mx, 0.05, 0.45);
+        for (k = 0; k < 4; k++) b.pbox(['#d97706', '#4a7a3c', '#a5421c', '#e6b422'][(k + i) % 4], 0.1, 0.06, 0.1, mx - 0.21 + k * 0.14, 0.23, 0.45);
+        for (k = 0; k < 4; k++) b.pbox(NP.wood, 0.025, 0.46, 0.025, mx + (k & 1 ? 0.3 : -0.3), 0.05, 0.45 + (k & 2 ? 0.24 : -0.24));
+        for (k = 0; k < 5; k++) (k % 2 ? b : t).add(new THREE.BoxGeometry(0.134, 0.025, 0.62), k % 2 ? NP.canvas : '#ffffff', mx - 0.27 + k * 0.135, 0.5, 0.48, 0, -0.28, 0);
+      }
+      b.box('#2f6f8f', 0.34, 0.3, 0.7, 1.05, 0.05, -0.45).box('#b4532a', 0.34, 0.3, 0.7, 1.05, 0.35, -0.42).box('#557a3a', 0.34, 0.3, 0.6, 1.4, 0.05, -0.5);
+      for (i = 0; i < 3; i++) b.box(NP.wood, 0.2, 0.17, 0.2, 0.7 + (i % 2) * 0.24, 0.05 + (i === 2 ? 0.17 : 0), 0.3 + (i === 2 ? 0.1 : 0));
+      b.box('#d9d2bf', 0.32, 0.26, 0.3, 1.12, 0.12, 0.62).box('#6b7176', 0.26, 0.2, 0.3, 1.42, 0.12, 0.62).box(NP.glass, 0.02, 0.09, 0.24, 1.555, 0.2, 0.62);   // Lkw
+      b.cylZ(NP.dark, 0.065, 0.32, 8, 1.05, 0.065, 0.62).cylZ(NP.dark, 0.065, 0.32, 8, 1.42, 0.065, 0.62);
+      t.box('#ffffff', 0.33, 0.03, 0.31, 1.12, 0.38, 0.62);
+      b.cyl(NP.dark, 0.022, 0.028, 0.95, 6, 0.55, 0.05, 0.75);
+      d = new MB(); d.cylZ('#e6b422', 0.17, 0.035, 14, 0, 0, 0).cylZ('#c58f12', 0.12, 0.045, 14, 0, 0, 0).box('#f5d76e', 0.04, 0.16, 0.05, 0, -0.08, 0);
+      M.parts.coin = d.geo(); M.at.coin = [0.55, 1.18, 0.75];
+      M.flag = [-1.35, 0.8, 1.55];
     } else if (type === 'artillery') {
       b.box(NP.earth, 1.8, 0.28, 0.3, 0, 0.05, -0.8).box(NP.earth, 0.3, 0.28, 1.6, 0.82, 0.05, -0.1).box(NP.earth, 0.3, 0.28, 1.6, -0.82, 0.05, -0.1);
       sandbags(b, -0.9, 0.9, -0.8, 1, false); b.box('#5c4d33', 1.7, 0.03, 0.2, 0, 0.33, -0.8);
@@ -2724,7 +2748,8 @@ var G = (typeof G !== 'undefined') ? G : {};
   // Grundflächen, Ausgänge (Mitte Süd bzw. Nordausgang), Andockseiten, Landeplätze, Mündungspunkte und Teile-Haken wie bei den gemeinsamen Modellen.
   // Bewegte Teile liegen in Ruhestellung in M.parts (Symbol/Vorschau zeigen sie ohne Sonderfall); Anzeigen (Hologramm, Strahl, Füllstand,
   // Förderstollen) liegen nur in M.xparts. Gezeichnet/animiert werden sie in actDraw (Abschnitt GA unten).
-  var KB = { hq: 1, power: 1, refinery: 1, barracks: 1, factory: 1, techcenter: 1, turret: 1, mg: 1, flak: 1, pbunker: 1, airfield: 1, shipyard: 1, psitower: 1, psidome: 1 };
+  var KB = { hq: 1, power: 1, refinery: 1, barracks: 1, factory: 1, techcenter: 1, turret: 1, mg: 1, flak: 1, pbunker: 1, airfield: 1, shipyard: 1, psitower: 1, psidome: 1,
+    repairdock: 1, oresilo: 1, minefield: 1, gate: 1 };   // v1.2 (buildB12)
   var KP = { edge: '#4b4660', plate: '#77718c', base: '#3a3450', base2: '#4f4869', shell: '#e0daec', shell2: '#a99fca', dark: '#1e1b2a', metal: '#c9c5d8',
     glass: '#9cc9ff', glow: '#eaa9ff', glow2: '#8ff3ff', ore: '#ffb44a', line: '#5b5573', conc: '#8b8699', body: '#e0daec', body2: '#a99fca', rust: '#4f4869', roof: '#3a3450', pan: '#f2eff8' };
   (function () {   // Oberflächen für Modern
@@ -2782,6 +2807,7 @@ var G = (typeof G !== 'undefined') ? G : {};
   }
 
   function buildKB(type, color) {
+    if (V12B[type]) return buildB12(type, 'kollektiv', color);   // v1.2: Regenerator, Erzspeicher, Minenfeld, Kristalltor
     var T = teamCols(color), hi = HI(), P = KP, i, a, x, z, sd;
     var b = new MB(), g = new MB(), M = { parts: {}, xparts: {}, xp: [], h: 1, mir: true, mirA: 1, kb: type, lit: true, lo: !hi, act: null };
     var bd = D.BUILDINGS[type], w = bd.w, h = bd.h;
@@ -3172,6 +3198,7 @@ var G = (typeof G !== 'undefined') ? G : {};
   /** Helligkeit der Leuchtteile (glow/wlit) eines Gebäudes: erinnert grau, Strommangel flackert, Kraftwerk nach Auslastung, Produzent heller. */
   function litGain(b, M, owner, cr) {
     if (cr === GREY) return 0.3;
+    if (b.offT > G.Sim.S.tick) return 0.08 + (Math.sin(R.t * 13 + b.id) > 0.8 ? 0.5 : 0);   // v1.2 lahmgelegt: Lichter aus, kurzes Zucken
     var P = G.Sim.S.players[owner], st;
     if (P.pwrUse > P.pwrProd) return flick(b.id) * (b.type === 'power' ? 0.5 : 1);
     if (b.type === 'power') { var ld = P.pwrProd > 0 ? Math.min(1.25, P.pwrUse / P.pwrProd) : 0; return 1.0 + 0.6 * ld + 0.18 * ld * Math.sin(R.t * (2 + 3 * ld) + b.id); }
@@ -3228,6 +3255,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     if (p.crmast) { partBatch('b', b.type, owner, 'crmast', M).put(x, 0, z, 0, 1, sy, 1, 1, 1, 1); partBatch('b', b.type, owner, 'crjib', M).put(x, 0, z, 0, 1, sy, 1, 1, 1, 1); }
     if (p.kring) partBatch('b', b.type, owner, 'kring', M).put(x, 0, z, 0, 1, sy, 1, 1, 1, 1);
     if (p.kspin) partBatch('b', b.type, owner, 'kspin', M).put(x, 0, z, 0, 1, sy, 1, 1, 1, 1);
+    if (M.b12) rest12(b, M, owner, x, z, sy, 1, 1, 1);   // v1.2
   }
   /** Aktivität eines lebenden, sichtbaren Gebäudes (nach drawBuildingInst). sy < 1 = noch im Aufbau → nur Grundzustand. */
   function actDraw(b, M, x, z, sy, inV, dt) {
@@ -3237,6 +3265,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     FX_LOW = (R.safeGPU || (R.Q && R.Q.mode === 'low')) ? 0.4 : 1;
     var rgb = teamRGB(P.color), low = P.pwrUse > P.pwrProd, built = sy >= 0.999;
     if (!built) { restDraw(b, M, owner, x, z, sy); st.lp = 0; return; }   // im Aufbau: bewegliche Teile in Ruhestellung, mitwachsend
+    if (M.b12) { act12(b, M, A, x, z, inV, dt, st, P, owner, low); return; }   // v1.2 Reparaturdock / Erzsilo
     var has = prodState(b, P, st);
     st.actOn = has && aAct;
     var since = t - (st.outT == null ? -99 : st.outT);
@@ -3669,6 +3698,10 @@ var G = (typeof G !== 'undefined') ? G : {};
     } else if (e.type === 'workshop') {
       nbat(M, 'crane').put(x + at.crane[0], at.crane[1], z + at.crane[2], (active ? Math.sin(R.t * 0.55 + st.ph) * 0.55 : 0.25) * (M.mirA || 1), 1, 1, 1, dk, dk, dk);
       if (active && inV && rnd() < dt * 3.5) emit(0, x + M.spark[0] + (rnd() - 0.5) * 0.2, M.spark[1], z + M.spark[2], (rnd() - 0.5) * 0.8, 0.5 + rnd(), (rnd() - 0.2) * 0.8, 0.3, 0.06, 0.02, 1, 0.95, 0.6, 1, 1, 0.6, 0.2, 0, -4);
+    } else if (e.type === 'tradepost') {   // v1.2 Handelsposten: Münze dreht sich, wenn eingenommen
+      st.spin += dt * (active ? 1.7 : 0.12);
+      var ck = active ? dk * 1.1 : dk * 0.8;
+      nbat(M, 'coin').put(x + at.coin[0], at.coin[1], z + at.coin[2], st.spin, 1, 1, 1, ck, ck, ck);
     } else if (e.type === 'hospital') {
       if (active && inV && rnd() < dt * 2) emit(0, x - 1.3 + rnd() * 2.6, 0.5, z - 0.8 + rnd() * 1.6, 0, 0.3, 0, 1.4, 0.09, 0.02, 0.3, 1, 0.55, 0.8, 0.2, 0.8, 0.4, 0);
     } else if (e.type === 'artillery') {
@@ -3794,6 +3827,7 @@ var G = (typeof G !== 'undefined') ? G : {};
   }
 
   // --- Mauern
+  var wgG = null;   // v1.2: Tore (Besitzer + 1) im Mauerraster – Ausrichtung der Tore und Halbverbinder der Nachbarmauern
   var wg = null, wgW = 0, wgH = 0, wgSy = null, wgDk = null, wgMem = null, wLE = [], wLM = [], wN = 0, wGhostG = null, wGi = new Int32Array(64), wTmp = [0];
   function wallCell(e, mem, tick, alpha) {
     var idx = e.ty * wgW + e.tx;
@@ -3808,16 +3842,18 @@ var G = (typeof G !== 'undefined') ? G : {};
   /** Alle Mauersegmente (sichtbare + erinnerte) ins Raster, dann Pfeiler + Verbinder zu gleichfarbigen 4-Nachbarn instanzieren. */
   function wallPass(S, P, pid, fogOff, alpha, dt, selSet, inView) {
     var w = S.map.w, h = S.map.h, tick = S.tick, ents = S.ents, i, e, id, mm, live;
-    if (!wg || wgW !== w || wgH !== h) { wgW = w; wgH = h; wg = new Int8Array(w * h); wgSy = new Float32Array(w * h); wgDk = new Float32Array(w * h); wgMem = new Uint8Array(w * h); }
-    wg.fill(0); wN = 0;
+    if (!wg || wgW !== w || wgH !== h) { wgW = w; wgH = h; wg = new Int8Array(w * h); wgSy = new Float32Array(w * h); wgDk = new Float32Array(w * h); wgMem = new Uint8Array(w * h); wgG = new Int8Array(w * h); }
+    wg.fill(0); wgG.fill(0); wN = 0;
     for (i = 0; i < ents.length; i++) {
       e = ents[i];
+      if (e.type === 'gate' && e.kind === 'building' && !e.dead && !G.Sim.hidden(pid, e) && (e.owner === pid || fogOff || G.Sim.isVisible(pid, e)) && e.tx >= 0 && e.tx < w) wgG[e.ty * w + e.tx] = e.owner + 1;   // v1.2
       if (e.type !== 'wall' || e.kind !== 'building' || e.dead) continue;
       if (G.Sim.hidden(pid, e) || (e.owner !== pid && !fogOff && !G.Sim.isVisible(pid, e))) continue;
       wallCell(e, false, tick, alpha);
     }
     if (!fogOff) for (id in P.mem) {
       mm = P.mem[id];
+      if (mm.type === 'gate' && mm.tx >= 0 && mm.tx < w) { live = G.Sim.get(mm.id); if (!(live && !live.dead && G.Sim.isVisible(pid, live))) wgG[mm.ty * w + mm.tx] = mm.owner + 1; continue; }   // v1.2
       if (mm.type !== 'wall') continue;
       live = G.Sim.get(mm.id);
       if (live && !live.dead && G.Sim.isVisible(pid, live)) continue;
@@ -3832,6 +3868,11 @@ var G = (typeof G !== 'undefined') ? G : {};
       partBatch('b', 'wall', e.owner, 'pillar', M).put(x, 0, z, 0, 1, sy, 1, cr, cr, cb);
       if (e.tx + 1 < w && wg[idx + 1] === v) { sy2 = Math.min(sy, wgSy[idx + 1]); partBatch('b', 'wall', e.owner, 'conn', M).put(x + 0.5, 0, z, 0, 1, sy2, 1, cr, cr, cb); }
       if (e.ty + 1 < h && wg[idx + w] === v) { sy2 = Math.min(sy, wgSy[idx + w]); partBatch('b', 'wall', e.owner, 'conn', M).put(x, 0, z + 0.5, Math.PI / 2, 1, sy2, 1, cr, cr, cb); }
+      // v1.2: halber Verbinder bis an den Rand eines angrenzenden eigenen Tors
+      if (e.tx + 1 < w && wgG[idx + 1] === v) partBatch('b', 'wall', e.owner, 'conn', M).put(x + 0.25, 0, z, 0, 0.5, sy, 1, cr, cr, cb);
+      if (e.tx > 0 && wgG[idx - 1] === v) partBatch('b', 'wall', e.owner, 'conn', M).put(x - 0.25, 0, z, 0, 0.5, sy, 1, cr, cr, cb);
+      if (e.ty + 1 < h && wgG[idx + w] === v) partBatch('b', 'wall', e.owner, 'conn', M).put(x, 0, z + 0.25, Math.PI / 2, 0.5, sy, 1, cr, cr, cb);
+      if (e.ty > 0 && wgG[idx - w] === v) partBatch('b', 'wall', e.owner, 'conn', M).put(x, 0, z - 0.25, Math.PI / 2, 0.5, sy, 1, cr, cr, cb);
       if (mem) continue;
       if (selSet[e.id]) R.selSquare.put(x, 0.04, z, 0, 0.7, 1, 0.7, 0.6, 1, 0.6);
       hf = e.maxHp > 0 ? e.hp / e.maxHp : 1;
@@ -4035,7 +4076,10 @@ var G = (typeof G !== 'undefined') ? G : {};
 
   var GREY = 0.62;
   function drawBuildingInst(b, M, owner, x, z, tdir, sy, cr, cg, cb) {
+    if (M.gate) { gateDraw(b, M, owner, x, z, sy, cr, cg, cb); return; }   // v1.2 Tor (Ausrichtung nach den Nachbarmauern)
     partBatch('b', b.type, owner, 'body', M).put(x, 0, z, 0, 1, sy, 1, cr, cg, cb);
+    if (M.mine12) mineDraw(b, M, owner, x, z, sy, cr, cg, cb);   // v1.2 Minenfeld: Ladungen
+    if (M.b12 && cr === GREY) rest12(b, M, owner, x, z, sy, cr, cg, cb);   // v1.2 erinnertes Reparaturdock: Arme in Ruhe
     var h = sy;
     if (M.parts.head && M.v8b !== 'flak') {
       partBatch('b', b.type, owner, 'head', M).put(x, 0, z, tdir, 1, h, 1, cr, cg, cb);
@@ -4093,9 +4137,9 @@ var G = (typeof G !== 'undefined') ? G : {};
       var hf = e.hp / e.maxHp, dk = hf < 0.35 ? 0.78 : 1;
       inV5 = inView(x, z);
       if (e.clk && cloakMark(e, pid, x, 0.05, z, Math.max(e.w, e.h) * 0.5, tick)) { pbMode = 1; drawBuildingInst(e, M, e.owner, x, z, e.tdir || 0, sy, dk, dk, dk); pbMode = 0; }   // v1.2 Tarnung: eigenes, unentdecktes Gebäude halbtransparent
+      else if (e.offT > tick) { var okf = 0.92 + 0.08 * Math.sin(R.t * 17 + e.id); drawBuildingInst(e, M, e.owner, x, z, e.tdir || 0, sy, dk * 0.5 * okf, dk * 0.56 * okf, dk * 0.74 * okf); offFx(e, M, x, z, dt, inV5); }   // v1.2 lahmgelegt: kalt entsättigt, Lichter aus, Entladungen
       else drawBuildingInst(e, M, e.owner, x, z, e.tdir || 0, sy, dk, dk, dk);
       if (selSet[e.id]) selSquare.put(x, 0.04, z, 0, e.w * 0.62 + 0.08, 1, e.h * 0.62 + 0.08, 0.6, 1, 0.6);
-      if (e.offT > tick) { var ok2 = 0.5 + 0.5 * Math.sin(R.t * 8); selSquare.put(x, 0.05, z, 0, e.w * 0.56, 1, e.h * 0.56, 1.0 * ok2, 0.8 * ok2, 0.1); }   // v1.2 lahmgelegt (vorläufig): gelb blinkender Rahmen
       if (M.act) actDraw(e, M, x, z, sy, inV5, dt);   // GA: Produktion, Tor, Kran, Andocken, Auslastung
       if (!inView(x, z)) continue;
       dmgFx(e, M, x, z, hf, dt);   // GA: Schaden – feste Brandstellen (Rauch, Funken, Flammen)
@@ -4139,7 +4183,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       if (e.mcBy || e.magT > tick) k10Link(e, x, z, alpha, tick, selRing, pid, fogOff);   // v1.0 Gedankenkontrolle / Magnet (PLATZHALTER v1.0)
       pbMode = 0;
       if (e.clk && cloakMark(e, pid, x, (e.mc === 3 ? WL8 : groundAt(x, z)) + 0.04, z, (e.r || 8) / TILE * 1.4, tick)) pbMode = 1;   // v1.2 Tarnung: eigenes, unentdecktes Objekt halbtransparent
-      if (e.stunT > tick) { var sk = 0.6 + 0.4 * Math.sin(R.t * 12); selRing.put(x, (e.mc === 3 ? WL8 : groundAt(x, z)) + 0.05, z, 0, (e.r || 8) / TILE * 1.2, 1, (e.r || 8) / TILE * 1.2, 0.8 * sk, 0.4 * sk, 1.0 * sk); }   // v1.2 gelähmt (vorläufig): violetter Ring
+      if (e.stunT > tick) stunFx(e, M, x, (e.mc === 3 ? WL8 : groundAt(x, z)), z, s, dt, inView(x, z));   // v1.2 gelähmt: kreisende Psi-Fesseln
       if (M.v8u) { drawV8U(e, M, r, x, z, s, dt, tick, alpha, !!selSet[e.id], inView(x, z)); continue; }   // v0.8: Luftfahrzeuge (Flughöhe, Rotoren, Neigung) / Schiffe (Wasserlinie, Seegang, Türme)
       y = groundAt(x, z);
       if (e.pc === 4) y = Math.max(y, WL8 + 0.02) + 0.06 + 0.03 * Math.sin(R.t * 3 + e.id);   // v1.0 Schwebepanzer schwebt (auch über Wasser)
@@ -4236,6 +4280,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       if (cls && hfu < 0.2 && rnd() < dt * 8) emit(0, x, y + M.h * s * 0.8, z, 0, 0.5, 0, 0.3, 0.2, 0.06, 1, 0.6, 0.2, 1, 0.9, 0.2, 0.05, 0);
     }
     pbMode = 0;
+    if (S.charges && S.charges.length) chargeDraw(S, pid, fogOff, tick, dt, inView);   // v1.2 laufende Sprengladungen
     drawDeploy(S, alpha, dt, inView);
     // --- Wracks (verkohlt, sinken langsam ein)
     for (i = wrecks.length - 1; i >= 0; i--) {
@@ -4746,6 +4791,306 @@ var G = (typeof G !== 'undefined') ? G : {};
     return M;
   }
 
+  // ---- v1.2 Gebäude (buildB12): direkt für die Kamera aus Süd-West gebaut (Fronten Süd + West, M.mir = true → keine Spiegelung).
+  // Reparaturdock (M.act.k 'repair': Arme/Laufkatze/Ring + Lampen, aktiv solange tick − repT < 20), Erzsilo (Teil ofill = Füllstand P.credits / P.oreCap),
+  // Minenfeld (M.mine12: Teil mine je Ladung e.ch, sonst Krater), Tor (M.gate 'slide' | 'lift' | 'sink', e.open; Ausrichtung nach den Nachbarmauern).
+  var V12B = { repairdock: [3, 2], oresilo: [2, 2], minefield: [1, 1], gate: [1, 1] };
+  NOSHADOW.rlamp = 1; NOSHADOW.ofill = 1; NOSHADOW.rpool = 1;
+  BH.repairdock = 1.1; BH.oresilo = 1.35; BH.minefield = 0.06; BH.gate = 0.85;
+  LOD.repairdock = 1; LOD.oresilo = 1; LOD.minefield = 1; LOD.gate = 1;
+  GLOW_PARTS.rlamp = 1; GLOW_PARTS.ofill = 1; GLOW_PARTS.rpool = 1; GLOW_PARTS.gfield = 1; GLOW_PARTS.mglow = 1;
+  var ORE12 = '#f2b632';
+  /** Roboterarm des Reparaturdocks (Ursprung = Drehfuß, Arm zeigt nach +x; Werkzeugspitze bei [0.52, 0.26]). */
+  function repArm(P, T, col) {
+    var a = new MB('bld');
+    a.cylB(P.dark, 0.11, 0.08, 8, 0, 0, 0, 0.01).box(col, 0.16, 0.13, 0.16, 0, 0.08, 0).pbox(T.team, 0.166, 0.03, 0.166, 0, 0.2, 0);
+    strut(a, col, 0, 0.18, 0, 0.17, 0.62, 0, 0.07); a.box(P.dark, 0.09, 0.09, 0.09, 0.17, 0.57, 0);
+    strut(a, col, 0.17, 0.62, 0, 0.52, 0.44, 0, 0.055); a.box(P.dark, 0.07, 0.07, 0.07, 0.52, 0.4, 0);
+    a.cyl(P.metal, 0.012, 0.03, 0.13, 6, 0.52, 0.28, 0).cyl(P.dark, 0.008, 0.008, 0.03, 4, 0.52, 0.25, 0);
+    return a.geo();
+  }
+  function buildB12(type, fac, color) {
+    var kol = fac === 'kollektiv', P = PAL[fac] || PAL.coalition, T = teamCols(color), syn = fac === 'syndicate', hi = HI();
+    var b = new MB('bld'), g = new MB('bld'), M = { parts: {}, xparts: {}, xp: [], h: BH[type] || 1, mir: true, mirA: 1, lo: !hi, act: null, b12: type }, i, k, sd, x, z, m;
+    var bd = D.BUILDINGS[type], w = bd.w, h = bd.h;
+    if (type === 'repairdock') {
+      var lamps = [[-0.52, 0.07, 0.72], [1.38, 0.07, 0.72], [-0.52, 0.07, -0.66], [1.38, 0.07, -0.66]];
+      if (kol) {                                                      // Regenerator: Achteckbecken mit Leuchtflüssigkeit, drei Rippenbögen, schwebender Ring
+        kPlate(b, T, w, h);
+        kOct(b, KP.base, 0.75, 0.8, 0.1, 0.35, 0.06, 0, 1.3, 1.02); kBand(b, T.team, 0.81, 0.1, 0.05, 0.35, 0, 8);
+        for (i = 0; i < 3; i++) {
+          x = 0.35 + (i - 1) * 0.42;
+          b.add(new THREE.TorusGeometry(0.6, 0.045, 5, 14, Math.PI), i === 1 ? KP.shell : KP.shell2, x, 0.16, 0, Math.PI / 2);
+          b.ico(T.team, 0.05, x, 0.78, 0, 1, 0.8, 1, 0);
+          for (sd = -1; sd <= 1; sd += 2) b.cylB(KP.base2, 0.08, 0.1, 6, x, 0.12, sd * 0.6, 0.01);
+        }
+        b.dome(KP.shell, 0.38, -1.02, 0.06, -0.2, 1, 0.95, 1.1, 12); kTor(b, T.team, 0.36, 0.035, -1.02, 0.2, -0.2, 4, 16);
+        kSpire(b, g, -1.02, -0.2, 0.42, 0.55, 0.05);
+        b.box(KP.base2, 0.3, 0.16, 0.3, -1.1, 0.06, 0.58).pbox(T.team, 0.32, 0.03, 0.32, -1.1, 0.22, 0.58); g.pbox(KP.glow, 0.2, 0.04, 0.012, -1.1, 0.12, 0.735);
+        b.cylX(KP.base2, 0.045, 0.045, 0.6, 6, -0.62, 0.12, -0.2);
+        m = new MB('bld'); m.flat = true; kOct(m, '#ffffff', 0.72, 0.72, 0.012, 0, 0, 0, 1.3, 1.02); M.xparts.rpool = m.geo(false);
+        m = new MB('bld'); kTor(m, T.team, 0.5, 0.032, 0, 0, 0, 4, 20); for (i = 0; i < 4; i++) m.ico(KP.shell, 0.05, Math.cos(i * 1.571) * 0.5, 0, Math.sin(i * 1.571) * 0.5, 1, 1.6, 1, 0);
+        M.parts.rring = m.geo();
+        M.act = { k: 'repair', pool: [0.35, 0.165, 0], ring: [0.35, 0.98, 0], fx: [0.35, 0.2, 0] };
+        M.h = 1.2;
+      } else {                                                        // Koalition/Syndikat: Betonplatte mit Plus-Markierung, Portal hinten, Werkstatthaus West, Roboterarme
+        slab(b, P, w, h, T);
+        b.box(syn ? P.body : P.body2, 0.78, 0.5, 1.5, -1.06, 0.06, -0.1).box(P.roof, 0.84, 0.04, 1.56, -1.06, 0.56, -0.1).pbox(T.team, 0.84, 0.05, 0.03, -1.06, 0.5, 0.665);
+        b.box(P.dark, 0.34, 0.34, 0.02, -1.0, 0.06, 0.656).pbox('#fbbf24', 0.38, 0.03, 0.025, -1.0, 0.4, 0.657);
+        winE(b, g, P, -0.6, 0.3, 0.36, -1.452, 2, 0.14, 0.1, 0.6, 7, -1);
+        if (hi) { acUnit(b, P, -1.2, 0.6, -0.4, 0.16); b.cyl(P.metal, 0.008, 0.01, 0.4, 4, -0.82, 0.6, -0.7); }
+        insignia(b, T, P, -1.05, 0.602, 0.15, 0.14, 0.14);
+        b.box('#55595d', 1.86, 0.02, 1.4, 0.45, 0.06, 0.0);
+        hazardFrame(b, 0.45, 0.0, 1.7, 1.24, 0.06);
+        b.top(T.teamL, 0.1, 0.0, 0.8, 0.0, 0.0815, 0.12).top(T.teamL, 0.45, -0.35, 0.45, 0.35, 0.0815, 0.12);   // Plus-Zeichen (Reparatur)
+        var pc = syn ? P.rust : P.body;
+        b.box(pc, 0.12, 0.98, 0.12, -0.42, 0.06, -0.8).box(pc, 0.12, 0.98, 0.12, 1.32, 0.06, -0.8).box(pc, 1.86, 0.12, 0.15, 0.45, 1.0, -0.8);
+        b.pbox(T.team, 1.7, 0.05, 0.155, 0.45, 1.05, -0.8);
+        if (syn) { for (i = 0; i < 6; i++) b.pbox(i % 2 ? '#facc15' : '#1f2937', 0.2, 0.04, 0.152, -0.25 + i * 0.3, 0.97, -0.8); b.cyl('#7a3b1c', 0.07, 0.07, 0.18, 8, 1.35, 0.06, 0.55).cyl('#3b4a2a', 0.07, 0.07, 0.18, 8, 1.2, 0.06, 0.65); if (hi) rivets(b, P.metal, -1.4, -0.7, 0.45, 0.66, 5); }
+        else { b.box(P.body2, 0.3, 0.3, 0.2, 1.2, 0.06, -0.55).pbox(P.glass, 0.2, 0.08, 0.012, 1.2, 0.24, -0.448); b.cyl(P.dark, 0.05, 0.05, 0.24, 8, 1.36, 0.06, 0.52); }
+        if (hi) { b.cyl(P.dark, 0.014, 0.014, 0.6, 4, 0.0, 0.42, -0.8).cyl(P.dark, 0.014, 0.014, 0.5, 4, 0.9, 0.5, -0.8); }   // Schläuche
+        var ac = syn ? '#d97706' : '#e8c547';
+        M.xparts.rarm = repArm(P, T, ac);
+        var arms = [[-0.35, 0.06, 0.48], [1.25, 0.06, -0.46]];
+        for (i = 0; i < 2; i++) arms[i].push(Math.atan2(0 - arms[i][2], 0.45 - arms[i][0]));
+        M.act = { k: 'repair', arms: arms, fx: [0.45, 0.25, 0] };
+        if (syn) {                                                     // Syndikat: zusätzlich Laufkatze mit Haken am Portal
+          m = new MB('bld'); m.box(P.body2, 0.2, 0.12, 0.24, 0, 0.88, -0.8).cyl(P.dark, 0.006, 0.006, 0.5, 4, 0, 0.38, -0.8).box('#c2410c', 0.07, 0.06, 0.07, 0, 0.33, -0.8);
+          M.xparts.rtrol = m.geo(); M.act.trol = [0.45, 0, 0];
+        }
+        M.h = 1.12;
+      }
+      m = new MB('bld'); m.flat = true; m.pbox('#ffffff', 0.08, 0.05, 0.08, 0, 0, 0); M.xparts.rlamp = m.geo(false);
+      M.act.lamps = lamps;
+    } else if (type === 'oresilo') {
+      M.ofill = [];
+      m = new MB('bld'); m.flat = true;
+      if (kol) {                                                      // Erzspeicher: Achtecksockel, Rippenkäfig mit leuchtender Erzsäule, Perlmuttkappe
+        kPlate(b, T, w, h);
+        kOct(b, KP.base, 0.62, 0.68, 0.18, 0, 0.06, 0); kBand(b, T.team, 0.69, 0.16, 0.06, 0, 0, 8);
+        b.cyl(KP.dark, 0.4, 0.4, 0.02, 10, 0, 0.24, 0);
+        for (i = 0; i < 6; i++) {
+          var ra = i * Math.PI / 3 + 0.26, rcx = Math.cos(ra), rcz = Math.sin(ra);
+          strut(b, KP.shell, rcx * 0.46, 0.22, rcz * 0.46, rcx * 0.52, 0.7, rcz * 0.52, 0.06); strut(b, KP.shell, rcx * 0.52, 0.7, rcz * 0.52, rcx * 0.38, 1.14, rcz * 0.38, 0.06);
+        }
+        kTor(b, T.team, 0.5, 0.03, 0, 0.7, 0, 4, 18);
+        b.dome(KP.shell2, 0.42, 0, 1.12, 0, 1, 0.5, 1, 12); g.ico(KP.glow, 0.07, 0, 1.36, 0, 1, 1.6, 1, 0);
+        b.box(KP.base2, 0.28, 0.18, 0.24, -0.72, 0.06, 0.66, Math.PI / 4).pbox(T.team, 0.3, 0.03, 0.26, -0.72, 0.24, 0.66, Math.PI / 4);
+        m.cyl('#ffffff', 0.34, 0.34, 1, 10, 0, 0, 0); M.ofill.push([0, 0.25, 0, 0.86]);
+        M.h = 1.45;
+      } else if (!syn) {                                              // Koalition: zwei Silos mit Füllstandsfenster, Pumpenhaus, Laufsteg
+        slab(b, P, w, h, T);
+        var sil = [[-0.36, -0.3, 0.36, 1.12], [0.42, 0.24, 0.3, 0.9]];
+        for (i = 0; i < 2; i++) {
+          x = sil[i][0]; z = sil[i][1]; var sr = sil[i][2], sh = sil[i][3], ga = 0.75 * Math.PI, gx = x + Math.cos(ga) * (sr + 0.005), gz = z + Math.sin(ga) * (sr + 0.005);
+          b.cylB(P.conc, sr + 0.06, 0.1, 12, x, 0.06, z, 0.012).cyl(P.body, sr, sr, sh, 14, x, 0.16, z);
+          b.lathe(P.body2, [[sr, 0], [sr * 0.75, sr * 0.3], [0.06, sr * 0.42], [0, sr * 0.42]], 14, x, 0.16 + sh, z);
+          b.add(new THREE.CylinderGeometry(sr + 0.006, sr + 0.006, 0.07, 14, 1, true), T.team, x, 0.16 + sh * 0.82, z);
+          b.box(P.dark, 0.12, sh * 0.78, 0.12, gx, 0.2, gz, -ga);
+          b.box('#1c2a35', 0.086, sh * 0.76, 0.126, gx + Math.cos(ga) * 0.004, 0.21, gz + Math.sin(ga) * 0.004, -ga);
+          for (k = 1; k < 4; k++) b.pbox(P.metal, 0.03, 0.01, 0.13, gx, 0.2 + sh * 0.78 * k / 4, gz, -ga);
+          M.ofill.push([gx + Math.cos(ga) * 0.03, 0.22, gz + Math.sin(ga) * 0.03, sh * 0.74]);
+          g.ico('#ff5a3a', 0.025, x, 0.16 + sh + sr * 0.44, z, 1, 1, 1, 0);
+        }
+        m.cyl('#ffffff', 0.036, 0.036, 1, 6, 0, 0, 0);
+        b.box(P.body2, 0.42, 0.3, 0.32, -0.55, 0.06, 0.55).box(P.roof, 0.46, 0.03, 0.36, -0.55, 0.36, 0.55).pbox(T.team, 0.44, 0.04, 0.02, -0.55, 0.3, 0.712);
+        b.pbox(P.dark, 0.14, 0.2, 0.012, -0.5, 0.06, 0.716);
+        b.cylX(P.metal, 0.045, 0.045, 0.6, 8, -0.05, 0.24, 0.55).cylZ(P.metal, 0.04, 0.5, 8, -0.36, 0.24, 0.2);
+        strut(b, P.dark, -0.12, 1.2, -0.2, 0.22, 1.0, 0.12, 0.05);
+        if (hi) { for (k = 0; k < 7; k++) b.pbox(P.metal, 0.012, 0.012, 0.1, 0.06, 0.25 + k * 0.12, -0.3); acUnit(b, P, -0.55, 0.39, 0.5, 0.14); }
+        M.h = 1.5;
+      } else {                                                        // Syndikat: offener Erzbunker (Füllung von oben sichtbar), Schrägförderband, Nieten
+        slab(b, P, w, h, T);
+        var bx = 0.15, bz = -0.15;
+        b.lathe(P.body, [[0.5, 0], [0.62, 0.66]], 10, bx, 0.12, bz).lathe(P.body2, [[0.58, 0.66], [0.46, 0.02]], 10, bx, 0.12, bz);   // Bunker offen: Außen- und Innenwand
+        b.add(new THREE.TorusGeometry(0.61, 0.045, 4, 10), P.rust, bx, 0.79, bz, 0, Math.PI / 2, 0).cyl(P.dark, 0.48, 0.48, 0.02, 10, bx, 0.12, bz);
+        for (i = 0; i < 6; i++) { var la = i * Math.PI / 3 + 0.3; b.box(P.dark, 0.07, 0.12, 0.07, bx + Math.cos(la) * 0.5, 0.06, bz + Math.sin(la) * 0.5); }
+        b.add(new THREE.CylinderGeometry(0.585, 0.565, 0.06, 10, 1, true), T.team, bx, 0.6, bz);
+        if (hi) for (i = 0; i < 10; i++) { var ra2 = i / 10 * Math.PI * 2; b.pbox(P.metal, 0.02, 0.02, 0.02, bx + Math.cos(ra2) * 0.6, 0.4, bz + Math.sin(ra2) * 0.6); }
+        strut(b, P.dark, -0.8, 0.12, 0.72, -0.3, 0.86, 0.18, 0.13); strut(b, P.body2, -0.8, 0.17, 0.72, -0.3, 0.91, 0.18, 0.09);
+        strut(b, P.dark, -0.55, 0.06, 0.45, -0.55, 0.5, 0.45, 0.04);
+        b.box(P.body2, 0.3, 0.2, 0.26, -0.78, 0.06, 0.7).pbox(T.team, 0.32, 0.03, 0.28, -0.78, 0.26, 0.7);
+        b.box(P.dark, 0.08, 0.5, 0.08, 0.82, 0.06, 0.62).box(P.rust, 0.18, 0.12, 0.14, 0.82, 0.56, 0.62);
+        m.dome('#ffffff', 0.52, 0, 0, 0, 1, 0.42, 1, 10); m.ico('#ffffff', 0.12, 0.15, 0.12, 0.1).ico('#ffffff', 0.1, -0.2, 0.1, -0.12);
+        M.ofill.push([bx, 0.13, bz, 0.6, 1]);
+        M.h = 1.0;
+      }
+      M.xparts.ofill = m.geo(false);
+      M.act = { k: 'silo12' };
+    } else if (type === 'minefield') {                                 // Minenfeld: aufgewühlter Boden, je Ladung eine Minengruppe (sonst Krater)
+      var soil = kol ? '#4d4458' : (syn ? '#5b4b38' : '#55503f');
+      b.add(new THREE.CylinderGeometry(0.44, 0.47, 0.014, 9), soil, 0, 0.007, 0, 0.3, 0, 0, 1.08, 1, 0.94);
+      for (i = 0; i < 6; i++) b.pbox(i % 2 ? '#6b6352' : '#4a4436', 0.05, 0.02, 0.04, (hsh(i * 3.1) - 0.5) * 0.7, 0.01, (hsh(i * 5.3) - 0.5) * 0.65, hsh(i));
+      m = new MB('bld'); var mg = new MB('bld'), cr = new MB('bld');
+      if (kol) {
+        for (i = 0; i < 3; i++) { var ka = i * 2.1; m.add(new THREE.ConeGeometry(0.035, 0.14, 5), i ? KP.shell2 : KP.shell, Math.cos(ka) * 0.05, 0.03, Math.sin(ka) * 0.05, 0, Math.sin(ka) * 0.5, Math.cos(ka) * 0.5); }
+        m.cylB(KP.base2, 0.07, 0.02, 6, 0, 0, 0, 0.005); mg.ico('#ffffff', 0.03, 0, 0.05, 0, 1, 1.4, 1, 0);
+      } else if (!syn) {
+        m.cylB('#4b5240', 0.08, 0.03, 10, 0, 0, 0, 0.008).cyl(T.team, 0.028, 0.028, 0.012, 8, 0, 0.03, 0).cylB('#4b5240', 0.06, 0.025, 10, 0.12, 0, 0.07, 0.006).cyl(T.teamD, 0.02, 0.02, 0.01, 8, 0.12, 0.025, 0.07);
+        if (hi) m.pbox('#2a2e24', 0.002, 0.03, 0.002, -0.04, 0.03, 0.03);
+      } else {
+        m.cylB('#5a4a36', 0.09, 0.035, 8, 0, 0, 0, 0.008).cyl(P.rust, 0.04, 0.04, 0.012, 8, 0, 0.035, 0);
+        for (i = 0; i < 3; i++) m.cyl(P.metal, 0.005, 0.005, 0.05, 4, Math.cos(i * 2.1) * 0.025, 0.04, Math.sin(i * 2.1) * 0.025);
+        m.pbox(T.team, 0.03, 0.012, 0.09, 0.1, 0.0, -0.05);
+      }
+      if (syn && hi) { b.pbox(P.wood || '#7a5a3c', 0.025, 0.2, 0.025, 0.36, 0.0, -0.3, 0, 0, 0.2); b.pbox('#55595c', 0.36, 0.006, 0.006, 0.2, 0.1, -0.32, 0.3); }
+      cr.flat = true; cr.add(new THREE.RingGeometry(0.03, 0.11, 9), '#221e1a', 0, 0.016, 0, 0, -Math.PI / 2, 0).add(new THREE.CircleGeometry(0.035, 7), '#3a342c', 0, 0.015, 0, 0, -Math.PI / 2, 0);
+      M.xparts.mine = m.geo(); M.xparts.mcrat = cr.geo(false); if (mg.list.length) M.xparts.mglow = mg.geo(false);
+      M.mine12 = [[-0.17, 0.014, -0.11], [0.15, 0.014, 0.13]];
+      M.h = 0.08;
+    } else if (type === 'gate') {                                     // Tor: zwei Pfeiler im Stil der Mauer, Torflügel (Koalition schiebt, Syndikat hebt, Kollektiv senkt ein Kraftfeld)
+      var cc = syn ? P.body : P.conc, gl = new MB('bld');
+      for (sd = -1; sd <= 1; sd += 2) {
+        x = sd * 0.36;
+        b.pbox('#6b6d6b', 0.3, 0.06, 0.4, x, 0, 0).box(cc, 0.24, 0.84, 0.32, x, 0.06, 0).pbox(T.team, 0.255, 0.09, 0.335, x, 0.5, 0);
+        b.pbox(syn ? P.body2 : '#b9bcb8', 0.3, 0.06, 0.38, x, 0.9, 0).pbox(P.dark, 0.012, 0.36, 0.06, x - sd * 0.124, 0.1, 0.1);
+        if (kol) { b.add(new THREE.ConeGeometry(0.07, 0.24, 5), KP.shell2, x, 0.96, 0).add(new THREE.ConeGeometry(0.045, 0.14, 5), KP.shell, x + sd * 0.06, 0.9, 0.06, 0, 0, -sd * 0.4); g.ico(KP.glow, 0.035, x, 0.84, 0.17, 1, 1, 1, 0); }
+        else if (!syn) g.ico('#ffb42e', 0.035, x, 1.0, 0, 1, 1, 1, 0);
+      }
+      b.pbox('#55595d', 0.48, 0.012, 0.36, 0, 0, 0);
+      if (kol) {
+        gl.flat = true; gl.pbox('#ffffff', 0.48, 0.56, 0.02, 0, 0.06, 0); for (i = 0; i < 4; i++) gl.pbox('#ffffff', 0.48, 0.025, 0.05, 0, 0.12 + i * 0.13, 0);
+        M.xparts.gfield = gl.geo(false); M.gate = 'sink'; M.gleaf = 'gfield';
+      } else if (!syn) {
+        b.box(P.body2, 0.96, 0.08, 0.16, 0, 0.84, 0).pbox(T.team, 0.5, 0.06, 0.165, 0, 0.85, 0);   // Torsturz
+        gl.box('#525c66', 0.25, 0.6, 0.05, 0, 0.07, 0).pbox(T.team, 0.255, 0.06, 0.056, 0, 0.48, 0);
+        for (i = 0; i < 3; i++) gl.pbox('#3b434b', 0.012, 0.36, 0.054, -0.08 + i * 0.08, 0.12, 0);
+        for (i = 0; i < 3; i++) gl.pbox(i % 2 ? '#23272b' : '#e6b81c', 0.085, 0.05, 0.054, -0.085 + i * 0.085, 0.07, 0);
+        M.xparts.gleaf = gl.geo(); M.gate = 'slide'; M.gleaf = 'gleaf';
+      } else {
+        b.box(P.rust, 0.98, 0.12, 0.22, 0, 0.84, 0); for (i = 0; i < 5; i++) b.pbox(i % 2 ? '#facc15' : '#1f2937', 0.18, 0.06, 0.226, -0.36 + i * 0.18, 0.86, 0);
+        for (i = 0; i < 6; i++) gl.pbox('#3a3328', 0.025, 0.58, 0.04, -0.21 + i * 0.084, 0.06, 0);
+        for (i = 0; i < 3; i++) gl.pbox('#4a4033', 0.5, 0.03, 0.045, 0, 0.14 + i * 0.2, 0);
+        gl.pbox(T.team, 0.5, 0.04, 0.05, 0, 0.6, 0);
+        M.xparts.gleaf = gl.geo(); M.gate = 'lift'; M.gleaf = 'gleaf';
+      }
+      M.iconAdd = function (grp, mat) { if (M.gate === 'slide') { for (var q = -1; q <= 1; q += 2) { var lm = new THREE.Mesh(M.xparts.gleaf, mat); lm.position.x = q * 0.125; grp.add(lm); } } else grp.add(new THREE.Mesh(M.xparts[M.gleaf], mat)); };
+      M.h = 0.85;
+    }
+    M.parts.body = b.geo();
+    if (g.list.length) { M.parts.glow = g.geo(false); M.lit = true; }
+    return M;
+  }
+
+  /** Reparaturdock/Regenerator in Ruhe (Aufbau, erinnertes Gebäude): Arme, Laufkatze, Ring in Ruhestellung. */
+  function rest12(b, M, owner, x, z, sy, cr, cg, cb) {
+    var A = M.act, i, q;
+    if (!A || A.k !== 'repair') return;
+    if (A.arms) for (i = 0; i < A.arms.length; i++) { q = A.arms[i]; partBatch('b', b.type, owner, 'rarm', M).put(x + q[0], q[1] * sy, z + q[2], q[3] + 0.6, 1, sy, 1, cr, cg, cb); }
+    if (A.trol) partBatch('b', b.type, owner, 'rtrol', M).put(x + A.trol[0], 0, z + A.trol[2], 0, 1, sy, 1, cr, cg, cb);
+    if (A.ring) partBatch('b', b.type, owner, 'rring', M).put(x + A.ring[0], A.ring[1] * sy, z + A.ring[2], 0, 1, sy, 1, cr, cg, cb);
+  }
+  /** v1.2 Aktivität (aus actDraw): Reparaturdock, Erzsilo. */
+  function act12(b, M, A, x, z, inV, dt, st, P, owner, low) {
+    var t = R.t, S = G.Sim.S, i, q, k;
+    if (A.k === 'silo12') {
+      var f = P.oreCap > 0 ? clamp(P.credits / P.oreCap, 0, 1) : 0, fb = apb(b, owner, 'ofill', M), full = f > 0.97, gk = low ? 0.35 : (full ? 1.0 + 0.5 * Math.sin(t * 6) : 0.95);
+      st.ofl = st.ofl == null ? f : st.ofl + (f - st.ofl) * Math.min(1, dt * 2);
+      for (i = 0; i < M.ofill.length; i++) {
+        q = M.ofill[i];
+        if (q[4]) fb.put(x + q[0], q[1] + q[3] * st.ofl, z + q[2], 0, 1, 0.35 + 0.65 * Math.min(1, st.ofl * 3), 1, 1.0 * gk, 0.68 * gk, 0.2 * gk);   // Erzhaufen steigt im Bunker
+        else fb.put(x + q[0], q[1], z + q[2], 0, 1, Math.max(0.01, q[3] * st.ofl), 1, 1.0 * gk, 0.68 * gk, 0.2 * gk);
+      }
+      return;
+    }
+    // Reparaturdock: arbeitet, solange in den letzten 20 Ticks repariert wurde
+    var rep = b.repT != null && S.tick - b.repT < 20 && !(b.offT > S.tick);
+    st.rpA = (st.rpA || 0) + dt * (rep ? 1 : 0.15);
+    if (A.arms) for (i = 0; i < A.arms.length; i++) {
+      q = A.arms[i];
+      var ya = q[3] + (rep ? 0.32 * Math.sin(st.rpA * 1.6 + i * 2.1) : 0.6 + 0.04 * Math.sin(t * 0.4 + i)), pi = rep ? 0.14 * Math.sin(st.rpA * 2.3 + i) - 0.05 : 0;
+      partBatch('b', b.type, owner, 'rarm', M).putP(x + q[0], q[1], z + q[2], ya, pi, 1, 1, 1);
+      if (rep && inV && rnd() < dt * 9 * FX_LOW && G.R3F.bSpark) {
+        var tx = x + q[0] + Math.cos(ya) * 0.52, tz = z + q[2] + Math.sin(ya) * 0.52;
+        for (k = 0; k < 3; k++) G.R3F.bSpark(tx, 0.28, tz, (rnd() - 0.5) * 0.8, 0.3 + rnd() * 0.6, (rnd() - 0.5) * 0.8);
+      }
+    }
+    if (A.trol) partBatch('b', b.type, owner, 'rtrol', M).put(x + A.trol[0] + (rep ? Math.sin(st.rpA * 0.9) * 0.6 : -0.6), 0, z + A.trol[2], 0, 1, 1, 1, 1, 1, 1);
+    if (A.ring) {
+      st.rgA = (st.rgA || 0) + dt * (rep ? 2.4 : 0.3);
+      partBatch('b', b.type, owner, 'rring', M).put(x + A.ring[0], A.ring[1] + 0.05 * Math.sin(t * 1.3 + st.ph) + (rep ? 0.06 : 0), z + A.ring[2], st.rgA, 1, 1, 1, 1, 1, 1);
+      var pg = low ? 0.25 : (rep ? 1.5 + 0.4 * Math.sin(t * 7) : 0.65 + 0.15 * Math.sin(t * 1.5));
+      apb(b, owner, 'rpool', M).put(x + A.pool[0], A.pool[1], z + A.pool[2], 0, 1, 1, 1, 0.45 * pg, 0.95 * pg, 1.0 * pg);
+      if (rep && inV && rnd() < dt * 14 * FX_LOW) emit(0, x + A.fx[0] + (rnd() - 0.5) * 0.9, A.fx[1], z + A.fx[2] + (rnd() - 0.5) * 0.7, 0, 0.6 + rnd() * 0.4, 0, 0.8, 0.07, 0.02, 0.6, 0.95, 1, 0.9, 0.5, 0.6, 1, 0);
+    }
+    if (A.lamps) {
+      var lb = apb(b, owner, 'rlamp', M);
+      for (i = 0; i < A.lamps.length; i++) {
+        q = A.lamps[i];
+        if (rep) { k = Math.sin(t * 7 + i * 1.6) > 0 ? 1.7 : 0.3; lb.put(x + q[0], q[1], z + q[2], 0, 1, 1, 1, 1.6 * k, 0.8 * k, 0.12 * k); }
+        else { k = low ? 0.15 : 0.7; lb.put(x + q[0], q[1], z + q[2], 0, 1, 1, 1, 0.3 * k, 1.3 * k, 0.45 * k); }
+      }
+    }
+  }
+  /** Minenfeld: je verbliebener Ladung eine Minengruppe, verbrauchte als Krater. */
+  function mineDraw(b, M, owner, x, z, sy, cr, cg, cb) {
+    var ch = b.ch == null ? M.mine12.length : b.ch, i, q, mem = cr === GREY, pu;
+    for (i = 0; i < M.mine12.length; i++) {
+      q = M.mine12[i];
+      if (i < ch) {
+        partBatch('b', b.type, owner, 'mine', M).put(x + q[0], q[1], z + q[2], i * 1.3, 1, sy, 1, cr, cg, cb);
+        if (M.xparts.mglow && !mem) { pu = 0.6 + 0.4 * Math.sin(R.t * 2.2 + i * 2 + b.id); partBatch('b', b.type, owner, 'mglow', M).put(x + q[0], q[1], z + q[2], 0, 1, sy, 1, 0.9 * pu, 0.6 * pu, 1.2 * pu); }
+      } else partBatch('b', b.type, owner, 'mcrat', M).put(x + q[0], 0, z + q[2], i, 1, 1, 1, cr, cg, cb);
+    }
+  }
+  /** Tor: Ausrichtung entlang der angrenzenden eigenen Mauern/Tore (wg/wgG aus wallPass), Flügel nach e.open (geglättet). */
+  function gateDraw(b, M, owner, x, z, sy, cr, cg, cb) {
+    var mem = cr === GREY, st = nst(b.id), tx = b.tx, ty = b.ty, v = owner + 1, ang = 0;
+    if (wg && wgG && tx != null) {
+      var idx = ty * wgW + tx, hx = (tx > 0 && (wg[idx - 1] === v || wgG[idx - 1] === v)) || (tx + 1 < wgW && (wg[idx + 1] === v || wgG[idx + 1] === v));
+      var vz = (ty > 0 && (wg[idx - wgW] === v || wgG[idx - wgW] === v)) || (ty + 1 < wgH && (wg[idx + wgW] === v || wgG[idx + wgW] === v));
+      if (vz && !hx) ang = Math.PI / 2;
+    }
+    var tgt = !mem && b.open ? 1 : 0;
+    st.go = st.go == null ? tgt : st.go + (tgt - st.go) * Math.min(1, fdt * 3.5);
+    var o = smooth(clamp(st.go, 0, 1)), ca = Math.cos(ang), sa = Math.sin(ang), lf = partBatch('b', b.type, owner, M.gleaf, M);
+    partBatch('b', b.type, owner, 'body', M).put(x, 0, z, ang, 1, sy, 1, cr, cg, cb);
+    if (M.parts.glow) partBatch('b', b.type, owner, 'glow', M).put(x, 0, z, ang, 1, sy, 1, mem ? 0.3 : 1, mem ? 0.3 : 1, mem ? 0.3 : 1);
+    if (M.gate === 'slide') { for (var sd = -1; sd <= 1; sd += 2) { var off = sd * (0.125 + 0.22 * o); lf.put(x + ca * off, 0, z + sa * off, ang, 1, sy, 1, cr, cg, cb); } }
+    else if (M.gate === 'lift') lf.put(x, 0.5 * o * sy, z, ang, 1, sy * (1 - 0.15 * o), 1, cr, cg, cb);
+    else {
+      var fk = mem ? 0.25 : (0.75 + 0.25 * Math.sin(R.t * 5 + b.id)) * (1 - 0.5 * o);
+      if (o < 0.97) lf.put(x, 0, z, ang, 1, Math.max(0.03, (1 - o) * sy), 1, 0.85 * fk, 0.55 * fk, 1.15 * fk);
+    }
+  }
+
+  // ---- v1.2 Zustände: lahmgelegt (offT), gelähmt (stunT), Sprengladung (S.charges)
+  var BST = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+  /** Lahmgelegtes Gebäude: Entladungsbögen und Funken über dem Dach, ab und zu ein Rauchwölkchen (Lichter aus: litGain). */
+  function offFx(e, M, x, z, dt, inV) {
+    if (!inV || !(dt > 0)) return;
+    var w = e.w || 1, h = e.h || 1, y = (M.h || 1) * 0.8, q = (R.safeGPU ? 0.5 : 1);
+    if (rnd() < dt * 2.2 * q) arcSpark(x + (rnd() - 0.5) * w * 0.6, y, z + (rnd() - 0.5) * h * 0.6, x + (rnd() - 0.5) * w * 0.6, y * (0.5 + rnd() * 0.4), z + (rnd() - 0.5) * h * 0.6);
+    if (rnd() < dt * 3 * q && G.R3F.bSpark) { var sx = x + (rnd() - 0.5) * w * 0.7, sz = z + (rnd() - 0.5) * h * 0.7; for (var k = 0; k < 3; k++) G.R3F.bSpark(sx, y, sz, (rnd() - 0.5) * 0.9, 0.3 + rnd() * 0.6, (rnd() - 0.5) * 0.9); }
+    if (rnd() < dt * 0.8 * q) emit(1, x + (rnd() - 0.5) * w * 0.5, y, z + (rnd() - 0.5) * h * 0.5, 0.05, 0.35, 0.02, 1.6, 0.1, 0.4, 0.35, 0.38, 0.45, 0.5, 0.5, 0.52, 0.55, 0, 0, 0.3);
+  }
+  /** Gelähmte Einheit: zwei schräg kreisende violette Psi-Fesseln um die Einheit (Glühteil, eigener Batch), kleine Funken. */
+  function stunFx(e, M, x, gy, z, s, dt, inV) {
+    var bt = batch('stun12', function () { var m = new MB(); m.flat = true; m.add(new THREE.TorusGeometry(1, 0.075, 4, 22), '#ffffff', 0, 0, 0, 0, Math.PI / 2, 0); return m.geo(false); }, partMat('glow'), 16, false);
+    var rr = Math.max(0.2, (e.r || 8) / TILE * 1.15), t = R.t, y = gy + Math.max(0.12, (M.h || 0.4) * s * 0.55), k = 0.75 + 0.35 * Math.sin(t * 9 + e.id), i;
+    for (i = 0; i < 2; i++) {
+      basis(BST, t * (i ? -2.4 : 3.1) + e.id, 0.32 * Math.sin(t * 1.7 + i * 2), 0.32 * Math.cos(t * 1.3 + i * 2));
+      bt.putM(x, y + (i ? 0.06 : -0.04), z, BST, rr * (i ? 0.85 : 1), 0.95 * k, 0.45 * k, 1.35 * k);
+    }
+    if (inV && dt > 0 && rnd() < dt * 4) { var a = rnd() * 6.283; emit(0, x + Math.cos(a) * rr, y, z + Math.sin(a) * rr, 0, 0.4, 0, 0.4, 0.06, 0.02, 0.85, 0.5, 1, 0.9, 0.5, 0.3, 1, 0); }
+  }
+  /** Gelegte Sprengladung an der Südwest-Ecke des Zielgebäudes: Paket mit Lampe, die bis zur Zündung immer schneller blinkt. */
+  function chargeDraw(S, pid, fogOff, tick, dt, inView) {
+    var bb = batch('chg12', function () { var m = new MB('bld'); m.box('#c8b88a', 0.16, 0.09, 0.11, 0, 0, 0).box('#bcab7c', 0.16, 0.06, 0.11, 0, 0.09, 0).pbox('#c0392b', 0.165, 0.012, 0.115, 0, 0.07, 0).box('#2a2e33', 0.07, 0.05, 0.06, 0.02, 0.15, 0.0).pbox('#e6b81c', 0.004, 0.06, 0.004, -0.05, 0.15, 0.03); return m.geo(); }, MAT.std, 4);
+    var lb = batch('chg12l', function () { var m = new MB(); m.flat = true; m.pbox('#ffffff', 0.035, 0.03, 0.035, 0.02, 0.2, 0); return m.geo(false); }, partMat('glow'), 4, false);
+    var hz = D.TICK_HZ || 20, i, c, b, bx, bz, rem, fq, on;
+    for (i = 0; i < S.charges.length; i++) {
+      c = S.charges[i]; b = G.Sim.get(c.bid);
+      if (!b || b.dead || b.kind !== 'building') continue;
+      if (!fogOff && b.owner !== pid && !G.Sim.isVisible(pid, b)) continue;
+      bx = b.x / TILE - (b.w || 1) / 2 + 0.28; bz = b.y / TILE + (b.h || 1) / 2 - 0.16;
+      rem = Math.max(0, (c.t - tick) / hz); fq = 2.5 + 10 * clamp(1 - rem / 4, 0, 1); on = Math.sin(R.t * fq * 3.1416) > 0 ? 2.2 : 0.25;
+      bb.put(bx, 0.06, bz, 0.4, 1.5, 1.5, 1.5, 1, 1, 1);
+      lb.put(bx, 0.06, bz, 0.4, 1.5, 1.5, 1.5, on, on * 0.12, on * 0.08);
+      if (on > 1 && inView(bx, bz) && dt > 0 && rnd() < dt * 3 && G.R3F.bSpark) G.R3F.bSpark(bx, 0.42, bz, (rnd() - 0.5) * 0.4, 0.4, (rnd() - 0.5) * 0.4);
+    }
+  }
+
   // ------------------------------------------------------------------ v1.2 TARNUNG (Haken in fill())
   // G.Sim.cloakState(pid, e): 1 = eigenes getarntes Objekt, 2 = gegnerisches, gerade aufgedecktes, 3 = unsichtbar (in fill() gar nicht gezeichnet – G.Sim.hidden).
   // Darstellung: eigenes Objekt, das der Gegner gerade NICHT sieht → halbtransparent mit bläulichem Schimmer (MAT.cloak, Deckkraft pulsiert global);
@@ -4761,7 +5106,8 @@ var G = (typeof G !== 'undefined') ? G : {};
   // ------------------------------------------------------------------ v1.2 look-Rückfall (ZENTRALE STELLE, vorläufige Darstellung)
   // Neue Typen (data.js, Feld look) benutzen Modell, Maßstab und Tabellen-Einträge des look-Typs, solange sie kein eigenes Modell haben.
   // Eigenes Modell nachrüsten: Typ in OWN12 eintragen (dann greift kein Rückfall mehr) und wie gewohnt in den Bau-Tabellen ergänzen.
-  var LOOK12 = {}, OWN12 = { flaktank: 1, saboteur: 1, radarcar: 1, submarine: 1, carrier: 1, carrierjet: 1, psidrone: 1, swarmling: 1, swarmcarrier: 1 };   // v1.2: Typen mit eigenem Modell (Abschnitt „v1.2 Modelle“)
+  var LOOK12 = {}, OWN12 = { flaktank: 1, saboteur: 1, radarcar: 1, submarine: 1, carrier: 1, carrierjet: 1, psidrone: 1, swarmling: 1, swarmcarrier: 1,
+    repairdock: 1, oresilo: 1, minefield: 1, gate: 1, tradepost: 1 };   // v1.2: Typen mit eigenem Modell (Abschnitt „v1.2 Modelle“)
   function lookAlias() {
     var tabs = [SCALE, INF, NEUT, GARR, BH, LOD, K10M, KB, V4U, V4B, V5B, V5U, V7U, V8M, V9M, PCAT, IKICK, NOKNEEL, DIE_SMALL];
     [D.UNITS, D.BUILDINGS].forEach(function (T) {
