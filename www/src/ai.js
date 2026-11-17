@@ -2012,14 +2012,14 @@ var G = (typeof G !== 'undefined') ? G : {};
   //   flakT = Flakpanzer (nur wenn gegnerische Luftfahrzeuge/Flugfeld gesehen)
   //   silo = Erzsilos (wenn der Kontostand an die Lagerkapazität stößt)
   //   radar = Radarwagen (erst wenn Getarntes/Minen Schaden angerichtet haben: P.st.stealthHits), sab = Saboteure (ab Tech-Zentrum),
-  //   mines/mineAt = Minenfelder gleichzeitig / frühestens ab s (insgesamt höchstens doppelt so viele)
+  //   mines/mineAt = Minenfelder gleichzeitig / frühestens ab s (insgesamt höchstens mines + 2, nur in den ersten 16 min)
   //   subs/carrier = U-Boote/Flugzeugträger (nur mit Werft auf Seekarten; Träger ab Tech-Zentrum), psidrone/swarm = Kollektiv
   //   dock/dockAt = Reparaturdocks / frühestens ab s; gates = Tore in Mauer-Durchlässen
   var V12 = {
     veryeasy: { subs: 0, carrier: 0, psidrone: 0, swarm: 0, flakT: 1, radar: 1, sab: 0, mines: 0, mineAt: 0, silo: 1, dock: 0, dockAt: 0, gates: 0 },
     easy:     { subs: 1, carrier: 0, psidrone: 1, swarm: 1, flakT: 1, radar: 1, sab: 0, mines: 2, mineAt: 600, silo: 2, dock: 0, dockAt: 0, gates: 0 },
-    medium:   { subs: 2, carrier: 1, psidrone: 1, swarm: 2, flakT: 3, radar: 1, sab: 1, mines: 4, mineAt: 330, silo: 3, dock: 1, dockAt: 420, gates: 1 },
-    hard:     { subs: 2, carrier: 1, psidrone: 2, swarm: 3, flakT: 4, radar: 2, sab: 2, mines: 6, mineAt: 270, silo: 4, dock: 1, dockAt: 360, gates: 2 }
+    medium:   { subs: 2, carrier: 1, psidrone: 1, swarm: 2, flakT: 3, radar: 1, sab: 1, mines: 3, mineAt: 330, silo: 3, dock: 1, dockAt: 420, gates: 1 },
+    hard:     { subs: 2, carrier: 1, psidrone: 2, swarm: 3, flakT: 4, radar: 2, sab: 2, mines: 6, mineAt: 270, silo: 4, dock: 1, dockAt: 420, gates: 2 }
   };
   var SPOT12 = { gate: spotGate, minefield: spotMine };
   function X12() { return V12[P.ai] || V12.medium; }
@@ -2036,16 +2036,16 @@ var G = (typeof G !== 'undefined') ? G : {};
   function choose12(cnt, secs) {
     var X = X12();
     // Erzsilo: Kontostand nahe der Lagerkapazität (oder Sammler mussten gerade warten) → Lager erweitern
-    if (P.oreCap && cnt('oresilo') < X.silo && (P.credits >= P.oreCap * 0.8 || S.tick - (P.capFullT || -9999) < 200) && G.Sim.canProduce(pid, 'oresilo').ok) return 'oresilo';
+    if (P.oreCap && cnt('oresilo') < X.silo && (P.credits >= P.oreCap * 0.6 || S.tick - (P.capFullT || -9999) < 200) && G.Sim.canProduce(pid, 'oresilo').ok) return 'oresilo';
     if (A.defending || A.allIn) return null;
-    if (X.dock && cnt('repairdock') < X.dock && secs >= X.dockAt && P.credits > 1300 && armyValue() >= 4500 && G.Sim.canProduce(pid, 'repairdock').ok) return 'repairdock';
+    if (X.dock && cnt('repairdock') < X.dock && secs >= X.dockAt && P.credits > 1200 && armyValue() >= 4000 && G.Sim.canProduce(pid, 'repairdock').ok) return 'repairdock';
     return null;
   }
   /** Verteidigungs-Warteschlange (aus chooseDefenseInner): Tor in den Durchlass einer gesetzten Mauerlinie. */
   function chooseDef12(cnt, secs) {
     var X = X12();
     if (A.allIn) return null;
-    if (X.mines && secs >= X.mineAt && !A.defending && cnt('minefield') < X.mines && (A.minesBuilt || 0) < X.mines * 2 && (A.mineFails || 0) < 3 && P.credits > 500 &&
+    if (X.mines && secs >= X.mineAt && !A.defending && cnt('minefield') < X.mines && (A.minesBuilt || 0) < X.mines + 2 && S.tick / D.TICK_HZ < 16 * 60 && (A.mineFails || 0) < 3 && P.credits > 500 &&
         G.Sim.canProduce(pid, 'minefield').ok) return 'minefield';
     if (X.gates && A.gateT && A.gateT.length && cnt('gate') < Math.min(X.gates, A.wallLines || 0) && P.credits > 500 && G.Sim.canProduce(pid, 'gate').ok) return 'gate';
     return null;
@@ -2094,7 +2094,7 @@ var G = (typeof G !== 'undefined') ? G : {};
   function v12Sab(X) {
     if (!X.sab || !canAttack() || !G.Sim.hasBuilding(pid, 'techcenter')) return;
     var sabs = myUnits(function (e) { return e.type === 'saboteur'; });
-    if (sabs.length + inQ('infantry', 'saboteur') < X.sab && S.tick - (A.sabT || -1e9) > 20 * 45 && P.credits > 900 && P.q.infantry.length < cfg.armyQ + 1 && G.Sim.canProduce(pid, 'saboteur').ok) {
+    if (sabs.length + inQ('infantry', 'saboteur') < X.sab && S.tick - (A.sabT || -1e9) > 20 * 60 && P.credits > 1000 && !A.allIn && P.q.infantry.length < cfg.armyQ + 1 && G.Sim.canProduce(pid, 'saboteur').ok) {
       A.sabT = S.tick; G.cmd.produce(pid, 'saboteur');
     }
     if ((S.tick + pid) % (cfg.interval * 2) >= cfg.interval) return;
@@ -2136,7 +2136,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     // (navyProduction() füllt die Werft-Schlange zuerst → hier ein zweiter Eintrag dahinter, höchstens einer je Typ)
     if (A.navy && A.navy.ok && G.Sim.hasBuilding(pid, 'shipyard') && P.q.naval.length < 2 && !inQ('naval', 'submarine') && !inQ('naval', 'carrier') && armyValue() >= 2000 && P.credits > 400) {
       if (cntU('submarine') < Math.min(X.subs, A.seenShips >= 1 ? X.subs : 1) && cntU('gunboat') >= 1 && G.Sim.canProduce(pid, 'submarine').ok) G.cmd.produce(pid, 'submarine');
-      else if (tech && cntU('carrier') < X.carrier && P.credits > 1500 && cntU('gunboat') + cntU('destroyer') >= 2 && G.Sim.canProduce(pid, 'carrier').ok) G.cmd.produce(pid, 'carrier');
+      else if (tech && cntU('carrier') < X.carrier && P.credits > 800 && cntU('gunboat') + cntU('destroyer') + cntU('submarine') >= 1 && G.Sim.canProduce(pid, 'carrier').ok) G.cmd.produce(pid, 'carrier');
     }
     if (P.faction !== 'kollektiv') return;
     if (X.psidrone && G.Sim.hasBuilding(pid, 'airfield') && P.q.air.length < 2 && !inQ('air', 'psidrone') && cntU('psidrone') < X.psidrone && armyValue() >= 2500 && P.credits > 500 && G.Sim.canProduce(pid, 'psidrone').ok) G.cmd.produce(pid, 'psidrone');
@@ -2160,18 +2160,20 @@ var G = (typeof G !== 'undefined') ? G : {};
       u = G.Sim.get(+id);
       if (!u || u.dead || u.owner !== pid || u.hp >= u.maxHp * 0.95 || S.tick - A.rep[id] > 20 * 75) delete A.rep[id]; else n++;
     }
-    if (A.allIn || n >= 4 || (S.tick + pid) % (cfg.interval * 3) >= cfg.interval) return;
+    if (A.allIn || n >= 2 || (S.tick + pid) % (cfg.interval * 3) >= cfg.interval) return;
     var site = G.Sim.repairSite(pid, A.homeX, A.homeY);
     if (!site || P.credits < 300) return;
-    for (var i = 0; i < S.ents.length && n < 4; i++) {
+    var inAtk = {};   // Einheiten der laufenden Angriffswelle bleiben an der Front (sonst versanden Vorstöße)
+    for (var ai2 = 0; A.attack && ai2 < A.attack.length; ai2++) inAtk[A.attack[ai2]] = 1;
+    for (var i = 0; i < S.ents.length && n < 2; i++) {
       u = S.ents[i];
+      if (inAtk[u.id]) continue;
       if (u.dead || u.owner !== pid || !G.Sim.canRepairUnit(u) || u.hp >= u.maxHp * 0.45 || A.rep[u.id] != null) continue;
       var st = G.Sim.statsOf(u);
       if (st.harvester || (st.cost || 0) < 600 || S.tick - (u.lastAtkT || -9999) < 60 || reserved(u)) continue;
       if (d2(u.x, u.y, site.x, site.y) > 32 * 32 * TILE * TILE) continue;
       if (G.cmd.repairAt(pid, [u.id], site.id).ok) {
         A.rep[u.id] = S.tick; n++;
-        var k = A.attack ? A.attack.indexOf(u.id) : -1; if (k >= 0) A.attack.splice(k, 1);
       }
     }
   }
