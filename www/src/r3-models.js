@@ -23,6 +23,9 @@
  * GB (Gebäude): Kollektiv-Gebäude haben eigene Modelle (buildKB, Abschnitt „GB“; nicht gespiegelt, Grundflächen/Ausgänge/Andockpunkte/Mündungen
  *   wie die gemeinsamen Modelle). GA: Gebäude zeigen Produktion/Andocken/Auslastung/Strommangel/Schaden (actPre/actDraw/dmgFx/litGain, liest
  *   nur den Sim-Zustand; Zusatzteile über actAttach bzw. M.act). Einziger Haken in r3-fx.js: G.R3F.bFlame/bSpark (angehängt).
+ * v1.2 Modelle (Abschnitt „v1.2 Modelle“ vor TARNUNG): eigene Modelle aller v1.2-Typen (OWN12 → kein look-Rückfall mehr; 2D bleibt bei look),
+ *   Träger-Plätze (hangarDraw), U-Boot taucht, Tor richtet sich nach den Mauern (wgG), Erzsilo-Füllstand, Reparaturdock-Arbeit (act12),
+ *   Zustände lahmgelegt/gelähmt/Sprengladung (offFx/stunFx/chargeDraw), Tarnung halbtransparent (MAT.cloak über pbMode in partBatch).
  */
 var G = (typeof G !== 'undefined') ? G : {};
 (function () {
@@ -4748,9 +4751,9 @@ var G = (typeof G !== 'undefined') ? G : {};
         b.add(new THREE.CylinderGeometry(0.152, 0.152, 0.025, 6, 1, true), i & 1 ? T.team : T.teamD, hx, 0.4, hz);
         M.hgS.push([hx, 0.47, hz, 0]);
       }
-      var hl = new MB(); hl.flat = true; hl.add(new THREE.RingGeometry(0.085, 0.118, 6), '#ffffff', 0, 0.004, 0, 0, -Math.PI / 2, 0); M.xparts.hlamp = hl.geo(false);
+      var hl = new MB(); hl.flat = true; hl.add(new THREE.CircleGeometry(0.112, 6), '#ffffff', 0, 0.004, 0, 0, -Math.PI / 2, 0); M.xparts.hlamp = hl.geo(false);   // Wabenboden leuchtet (belegt), blinkt (lädt), dunkel (leer)
       M.xparts.hdrone = model('swarmling', 'kollektiv', color).parts.hull;
-      M.hgP = 'hdrone'; M.hgL = 'hlamp'; M.hgK = 0.85; M.hgLC = [1.0, 0.62, 1.3];
+      M.hgP = 'hdrone'; M.hgL = 'hlamp'; M.hgK = 1.15; M.hgLC = [0.95, 0.5, 1.35];
       if (hi) for (i = 0; i < 3; i++) g.pbox(KP.glow, 0.05, 0.012, 0.012, -0.05 - i * 0.12, 0.38, 0);
       M.h = 0.66;
     } else if (type === 'saboteur') {
@@ -4831,7 +4834,7 @@ var G = (typeof G !== 'undefined') ? G : {};
         m = new MB('bld'); m.flat = true; kOct(m, '#ffffff', 0.72, 0.72, 0.012, 0, 0, 0, 1.3, 1.02); M.xparts.rpool = m.geo(false);
         m = new MB('bld'); kTor(m, T.team, 0.5, 0.032, 0, 0, 0, 4, 20); for (i = 0; i < 4; i++) m.ico(KP.shell, 0.05, Math.cos(i * 1.571) * 0.5, 0, Math.sin(i * 1.571) * 0.5, 1, 1.6, 1, 0);
         M.parts.rring = m.geo();
-        M.act = { k: 'repair', pool: [0.35, 0.165, 0], ring: [0.35, 0.98, 0], fx: [0.35, 0.2, 0] };
+        M.act = { k: 'repair', pool: [0.35, 0.165, 0], ring: [0.35, 0.98, 0], fx: [0.35, 0.2, 0] }; M.at = { rring: M.act.ring };
         M.h = 1.2;
       } else {                                                        // Koalition/Syndikat: Betonplatte mit Plus-Markierung, Portal hinten, Werkstatthaus West, Roboterarme
         slab(b, P, w, h, T);
@@ -4862,6 +4865,11 @@ var G = (typeof G !== 'undefined') ? G : {};
       }
       m = new MB('bld'); m.flat = true; m.pbox('#ffffff', 0.08, 0.05, 0.08, 0, 0, 0); M.xparts.rlamp = m.geo(false);
       M.act.lamps = lamps;
+      M.iconAdd = function (grp, mat) {   // Symbol: Arme/Laufkatze in Ruhestellung (Ring liegt in M.parts)
+        var A = M.act, q, mm;
+        if (A.arms) for (q = 0; q < A.arms.length; q++) { mm = new THREE.Mesh(M.xparts.rarm, mat); mm.position.set(A.arms[q][0], A.arms[q][1], A.arms[q][2]); mm.rotation.y = -(A.arms[q][3] + 0.6); grp.add(mm); }
+        if (A.trol) { mm = new THREE.Mesh(M.xparts.rtrol, mat); mm.position.x = A.trol[0]; grp.add(mm); }
+      };
     } else if (type === 'oresilo') {
       M.ofill = [];
       m = new MB('bld'); m.flat = true;
@@ -4937,6 +4945,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       cr.flat = true; cr.add(new THREE.RingGeometry(0.03, 0.11, 9), '#221e1a', 0, 0.016, 0, 0, -Math.PI / 2, 0).add(new THREE.CircleGeometry(0.035, 7), '#3a342c', 0, 0.015, 0, 0, -Math.PI / 2, 0);
       M.xparts.mine = m.geo(); M.xparts.mcrat = cr.geo(false); if (mg.list.length) M.xparts.mglow = mg.geo(false);
       M.mine12 = [[-0.17, 0.014, -0.11], [0.15, 0.014, 0.13]];
+      M.iconAdd = function (grp, mat) { for (var q = 0; q < M.mine12.length; q++) { var mm = new THREE.Mesh(M.xparts.mine, mat); mm.position.set(M.mine12[q][0], M.mine12[q][1], M.mine12[q][2]); mm.rotation.y = -q * 1.3; grp.add(mm); } };
       M.h = 0.08;
     } else if (type === 'gate') {                                     // Tor: zwei Pfeiler im Stil der Mauer, Torflügel (Koalition schiebt, Syndikat hebt, Kollektiv senkt ein Kraftfeld)
       var cc = syn ? P.body : P.conc, gl = new MB('bld');
@@ -5065,8 +5074,11 @@ var G = (typeof G !== 'undefined') ? G : {};
     if (rnd() < dt * 0.8 * q) emit(1, x + (rnd() - 0.5) * w * 0.5, y, z + (rnd() - 0.5) * h * 0.5, 0.05, 0.35, 0.02, 1.6, 0.1, 0.4, 0.35, 0.38, 0.45, 0.5, 0.5, 0.52, 0.55, 0, 0, 0.3);
   }
   /** Gelähmte Einheit: zwei schräg kreisende violette Psi-Fesseln um die Einheit (Glühteil, eigener Batch), kleine Funken. */
+  function stunGeo() { var m = new MB(); m.flat = true; m.add(new THREE.TorusGeometry(1, 0.075, 4, 22), '#ffffff', 0, 0, 0, 0, Math.PI / 2, 0); return m.geo(false); }
+  function chgGeo() { var m = new MB('bld'); m.box('#c8b88a', 0.16, 0.09, 0.11, 0, 0, 0).box('#bcab7c', 0.16, 0.06, 0.11, 0, 0.09, 0).pbox('#c0392b', 0.165, 0.012, 0.115, 0, 0.07, 0).box('#2a2e33', 0.07, 0.05, 0.06, 0.02, 0.15, 0.0).pbox('#e6b81c', 0.004, 0.06, 0.004, -0.05, 0.15, 0.03); return m.geo(); }
+  function chgLGeo() { var m = new MB(); m.flat = true; m.pbox('#ffffff', 0.035, 0.03, 0.035, 0.02, 0.2, 0); return m.geo(false); }
   function stunFx(e, M, x, gy, z, s, dt, inV) {
-    var bt = batch('stun12', function () { var m = new MB(); m.flat = true; m.add(new THREE.TorusGeometry(1, 0.075, 4, 22), '#ffffff', 0, 0, 0, 0, Math.PI / 2, 0); return m.geo(false); }, partMat('glow'), 16, false);
+    var bt = batch('stun12', stunGeo, partMat('glow'), 16, false);
     var rr = Math.max(0.2, (e.r || 8) / TILE * 1.15), t = R.t, y = gy + Math.max(0.12, (M.h || 0.4) * s * 0.55), k = 0.75 + 0.35 * Math.sin(t * 9 + e.id), i;
     for (i = 0; i < 2; i++) {
       basis(BST, t * (i ? -2.4 : 3.1) + e.id, 0.32 * Math.sin(t * 1.7 + i * 2), 0.32 * Math.cos(t * 1.3 + i * 2));
@@ -5076,8 +5088,7 @@ var G = (typeof G !== 'undefined') ? G : {};
   }
   /** Gelegte Sprengladung an der Südwest-Ecke des Zielgebäudes: Paket mit Lampe, die bis zur Zündung immer schneller blinkt. */
   function chargeDraw(S, pid, fogOff, tick, dt, inView) {
-    var bb = batch('chg12', function () { var m = new MB('bld'); m.box('#c8b88a', 0.16, 0.09, 0.11, 0, 0, 0).box('#bcab7c', 0.16, 0.06, 0.11, 0, 0.09, 0).pbox('#c0392b', 0.165, 0.012, 0.115, 0, 0.07, 0).box('#2a2e33', 0.07, 0.05, 0.06, 0.02, 0.15, 0.0).pbox('#e6b81c', 0.004, 0.06, 0.004, -0.05, 0.15, 0.03); return m.geo(); }, MAT.std, 4);
-    var lb = batch('chg12l', function () { var m = new MB(); m.flat = true; m.pbox('#ffffff', 0.035, 0.03, 0.035, 0.02, 0.2, 0); return m.geo(false); }, partMat('glow'), 4, false);
+    var bb = batch('chg12', chgGeo, MAT.std, 4), lb = batch('chg12l', chgLGeo, partMat('glow'), 4, false);
     var hz = D.TICK_HZ || 20, i, c, b, bx, bz, rem, fq, on;
     for (i = 0; i < S.charges.length; i++) {
       c = S.charges[i]; b = G.Sim.get(c.bid);
