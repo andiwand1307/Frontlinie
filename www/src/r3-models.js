@@ -135,6 +135,9 @@ var G = (typeof G !== 'undefined') ? G : {};
     MAT.foot = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.45, depthWrite: false, toneMapped: false });
     MAT.ghostW = MAT.ghost.clone();   // Mauer-Vorschau: Farbe je Instanz (grün/rot)
     MAT.footW = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.5, depthWrite: false, toneMapped: false });
+    MAT.cloak = material('std');   // v1.2 Tarnung: eigene getarnte Objekte halbtransparent, bläulich schimmernd (Deckkraft je Frame in fill)
+    MAT.cloak.transparent = true; MAT.cloak.opacity = 0.42; MAT.cloak.depthWrite = false; MAT.cloak.color.setRGB(0.72, 0.9, 1.25);
+    if (MAT.cloak.emissive) MAT.cloak.emissive.setRGB(0.04, 0.1, 0.16);
     matGen++;
     if (old.std) {   // umhängen: alle Instanz-Batches, Szene-Meshes mit alten Materialien
       var map = new Map();
@@ -415,6 +418,7 @@ var G = (typeof G !== 'undefined') ? G : {};
   }
 
   function buildUnit(type, fac, color) {
+    if (V12U[type]) return buildU12(type, fac, color);   // v1.2 eigene Modelle (Abschnitt „v1.2 Modelle“)
     if (V9M[type]) return buildV9(type, fac, color);   // v0.9 Schlachtschiff
     if (V8M[type]) return buildV8(type, fac, color);   // v0.8 Luftwaffe & Marine
     if (V4U[type]) return buildUnitV4(type, fac, color);
@@ -2361,7 +2365,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       r.rpm += (spinT - r.rpm) * Math.min(1, dt * (spinT ? 1.8 : 0.4));
       r.rot += dt * (3 + 19 * r.rpm) * r.rpm;
       partBatch('u', type, own, 'hull', M).putM(x, y, z, B8, s, 1, 1, 1);
-      if (M.parts.glow) { var gl = (((t * 1.1 + r.ph) % 1) < 0.07 ? 2.6 : 0.85); partBatch('u', type, own, 'glow', M).putM(x, y, z, B8, s, gl, gl, gl); }
+      if (M.parts.glow) { var gl = M.pulse ? 1.0 + 0.55 * Math.sin(t * 3.2 + r.ph) + (tick - e.fireT < 8 ? 1.4 : 0) : (((t * 1.1 + r.ph) % 1) < 0.07 ? 2.6 : 0.85); partBatch('u', type, own, 'glow', M).putM(x, y, z, B8, s, gl, gl, gl); }   // v1.2 Kollektiv-Flieger: pulsierender Kern
       for (i = 0; i < M.xp.length; i++) {
         xe = M.xp[i];
         if (xe.k === 'bomb' && e.ammo != null && xe.i >= e.ammo) continue;
@@ -2370,6 +2374,7 @@ var G = (typeof G !== 'undefined') ? G : {};
         if (xe.k === 'rotor') Bx = spinY(B8b, B8, r.rot * (xe.d || 1));
         else if (xe.k === 'trot') Bx = spinZ(B8b, B8, r.rot * 2.3);
         else if (xe.k === 'prop') Bx = spinX(B8b, B8, r.rot * 1.7 * (xe.d || 1));
+        else if (xe.k === 'kspin') Bx = spinY(B8b, B8, t * 0.9 * (xe.d || 1) + r.ph);   // v1.2 Psi-Drohne: Ring kreist langsam
         partBatch('u', type, own, xe.p, M).putM(x + P8[0], y + P8[1], z + P8[2], Bx, s, 1, 1, 1);
       }
       if (M.rotors && r.rpm > 0.3) {
@@ -2397,6 +2402,11 @@ var G = (typeof G !== 'undefined') ? G : {};
     }
     // ---- Schiff: Wasserlinie, Seegang, Krängung in Kurven, Bug hebt sich mit der Fahrt
     y = WL8 + Math.sin(t * 1.9 + r.ph) * 0.012;
+    if (M.sub) {   // v1.2 U-Boot: getaucht (eigenes, unentdecktes) → nur der Turm ragt heraus; aufgedeckt/nach dem Schuss → aufgetaucht
+      var dv = (e.clk && G.Sim.cloakState(V.pid, e) === 1 && !(e.revT > tick) && !e.revM) ? 1 : 0;
+      r.dv = r.dv == null ? dv : r.dv + (dv - r.dv) * Math.min(1, dt * 1.3);
+      y -= r.dv * M.sub * s;
+    }
     var heel = clamp(r.turn * spd * 0.06, -0.12, 0.12), roll = Math.sin(t * 1.2 + r.ph) * 0.022 + heel;
     var pit8 = Math.sin(t * 1.5 + r.ph * 1.7) * 0.012 + clamp(spd * 0.014, 0, 0.045);
     basis(B8, r.dir, pit8, roll);
@@ -2429,6 +2439,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     if (M.ramp) {   // Bugklappe: offen nach 'beach'/'load'/'unload' (r.rampT, aus R3F) für 3 s
       r.ramp += ((t - r.rampT < 3 ? 1 : 0) - r.ramp) * Math.min(1, dt * 2.2);
     }
+    if (M.hgS) hangarDraw(e, M, type, own, x, y, z, B8, s, tick, 1);   // v1.2 Flugzeugträger: Jäger an Deck
     for (i = 0; i < M.xp.length; i++) {
       xe = M.xp[i]; lv(B8, xe.x, xe.y, xe.z, s);
       var Bq = B8;
@@ -2439,7 +2450,8 @@ var G = (typeof G !== 'undefined') ? G : {};
     if (sel) R.selRing.put(x, y + 0.03, z, 0, e.r / TILE * 1.25 + 0.06, 1, e.r / TILE * 1.25 + 0.06, 0.6, 1, 0.6);
     if (!inV) return;
     var cd = Math.cos(r.dir), sd = Math.sin(r.dir);
-    if (M.wake && spd > 0.15 && (r.wk += dt) > 0.07) {   // Bugwelle + Heckschaum (R3F.wake: flache Schaumflecken auf dem Wasser + Gischt)
+    if (M.sub && r.dv > 0.5) { if (spd > 0.15 && rnd() < dt * 6) F3.puff(x - cd * 0.45 * s, WL8 + 0.02, z - sd * 0.45 * s, (rnd() - 0.5) * 0.2, 0.15, (rnd() - 0.5) * 0.2, 0.5, 0.05, 0.22, 0.85, 0.5, 0); }   // getaucht: nur Blasen
+    else if (M.wake && spd > 0.15 && (r.wk += dt) > 0.07) {   // Bugwelle + Heckschaum (R3F.wake: flache Schaumflecken auf dem Wasser + Gischt)
       r.wk = 0; k = clamp(spd / 2.5, 0.3, 1.2);
       F3.wake(x + cd * M.wake[0] * s, z + sd * M.wake[0] * s, r.dir, 1, M.wake[2] * s, k);
       F3.wake(x + cd * M.wake[1] * s, z + sd * M.wake[1] * s, r.dir, 0, M.wake[2] * s, k);
@@ -3578,7 +3590,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       var dB = ang - dir - Math.PI; while (dB > Math.PI) dB -= 2 * Math.PI; while (dB < -Math.PI) dB += 2 * Math.PI;
       r.mzA = Math.abs(dB) < 2.2 ? (r.mzA ? 0 : 1) : 0;
       if (r.mzA) { pv = M.piv2; mz = M.muzzle2; r.b1 = R.t; } else r.b0 = R.t;
-    }
+    } else if (M.alt2 && r) mzBarrel = r.mzA = r.mzA ? 0 : 1;   // v1.2: Doppellafetten feuern links/rechts im Wechsel
     var px = x + (Math.cos(dir) * pv[0] - Math.sin(dir) * pv[1]) * s, pz = z + (Math.sin(dir) * pv[0] + Math.cos(dir) * pv[1]) * s;
     out.set(px + Math.cos(ang) * mz[0] * s, y0 + mz[1] * s, pz + Math.sin(ang) * mz[0] * s);
     if (M.mz2) { var lat = (mzBarrel ? -1 : 1) * M.mz2 * s; out.x -= Math.sin(ang) * lat; out.z += Math.cos(ang) * lat; }
@@ -3968,6 +3980,12 @@ var G = (typeof G !== 'undefined') ? G : {};
       var pg = M.pilot ? (firing && fa < 6 ? 2.2 : 0.9 + 0.35 * Math.sin(R.t * 23 + r.ph) * Math.sin(R.t * 7.1)) : 1;
       partBatch('u', type, own, 'glow', M).putM(x, by, z, BVh, s, pg, pg, pg);
     }
+    if (M.sab) {   // v1.2 Saboteur: Ladung nur, wenn bereit (cd ≤ 0); Lampe rot (Sprengladung) / blau (lahmlegen), bernstein langsam beim Nachladen
+      var sb = e.cd > 0, md = e.sabMode ? 1 : 0, on;
+      if (!sb) partBatch('u', type, own, 'chg', M).putM(x, by, z, BVh, s, md ? 0.62 * c : c, md ? 0.82 * c : c, md ? 1.3 * c : c);
+      if (sb) { on = Math.sin(R.t * 2.2 + r.p0) > 0.55 ? 1.1 : 0.18; partBatch('u', type, own, 'chgl', M).putM(x, by, z, BVh, s, on, on * 0.62, on * 0.12); }
+      else { on = Math.sin(R.t * 6.5 + r.p0) > 0 ? 1.9 : 0.35; partBatch('u', type, own, 'chgl', M).putM(x, by, z, BVh, s, md ? 0.25 * on : on, md ? 0.85 * on : 0.12 * on, md ? 1.25 * on : 0.08 * on); }
+    }
     if (M.xparts.leg) {
       var lb = partBatch('u', type, own, 'leg', M), a1 = sw * (1 - kn) + 0.95 * kn, a2 = -sw * (1 - kn) - 1.15 * kn;
       basis(BVt, yaw, 0, 0);
@@ -4001,13 +4019,17 @@ var G = (typeof G !== 'undefined') ? G : {};
     scaffold = new Batch(sb.geo(false), MAT.std, 4); R.dynRoot.add(scaffold.mesh);
   }
 
+  var pbMode = 0;   // v1.2 Tarnung: 1 = Teile des gerade gezeichneten Objekts in die halbtransparenten Tarn-Batches (MAT.cloak, ohne Schatten)
+  var PBC = {};     // Teilname → Schlüssel der Tarn-Variante (einmal je Teilname, keine Zeichenketten je Frame)
   function partBatch(kind, type, owner, part, M) {
-    var bo = M.pbt || (M.pbt = {}), by = bo[owner] || (bo[owner] = {}), bt = by[part];   // v0.7: Batch-Verweis je Modell/Besitzer/Teil zwischenspeichern (keine Zeichenketten je Frame)
+    var pk = pbMode ? (PBC[part] || (PBC[part] = '~' + part)) : part;
+    var bo = M.pbt || (M.pbt = {}), by = bo[owner] || (bo[owner] = {}), bt = by[pk];   // v0.7: Batch-Verweis je Modell/Besitzer/Teil zwischenspeichern (keine Zeichenketten je Frame)
     if (bt && bt.mesh.parent) return bt;
     // v0.8 PowerVR (fixedBuf): großzügige Startkapazität, damit Batches im Spiel praktisch nie wachsen (jedes Wachstum = neuer GPU-Puffer)
     var fb = (R.F || {}).fixedBuf;
-    bt = batch(kind + (M.mkey || type + (M.lo ? '~' : '')) + ':' + owner + ':' + part, function () { return M.parts[part] || M.xparts[part]; }, partMat(part), kind === 'u' ? (fb ? 96 : 24) : (fb ? 24 : 8), part === 'leg' ? false : undefined);   // Bewegung: Beine werfen keinen eigenen Schatten (spart den Zeichenaufruf im Schattendurchgang)
-    by[part] = bt;
+    bt = batch(kind + (M.mkey || type + (M.lo ? '~' : '')) + ':' + owner + ':' + pk, function () { return M.parts[part] || M.xparts[part]; }, pbMode ? MAT.cloak : partMat(part), pbMode ? 4 : (kind === 'u' ? (fb ? 96 : 24) : (fb ? 24 : 8)), (part === 'leg' || pbMode) ? false : undefined);   // Bewegung: Beine werfen keinen eigenen Schatten (spart den Zeichenaufruf im Schattendurchgang)
+    if (pbMode) bt.mesh.renderOrder = 3;
+    by[pk] = bt;
     return bt;
   }
 
@@ -4042,6 +4064,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     var selRing = R.selRing, selSquare = R.selSquare;
     var i, e, Pm, M, x, z, y, s;
     fdt = dt;
+    if (MAT.cloak) MAT.cloak.opacity = 0.36 + 0.08 * Math.sin(R.t * 2.6);   // v1.2 Tarnung: Schimmer (eine Zahl je Frame, kein neues Programm)
     // --- Mauern (Raster + automatische Verbindungen)
     wallPass(S, P, pid, fogOff, alpha, dt, selSet, inView);
     // --- Gebäude
@@ -4069,9 +4092,8 @@ var G = (typeof G !== 'undefined') ? G : {};
       }
       var hf = e.hp / e.maxHp, dk = hf < 0.35 ? 0.78 : 1;
       inV5 = inView(x, z);
-      if (e.clk) { var ck = 0.75 + 0.25 * Math.sin(R.t * 4 + e.id); drawBuildingInst(e, M, e.owner, x, z, e.tdir || 0, sy * 0.55, dk * 0.45 * ck, dk * 0.7 * ck, dk * 1.25 * ck); cloakMark(e, pid, x, 0.05, z, 0.5); }   // v1.2 TARNUNG (vorläufig): flach, bläulich schimmernd + Markierung
-      else
-      drawBuildingInst(e, M, e.owner, x, z, e.tdir || 0, sy, dk, dk, dk);
+      if (e.clk && cloakMark(e, pid, x, 0.05, z, Math.max(e.w, e.h) * 0.5, tick)) { pbMode = 1; drawBuildingInst(e, M, e.owner, x, z, e.tdir || 0, sy, dk, dk, dk); pbMode = 0; }   // v1.2 Tarnung: eigenes, unentdecktes Gebäude halbtransparent
+      else drawBuildingInst(e, M, e.owner, x, z, e.tdir || 0, sy, dk, dk, dk);
       if (selSet[e.id]) selSquare.put(x, 0.04, z, 0, e.w * 0.62 + 0.08, 1, e.h * 0.62 + 0.08, 0.6, 1, 0.6);
       if (e.offT > tick) { var ok2 = 0.5 + 0.5 * Math.sin(R.t * 8); selSquare.put(x, 0.05, z, 0, e.w * 0.56, 1, e.h * 0.56, 1.0 * ok2, 0.8 * ok2, 0.1); }   // v1.2 lahmgelegt (vorläufig): gelb blinkender Rahmen
       if (M.act) actDraw(e, M, x, z, sy, inV5, dt);   // GA: Produktion, Tor, Kran, Andocken, Auslastung
@@ -4115,7 +4137,8 @@ var G = (typeof G !== 'undefined') ? G : {};
       r.dir = lerpAng(r.dir, e.dir, kr); r.tdir = lerpAng(r.tdir, e.tdir || 0, Math.min(1, dt * 14));
       Pm = S.players[e.owner]; M = model(e.type, e.fac || Pm.faction, Pm.color); s = SCALE[e.type] || 1;   // v1.0: Herkunftsfraktion, Farbe = Besitzer
       if (e.mcBy || e.magT > tick) k10Link(e, x, z, alpha, tick, selRing, pid, fogOff);   // v1.0 Gedankenkontrolle / Magnet (PLATZHALTER v1.0)
-      if (e.clk) cloakMark(e, pid, x, (e.mc === 3 ? WL8 : groundAt(x, z)) + 0.04, z, (e.r || 8) / TILE * 1.5);   // v1.2 TARNUNG (vorläufig): Schimmer-Ring
+      pbMode = 0;
+      if (e.clk && cloakMark(e, pid, x, (e.mc === 3 ? WL8 : groundAt(x, z)) + 0.04, z, (e.r || 8) / TILE * 1.4, tick)) pbMode = 1;   // v1.2 Tarnung: eigenes, unentdecktes Objekt halbtransparent
       if (e.stunT > tick) { var sk = 0.6 + 0.4 * Math.sin(R.t * 12); selRing.put(x, (e.mc === 3 ? WL8 : groundAt(x, z)) + 0.05, z, 0, (e.r || 8) / TILE * 1.2, 1, (e.r || 8) / TILE * 1.2, 0.8 * sk, 0.4 * sk, 1.0 * sk); }   // v1.2 gelähmt (vorläufig): violetter Ring
       if (M.v8u) { drawV8U(e, M, r, x, z, s, dt, tick, alpha, !!selSet[e.id], inView(x, z)); continue; }   // v0.8: Luftfahrzeuge (Flughöhe, Rotoren, Neigung) / Schiffe (Wasserlinie, Seegang, Türme)
       y = groundAt(x, z);
@@ -4153,8 +4176,11 @@ var G = (typeof G !== 'undefined') ? G : {};
         if (xe.k === 'wheel') {
           if (xe.x > 0.1 && r.steer) { spinY(BVy, BVh, -r.steer); spinZ(BVx, BVy, -r.trk / (xe.r * s)); } else spinZ(BVx, BVh, -r.trk / (xe.r * s));
           xbt.putM(x + P8[0], y + P8[1], z + P8[2], BVx, s, hc, hc, hc);
+        } else if (xe.k === 'spin') {   // v1.2: Radarantenne dreht (Effektzeit; Pause → steht)
+          spinY(BVx, BVh, R.t * (xe.w || 1.6) + r.p0); xbt.putM(x + P8[0], y + P8[1], z + P8[2], BVx, s, hc, hc, hc);
         } else xbt.putM(x + P8[0], y + P8[1], z + P8[2], BVh, s, hc, hc, hc);
       }
+      if (M.hgS) hangarDraw(e, M, typ, own, x, y, z, BVh, s, tick, hc);   // v1.2 Schwarm-Träger: Waben belegt/leer/lädt
       lv(BVh, M.pivot[0], 0, M.pivot[1], s);
       var pxp = x + P8[0], pyp = y + P8[1], pzp = z + P8[2];
       spinY(BVt, BVh, r.dir - tyaw);
@@ -4172,6 +4198,7 @@ var G = (typeof G !== 'undefined') ? G : {};
         if (M.parts.tglow) {   // W10: Glühteile am Turm (Laserlinse / Blitzspule): Grundglühen + Aufblitzen beim Schuss (nst.v5T aus R3F)
           var tst = nst(e.id), tsince = R.t - tst.v5T, tfl = tsince < 0.6 ? Math.exp(-tsince * 6) : 0, tgn;
           if (M.tg === 'tesla') tgn = 0.85 + 0.35 * Math.sin(R.t * 9 + r.ph) * Math.sin(R.t * 5.3) + tfl * 2.2;
+          else if (M.tg === 'coil') tgn = 0.8 + 0.25 * Math.sin(R.t * 3.1 + r.ph) + (fa < 10 ? 1.8 * (1 - fa / 10) : 0);   // v1.2 Spulenpanzer: Ringe blitzen beim Schuss
           else tgn = 0.95 + 0.25 * Math.sin(R.t * 2.4 + r.ph) + tfl * 2.4;
           partBatch('u', typ, own, 'tglow', M).putM(pxp, pyp, pzp, BVt, s, tgn, tgn, tgn);
           if (M.tg === 'tesla' && rnd() < dt * 5 * (R.safeGPU ? 0.4 : 1) && inView(x, z)) {   // Funken an der Elektrode
@@ -4208,6 +4235,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       if (cls && hfu < 0.4 && rnd() < dt * 7) emit(1, x, y + M.h * s, z, 0.1, 0.5, 0.03, 1.6, 0.12, 0.5, 0.12, 0.12, 0.12, 0.7, 0.3, 0.3, 0.3, 0, 0, 0.4);
       if (cls && hfu < 0.2 && rnd() < dt * 8) emit(0, x, y + M.h * s * 0.8, z, 0, 0.5, 0, 0.3, 0.2, 0.06, 1, 0.6, 0.2, 1, 0.9, 0.2, 0.05, 0);
     }
+    pbMode = 0;
     drawDeploy(S, alpha, dt, inView);
     // --- Wracks (verkohlt, sinken langsam ein)
     for (i = wrecks.length - 1; i >= 0; i--) {
@@ -4302,19 +4330,438 @@ var G = (typeof G !== 'undefined') ? G : {};
     ghost.group.visible = true;
   }
 
-  // ------------------------------------------------------------------ v1.2 TARNUNG (vorläufige Darstellung, Haken in fill())
-  // G.Sim.cloakState(pid, e): 1 = eigenes getarntes Objekt (blauer Schimmer-Ring), 2 = gegnerisches, gerade aufgedecktes (roter Ring), 3 = unsichtbar
-  // (wird in fill() gar nicht gezeichnet – G.Sim.hidden). Endgültige Modelle können hier z. B. Halbtransparenz/Tauchtiefe anschließen.
-  function cloakMark(e, pid, x, y, z, rad) {
-    var st = G.Sim.cloakState(pid, e), k = 0.55 + 0.45 * Math.sin(R.t * 5 + e.id * 0.7);
-    if (st === 1) R.selRing.put(x, y, z, 0, rad, 1, rad, 0.25 * k, 0.75 * k, 1.0 * k);
-    else if (st === 2) R.selRing.put(x, y, z, 0, rad, 1, rad, 1.0 * k, 0.3 * k, 0.2 * k);
+  // ================================================================== v1.2 Modelle: eigene Modelle der v1.2-Einheiten/-Gebäude (ersetzen den look-Rückfall)
+  // Einheiten (buildU12): Teile wie gewohnt (hull/turret/barrel/glow/tglow, xp-Räder/-Ketten); neu:
+  //   xp k 'spin' (dreht um die eigene y-Achse, Rate xe.w rad/s – Radarantenne), M.alt2 (Mündung wechselt links/rechts, Flak-Doppellafetten),
+  //   M.tg 'coil' (Turm-Glühteil blitzt bei e.fireT), M.sab (Saboteur: Teil chg = Ladung, nur ohne Nachladen sichtbar; chgl = Lampe nach sabMode/cd).
+  // Kollektiv-Varianten im Formenkanon der Kollektiv-Gebäude (Palette KP: Perlmutt, dunkles Violett, Leuchtkristalle), Fahrzeuge ohne Räder auf Gleitkufen.
+  var V12U = { flaktank: 1, saboteur: 1, radarcar: 1, submarine: 1, carrier: 1, carrierjet: 1, psidrone: 1, swarmling: 1, swarmcarrier: 1 };
+  SCALE.flaktank = 1.05; SCALE.radarcar = 1.04; SCALE.saboteur = 1.9; SCALE.swarmcarrier = 1.05;
+  LOD.submarine = 1; LOD.carrier = 1; LOD.carrierjet = 1; LOD.psidrone = 1; LOD.swarmcarrier = 1;
+  GLOW_PARTS.hlamp = 1;
+  var BH12 = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+  /** Träger-Plätze (M.hgS = [[x, y, z, Gieren], …], Teil M.hgP = Flugzeug/Drohne an Deck, M.hgL = Platzlampe): e.hg[i].id ≠ 0 → Platz leer (im Einsatz),
+   *  t > tick → lädt (abgedunkelt, Lampe blinkt), sonst bereit. b9 = Basis des Rumpfs (Seegang/Fahrwerk). */
+  function hangarDraw(e, M, type, own, x, y, z, b9, s, tick, dk) {
+    var hb = partBatch('u', type, own, M.hgP, M), lb = partBatch('u', type, own, M.hgL, M), i, q, sl, ld, k, lk, t = R.t, L = M.hgLC;
+    for (i = 0; i < M.hgS.length; i++) {
+      q = M.hgS[i]; sl = e.hg ? e.hg[i] : null;
+      lv(b9, q[0], q[1], q[2], s);
+      var px = x + P8[0], py = y + P8[1], pz = z + P8[2];
+      if (sl && sl.id) { lb.putM(px, py, pz, b9, s, L[0] * 0.12, L[1] * 0.12, L[2] * 0.12); continue; }   // im Einsatz: Platz leer, Lampe aus
+      ld = sl && sl.t > tick; k = (ld ? 0.3 : 1) * dk;
+      hb.putM(px, py, pz, q[3] ? spinY(BH12, b9, q[3]) : b9, s * (M.hgK || 1), k, k, k);
+      if (ld) { lk = Math.sin(t * 5 + i * 1.7) > 0 ? 1.5 : 0.25; lb.putM(px, py, pz, b9, s, 1.6 * lk, 0.75 * lk, 0.15 * lk); }   // lädt: bernstein blinkend
+      else { lk = 0.9 + 0.25 * Math.sin(t * 2 + i); lb.putM(px, py, pz, b9, s, L[0] * lk, L[1] * lk, L[2] * lk); }
+    }
+  }
+  INF.saboteur = 1; DIE_SMALL.saboteur = 1; NOKNEEL.saboteur = 1;
+  LOD.flaktank = 1; LOD.radarcar = 1; LOD.saboteur = 1;
+  GLOW_PARTS.chgl = 1;
+  /** Elevierter Zylinder (Rohr) von Punkt (x0, y0, z) in Richtung el (rad über der Waagerechten, Vorwärts +x), Länge len. */
+  function elCyl(b, col, r0, r1, len, seg, x0, y0, z, el, off) {
+    var o = off || 0, c = Math.cos(el), s = Math.sin(el);
+    return b.add(new THREE.CylinderGeometry(r1, r0, len, seg || 6), col, x0 + c * (o + len / 2), y0 + s * (o + len / 2), z, 0, 0, el - Math.PI / 2);
+  }
+  /** Kettenlaufwerk wie trackSide, aber um xo entlang x versetzt (Halbkettenfahrzeug). */
+  function trackAt(b, P, o, xo, z, sd) {
+    var L = o.L, H = o.H, W = o.W, cap = H * 0.5, i, zo = z + sd * (W / 2);
+    b.prism(P.track, [[xo - L - cap * 0.5, 0.0], [xo + L + cap * 0.5, 0.0], [xo + L + cap, cap * 0.6], [xo + L + cap * 0.7, H], [xo - L - cap * 0.7, H], [xo - L - cap, cap * 0.6]], W, 0, 0, z, 0, 0);
+    var rr = o.rr || H * 0.34, n = o.n || 3, ry = rr + 0.012;
+    for (i = 0; i < n; i++) b.rollr(P.dark, P.metal, rr, 0.026, xo - L + 2 * L * (n > 1 ? i / (n - 1) : 0.5), ry, zo, sd, 8);
+    b.rollr(P.dark, P.metal, H * 0.44, 0.03, xo + L + cap * 0.55, H * 0.5, zo, sd, 8).rollr(P.dark, P.metal, H * 0.46, 0.03, xo - L - cap * 0.55, H * 0.5, zo, sd, 8);
+  }
+  /** Kollektiv-Gleitwanne: gestrecktes Achteck auf zwei Kufen mit Leuchtstreifen, Perlmuttschale, Teamband. L = halbe Länge, W = halbe Breite. */
+  function kHull(b, g, T, L, W, h0, hgt) {
+    var k = 1 / 0.924, sd;
+    kOct(b, KP.base, 0.5, 0.5, hgt, 0, h0, 0, 2 * L * k * 0.92, 2 * W * k * 0.92);
+    kOct(b, KP.shell, 0.5, 0.5, 0.04, 0, h0 + hgt, 0, 2 * L * k * 0.82, 2 * W * k * 0.8);
+    b.add(new THREE.CylinderGeometry(0.5, 0.5, 0.035, 8, 1, true).rotateY(Math.PI / 8), T.team, 0, h0 + hgt - 0.03, 0, 0, 0, 0, 2 * L * k * 0.93, 1, 2 * W * k * 0.93);
+    for (sd = -1; sd <= 1; sd += 2) {
+      b.cylX(KP.base2, 0.055, 0.045, 2 * L * 0.9, 8, 0, 0.065, sd * W * 0.8);
+      b.add(new THREE.ConeGeometry(0.055, 0.1, 8), KP.shell2, L * 0.9 + 0.05, 0.065, sd * W * 0.8, 0, 0, -Math.PI / 2);
+      g.pbox(KP.glow2, 2 * L * 0.7, 0.008, 0.035, -0.02, 0.008, sd * W * 0.8);
+    }
+  }
+
+  /** Rotationskörper entlang x (Bug +x): Profil [[Radius, x], …] von Heck nach Bug; sy = vertikale Stauchung. */
+  function latheX(b, col, prof, seg, y, sy) {
+    var v = prof.map(function (p) { return new THREE.Vector2(p[0], p[1]); });
+    return b.add(new THREE.LatheGeometry(v, seg || 12), col, 0, y || 0, 0, 0, 0, -Math.PI / 2, sy || 1, 1, 1);
+  }
+  /** U-Boot: Ursprung = Wasserlinie (aufgetaucht). M.sub = Tauchtiefe (getaucht ragt nur der Turm heraus, siehe drawV8U). */
+  function buildSub12(M, P, T, syn, hi, b, g) {
+    var i, sd, HULL = syn ? '#3e4535' : '#2e3842', HULL2 = syn ? '#2f3429' : '#232b33', DK = syn ? '#5a5444' : '#3a4650';
+    M.naval = 1; M.v8u = 'naval'; M.h = 0.32; M.sub = 0.2; M.recoil = 0; M.muzzle = [0.56, -0.03];
+    if (!syn) {   // Koalition: Tropfenrumpf, hoher schmaler Turm mit Tiefenrudern, Kreuzleitwerk, Pumpjet
+      latheX(b, HULL, [[0, -0.6], [0.03, -0.57], [0.07, -0.47], [0.1, -0.3], [0.112, -0.05], [0.112, 0.25], [0.1, 0.42], [0.075, 0.52], [0.04, 0.58], [0, 0.6]], 12, 0, 0.92);
+      b.pbox(DK, 0.7, 0.012, 0.07, 0.02, 0.098, 0).pbox(T.team, 0.5, 0.006, 0.02, 0.0, 0.11, 0);
+      b.prism(HULL, [[0.04, 0.08], [0.3, 0.08], [0.29, 0.2], [0.25, 0.27], [0.08, 0.27], [0.05, 0.22]], 0.07, 0, 0, 0, 0, 0.01);
+      b.pbox(T.team, 0.215, 0.035, 0.074, 0.165, 0.21, 0).pbox(HULL2, 0.07, 0.012, 0.26, 0.2, 0.2, 0);
+      b.cyl(P.metal, 0.008, 0.01, 0.1, 4, 0.1, 0.27, 0).cyl(P.dark, 0.006, 0.008, 0.08, 4, 0.14, 0.27, 0);
+      b.prism(HULL2, [[-0.58, 0.02], [-0.44, 0.04], [-0.52, 0.17], [-0.59, 0.17]], 0.018, 0, 0, 0, 0, 0.004).pbox(T.team, 0.05, 0.025, 0.022, -0.555, 0.13, 0);
+      b.pbox(HULL2, 0.1, 0.012, 0.32, -0.5, 0.0, 0).cylX(P.dark, 0.05, 0.045, 0.07, 10, -0.6, 0.0, 0);
+      if (hi) { b.pbox(P.dark, 0.06, 0.004, 0.03, 0.42, 0.075, 0).pbox(P.dark, 0.06, 0.004, 0.03, -0.25, 0.1, 0); b.cyl(P.dark, 0.012, 0.012, 0.04, 6, 0.24, 0.27, 0.0); }
+    } else {      // Syndikat: älteres Boot – Decksaufbau mit Holzdeck, Satteltanks, gestufter Turm mit Brücke, Deckgeschütz
+      latheX(b, HULL, [[0, -0.6], [0.035, -0.55], [0.07, -0.4], [0.09, -0.15], [0.09, 0.25], [0.075, 0.45], [0.04, 0.56], [0, 0.6]], 10, 0, 0.9);
+      for (sd = -1; sd <= 1; sd += 2) b.cylX(HULL2, 0.045, 0.045, 0.56, 8, 0.0, -0.01, sd * 0.07);
+      b.box(HULL, 0.98, 0.05, 0.11, 0.0, 0.05, 0).pbox(DK, 0.96, 0.012, 0.09, 0.0, 0.1, 0);
+      b.prism(HULL, [[0.42, 0.05], [0.6, 0.05], [0.6, 0.06], [0.42, 0.1]], 0.1, 0, 0, 0, 0, 0.004);
+      b.box(HULL, 0.24, 0.1, 0.12, -0.02, 0.1, 0).box(HULL2, 0.15, 0.06, 0.1, -0.03, 0.2, 0).cylB(HULL, 0.06, 0.06, 8, 0.08, 0.1, 0, 0.008);
+      b.pbox(T.team, 0.25, 0.03, 0.124, -0.02, 0.16, 0).pbox(P.rust, 0.16, 0.012, 0.104, -0.03, 0.26, 0);
+      b.cyl(P.metal, 0.007, 0.009, 0.12, 4, -0.04, 0.26, 0.02).cyl(P.metal, 0.006, 0.008, 0.09, 4, -0.08, 0.26, -0.02);
+      b.cylB(P.dark, 0.03, 0.03, 8, 0.25, 0.11, 0, 0.006).cylX(P.dark, 0.01, 0.009, 0.16, 6, 0.33, 0.15, 0).box(P.rust, 0.04, 0.05, 0.06, 0.25, 0.13, 0);
+      b.prism(HULL2, [[-0.58, 0.02], [-0.46, 0.03], [-0.53, 0.13], [-0.59, 0.13]], 0.016, 0, 0, 0, 0, 0.004);
+      b.pbox(HULL2, 0.08, 0.01, 0.26, -0.52, 0.0, 0);
+      if (hi) { rivets(b, P.metal, -0.1, 0.06, 0.13, 0.062, 4); for (i = 0; i < 5; i++) b.pbox(P.metal, 0.006, 0.04, 0.006, -0.42 + i * 0.1, 0.1, 0.05); b.pbox(P.metal, 0.4, 0.004, 0.004, -0.22, 0.14, 0.05); }
+    }
+    g.ico(NAVL, 0.012, 0.1, 0.24, -0.04, 1, 1, 1, 0).ico(NAVR, 0.012, 0.1, 0.24, 0.04, 1, 1, 1, 0);
+    M.wake = [0.6, -0.6, 0.12];
+  }
+  /** Flugzeugträger: Flugdeck, Insel (Steuerbord), drehendes Radar; 3 Plätze mit Jägern an Deck (M.hgS, hangarDraw). */
+  function buildCarrier12(M, P, T, syn, hi, b, g, fac, color) {
+    var i, k, sd, HULL = syn ? '#66705a' : '#8a96a1', DECK = syn ? '#57543f' : '#5d6870', FD = syn ? '#6d5f47' : '#454c53', MK = syn ? '#e6c14a' : '#e8e8e2', rd = new MB();
+    M.naval = 1; M.v8u = 'naval'; M.h = 0.95; M.recoil = 0; M.muzzle = [0.4, 0.3];
+    if (!syn) {   // Koalition: Superträger mit Schrägdeck, schlanke Insel mit Gittermast
+      loftHull(b, HULL, DECK, [[-1.02, 0.2, 0.15, -0.05], [-0.7, 0.25, 0.155, -0.1], [0.2, 0.26, 0.16, -0.11], [0.7, 0.19, 0.17, -0.08], [1.0, 0.06, 0.18, -0.03], [1.1, 0.004, 0.185, 0.0]], T.team, 0.12, 0.32);
+      wing(b, FD, [[-1.04, -0.36], [0.2, -0.36], [0.55, -0.26], [1.1, -0.12], [1.12, 0.1], [0.75, 0.28], [-0.95, 0.28], [-1.04, 0.2]], 0.035, 0.155);
+      for (i = 0; i < 8; i++) b.top(MK, -0.9 + i * 0.25, 0.0, -0.8 + i * 0.25, 0.0, 0.1915, 0.014);
+      b.top('#e6b81c', -0.98, -0.02, 0.25, -0.33, 0.1915, 0.016).top('#e6b81c', -0.98, 0.13, 0.32, -0.2, 0.1915, 0.016);
+      b.top(P.dark, 0.35, 0.05, 1.05, 0.05, 0.1915, 0.02).top(P.dark, 0.35, -0.1, 1.05, -0.1, 0.1915, 0.02);
+      insignia(b, T, P, -0.6, 0.192, 0.12, 0.09, 0.09);
+      b.box(P.body, 0.34, 0.2, 0.11, -0.2, 0.19, 0.225).box(P.body2, 0.22, 0.1, 0.12, -0.16, 0.39, 0.225).pbox(T.team, 0.35, 0.04, 0.114, -0.2, 0.32, 0.225);
+      b.pbox(P.glass, 0.012, 0.035, 0.1, -0.05, 0.43, 0.225, 0, 0, 0.3).box(P.dark, 0.12, 0.03, 0.08, -0.27, 0.39, 0.225);
+      b.cyl(P.metal, 0.01, 0.025, 0.24, 6, -0.16, 0.49, 0.225).pbox(P.metal, 0.01, 0.01, 0.18, -0.16, 0.66, 0.225);
+      rd.pbox(P.dark, 0.03, 0.04, 0.03, 0, 0, 0).pbox(P.metal, 0.03, 0.06, 0.24, 0, 0.03, 0);
+      M.xparts.rdr = rd.geo(false); M.xp.push({ p: 'rdr', x: -0.16, y: 0.73, z: 0.225, k: 'spin' });
+      if (hi) { winS(b, null, P, -0.32, -0.08, 0.27, 0.281, 4, 0.03, 0.025, 0, 6); b.cylZ('#e8743a', 0.025, 0.08, 8, -0.5, 0.13, 0.27); b.cylZ('#e8743a', 0.025, 0.08, 8, 0.3, 0.13, 0.26); for (i = 0; i < 2; i++) b.pbox(P.dark, 0.16, 0.08, 0.006, -0.55 + i * 0.7, 0.07, 0.262 - i * 0.02); }
+      M.exhaust = [[-0.25, 0.42, 0.225]];
+      M.hgS = [[0.82, 0.19, 0.04, 0], [0.5, 0.19, 0.06, 0], [0.18, 0.19, 0.06, 0]];
+    } else {      // Syndikat: älterer Träger mit geradem Holzdeck, kastige Insel mit zwei Schornsteinen, Nieten
+      loftHull(b, HULL, DECK, [[-1.0, 0.22, 0.14, -0.05], [-0.6, 0.27, 0.145, -0.11], [0.3, 0.27, 0.15, -0.11], [0.75, 0.18, 0.16, -0.08], [1.05, 0.008, 0.18, 0.0]], P.rust, 0.1, 0.3);
+      wing(b, FD, [[-1.02, -0.27], [0.9, -0.27], [1.02, -0.17], [1.02, 0.17], [0.9, 0.27], [-1.02, 0.27]], 0.035, 0.15);
+      for (i = 0; i < 9; i++) b.top('#5e523c', -0.95 + i * 0.22, -0.25, -0.95 + i * 0.22, 0.25, 0.1865, 0.01);
+      b.top(MK, -0.95, -0.22, 0.98, -0.22, 0.1865, 0.016).top(MK, -0.95, 0.15, 0.98, 0.15, 0.1865, 0.016).top(MK, 0.7, 0.0, 0.95, 0.0, 0.1865, 0.02);
+      b.pbox(T.team, 0.3, 0.006, 0.14, -0.62, 0.186, -0.04);
+      b.box(P.body, 0.38, 0.17, 0.12, -0.15, 0.185, 0.215).box(P.body2, 0.22, 0.09, 0.12, -0.08, 0.355, 0.215).box(P.rust, 0.24, 0.02, 0.13, -0.08, 0.445, 0.215);
+      b.pbox(P.glass, 0.012, 0.03, 0.1, 0.031, 0.4, 0.215).pbox(T.team, 0.39, 0.035, 0.124, -0.15, 0.3, 0.215);
+      for (i = 0; i < 2; i++) { k = -0.22 - i * 0.12; b.cyl(P.body2, 0.045, 0.05, 0.2, 8, k, 0.355, 0.215).cyl(P.rust, 0.052, 0.052, 0.04, 8, k, 0.555, 0.215); }
+      b.cyl(P.rust, 0.01, 0.018, 0.22, 6, -0.04, 0.465, 0.215);
+      rd.pbox(P.dark, 0.03, 0.04, 0.03, 0, 0, 0).pbox(P.rust, 0.02, 0.05, 0.18, 0, 0.03, 0);
+      M.xparts.rdr = rd.geo(false); M.xp.push({ p: 'rdr', x: -0.04, y: 0.69, z: 0.215, k: 'spin' });
+      if (hi) { rivets(b, P.metal, -0.8, 0.8, 0.1, 0.27, 10); rivets(b, P.metal, -0.8, 0.8, 0.1, -0.27, 10); b.cylZ(P.body2, 0.03, 0.12, 8, 0.4, 0.12, -0.27); }
+      M.exhaust = [[-0.22, 0.6, 0.215], [-0.34, 0.6, 0.215]];
+      M.hgS = [[0.78, 0.185, -0.02, 0], [0.48, 0.185, -0.04, 0], [0.18, 0.185, -0.04, 0]];
+    }
+    var hl = new MB(); hl.flat = true; hl.pbox('#ffffff', 0.04, 0.02, 0.04, -0.13, 0, 0.1).pbox('#ffffff', 0.04, 0.02, 0.04, -0.13, 0, -0.1); M.xparts.hlamp = hl.geo(false);
+    M.xparts.hjet = model('carrierjet', fac, color).parts.hull;
+    M.hgP = 'hjet'; M.hgL = 'hlamp'; M.hgK = 0.62; M.hgLC = [0.4, 1.4, 0.55];
+    M.iconAdd = function (grp, mat) { for (var q = 0; q < M.hgS.length; q++) { var jm = new THREE.Mesh(M.xparts.hjet, mat); jm.position.set(M.hgS[q][0], M.hgS[q][1], M.hgS[q][2]); jm.scale.setScalar(M.hgK); grp.add(jm); } };
+    g.ico(NAVL, 0.018, 0.1, 0.2, -0.28, 1, 1, 1, 0).ico(NAVR, 0.018, 0.1, 0.2, 0.28, 1, 1, 1, 0).ico(STROBE, 0.02, -0.16, syn ? 0.6 : 0.8, 0.225, 1, 1, 1, 0);
+    M.wake = [1.08, -1.0, 0.32];
+  }
+  /** Trägerjäger: kleiner Strahljäger (Ursprung = Fahrwerk), Nachbrenner als Glühteil. */
+  function buildJet12(M, P, T, syn, hi, b, g) {
+    M.air = 1; M.fixed = 1; M.h = 0.24; M.pods = 1; M.recoil = 0; M.v8u = 'air';
+    if (!syn) {   // Koalition: Delta mit Entenflügeln, ein Triebwerk, ein Seitenleitwerk
+      b.prism(P.body, [[-0.33, 0.035], [0.18, 0.03], [0.36, 0.06], [0.3, 0.08], [0.12, 0.105], [-0.3, 0.095], [-0.35, 0.065]], 0.09, 0, 0, 0);
+      b.prism(P.glass, [[0.07, 0.09], [0.24, 0.07], [0.16, 0.12], [0.05, 0.125]], 0.06, 0, 0, 0, 0, 0.004);
+      wing(b, P.body2, symZ([[0.08, 0.04], [-0.2, 0.25], [-0.28, 0.25], [-0.27, 0.04]]), 0.014, 0.05);
+      wing(b, T.team, [[-0.2, 0.2], [-0.215, 0.256], [-0.285, 0.256], [-0.28, 0.2]], 0.017, 0.049); wing(b, T.team, [[-0.2, -0.2], [-0.28, -0.2], [-0.285, -0.256], [-0.215, -0.256]], 0.017, 0.049);
+      wing(b, P.body2, symZ([[0.22, 0.04], [0.16, 0.11], [0.12, 0.11], [0.13, 0.04]]), 0.01, 0.075);
+      b.prism(P.body, [[-0.33, 0.09], [-0.18, 0.09], [-0.29, 0.24], [-0.34, 0.24]], 0.014, 0, 0, 0, 0, 0.003).pbox(T.team, 0.06, 0.03, 0.016, -0.31, 0.2, 0);
+      b.cylX(P.dark, 0.034, 0.03, 0.06, 8, -0.37, 0.065, 0);
+      if (hi) b.cylX(P.metal, 0.006, 0.006, 0.05, 4, 0.38, 0.06, 0);
+      g.ico('#ffb46a', 0.026, -0.405, 0.065, 0, 1.4, 1, 1, 0).ico(NAVL, 0.012, -0.26, 0.055, -0.255, 1, 1, 1, 0).ico(NAVR, 0.012, -0.26, 0.055, 0.255, 1, 1, 1, 0);
+      M.exhaust = [[-0.41, 0.065, 0]]; M.muzzle = [-0.05, 0.035]; M.mz2 = 0.16;
+    } else {      // Syndikat: Pfeilflügel, zwei Triebwerke, Doppelleitwerk, seitliche Lufteinläufe
+      b.prism(P.body, [[-0.34, 0.035], [0.2, 0.035], [0.37, 0.06], [0.32, 0.085], [0.14, 0.11], [-0.32, 0.105], [-0.36, 0.07]], 0.11, 0, 0, 0);
+      b.prism(P.glass, [[0.1, 0.095], [0.26, 0.075], [0.18, 0.125], [0.08, 0.13]], 0.065, 0, 0, 0, 0, 0.004);
+      for (var sd = -1; sd <= 1; sd += 2) { b.box(P.body2, 0.2, 0.06, 0.04, 0.0, 0.04, sd * 0.07).cylX(P.dark, 0.03, 0.028, 0.06, 8, -0.38, 0.07, sd * 0.035); b.prism(P.body2, [[-0.33, 0.1], [-0.2, 0.1], [-0.3, 0.22], [-0.35, 0.22]], 0.012, 0, 0, sd * 0.06, 0, 0.003); b.pbox(T.team, 0.05, 0.03, 0.014, -0.32, 0.18, sd * 0.06); }
+      wing(b, P.body2, symZ([[0.06, 0.05], [-0.14, 0.27], [-0.22, 0.27], [-0.18, 0.05]]), 0.016, 0.05);
+      wing(b, T.team, [[-0.13, 0.22], [-0.145, 0.275], [-0.225, 0.275], [-0.2, 0.22]], 0.019, 0.049); wing(b, T.team, [[-0.13, -0.22], [-0.2, -0.22], [-0.225, -0.275], [-0.145, -0.275]], 0.019, 0.049);
+      wing(b, P.body2, symZ([[-0.24, 0.05], [-0.32, 0.14], [-0.37, 0.14], [-0.35, 0.05]]), 0.012, 0.07);
+      if (hi) { b.pbox(P.rust, 0.12, 0.012, 0.11, 0.0, 0.11, 0); rivets(b, P.metal, -0.2, 0.15, 0.08, 0.056, 4); }
+      g.ico('#ffb46a', 0.022, -0.415, 0.07, 0.035, 1.4, 1, 1, 0).ico('#ffb46a', 0.022, -0.415, 0.07, -0.035, 1.4, 1, 1, 0).ico(NAVL, 0.012, -0.18, 0.06, -0.275, 1, 1, 1, 0).ico(NAVR, 0.012, -0.18, 0.06, 0.275, 1, 1, 1, 0);
+      M.exhaust = [[-0.42, 0.07, 0.035], [-0.42, 0.07, -0.035]]; M.muzzle = [-0.02, 0.04]; M.mz2 = 0.17;
+    }
+  }
+  /** Kollektiv-Flieger: Psi-Drohne (Kristallkern in drei Perlmuttschalen, kreisender Ring, Emitter unten) bzw. Schwarmdrohne (Kristallpfeil). */
+  function buildKAir12(type, M, T, hi, b, g) {
+    var i, a, rg = new MB();
+    M.air = 1; M.v8u = 'air'; M.pulse = 1; M.recoil = 0;
+    if (type === 'psidrone') {
+      g.ico(KP.glow2, 0.085, 0, 0.33, 0, 1, 1.7, 1, 0).ico('#ffffff', 0.035, 0, 0.34, 0, 1, 1.5, 1, 0);
+      for (i = 0; i < 3; i++) {
+        a = i * 2.094 + 0.5;
+        b.add(new THREE.SphereGeometry(0.1, 8, 6), KP.shell, Math.cos(a) * 0.13, 0.33, Math.sin(a) * 0.13, -a, 0, -0.38, 0.45, 1.75, 0.95);
+        b.add(new THREE.SphereGeometry(0.1, 6, 4), T.team, Math.cos(a) * 0.168, 0.22, Math.sin(a) * 0.168, -a, 0, -0.5, 0.25, 0.5, 0.6);
+      }
+      b.cylB(KP.base, 0.11, 0.06, 8, 0, 0.13, 0, 0.012).cylB(KP.base2, 0.06, 0.06, 8, 0, 0.47, 0, 0.01);
+      b.add(new THREE.ConeGeometry(0.05, 0.12, 6), KP.base2, 0, 0.07, 0, 0, Math.PI, 0);
+      g.ico(KP.glow, 0.03, 0, 0.02, 0, 1, 1, 1, 0).ico(KP.glow, 0.025, 0, 0.55, 0, 1, 1.4, 1, 0);
+      kTor(rg, KP.shell2, 0.25, 0.012, 0, 0, 0, 4, 20);
+      for (i = 0; i < 3; i++) { a = i * 2.094; rg.ico(T.team, 0.035, Math.cos(a) * 0.25, 0, Math.sin(a) * 0.25, 1, 1.5, 1, 0); }
+      M.xparts.kring = rg.geo(false); M.xp.push({ p: 'kring', x: 0, y: 0.33, z: 0, k: 'kspin', d: 1 });
+      M.h = 0.55; M.muzzle = [0.0, 0.02];
+    } else {   // Schwarmdrohne
+      M.fixed = 1;
+      b.ico(KP.shell, 0.06, 0.02, 0.065, 0, 2.6, 0.75, 1.0, 0).ico(KP.base2, 0.042, -0.1, 0.065, 0, 1.7, 0.8, 0.95, 0);   // Kristallkörper
+      for (i = -1; i <= 1; i += 2) {                                                                                      // zwei Kristallklingen nach hinten außen
+        b.add(new THREE.ConeGeometry(0.026, 0.2, 4), KP.shell2, -0.065, 0.065, i * 0.09, 0, i * Math.PI / 2, 0.46);
+        b.ico(T.team, 0.022, -0.11, 0.065, i * 0.18, 1, 1, 1, 0);
+      }
+      g.ico(KP.glow2, 0.026, 0.12, 0.07, 0, 1, 1, 1, 0).ico(KP.glow, 0.028, -0.16, 0.065, 0, 1.4, 1, 1, 0);
+      M.h = 0.14; M.muzzle = [0.16, 0.06]; M.exhaust = null;
+    }
+  }
+
+  function buildU12(type, fac, color) {
+    var P = PAL[fac] || PAL.coalition, T = teamCols(color), syn = fac === 'syndicate', kol = fac === 'kollektiv', hi = HI();
+    var M = { parts: {}, xparts: {}, xp: [], pivot: [0, 0], recoil: 0, muzzle: [0.3, 0.3], h: 0.45, lo: !hi };
+    var b = new MB(), t = new MB(), r = new MB(), g = new MB(), tg = new MB(), c = new MB(), i, sd, k, x, wr, el, sx, sy;
+    if (type === 'flaktank') {
+      if (kol) {                                                      // Spulenpanzer: Gleitwanne, Perlmuttkuppel, drei Spulen-Emitter (Leuchtringe)
+        kHull(b, g, T, 0.46, 0.27, 0.1, 0.13);
+        for (sd = -1; sd <= 1; sd += 2) b.prism(KP.shell2, [[-0.5, 0.22], [-0.3, 0.22], [-0.44, 0.44], [-0.52, 0.44]], 0.03, 0, 0, sd * 0.13, 0, 0.006);
+        b.dome(KP.base2, 0.12, -0.3, 0.27, 0, 1.2, 0.6, 1.4, 8); g.ico(KP.glow, 0.035, -0.4, 0.3, 0, 1, 0.8, 1, 0);
+        if (hi) for (sd = -1; sd <= 1; sd += 2) g.pbox(KP.glow, 0.012, 0.03, 0.12, 0.43, 0.17, sd * 0.1);
+        t.cylB(KP.base2, 0.17, 0.07, 8, 0, 0.27, 0, 0.012).dome(KP.shell, 0.15, -0.02, 0.33, 0, 1.1, 0.9, 1, 12);
+        tg.add(new THREE.CylinderGeometry(0.175, 0.175, 0.02, 12, 1, true), KP.glow, 0, 0.335, 0);
+        t.box(T.team, 0.12, 0.03, 0.2, -0.08, 0.44, 0);
+        el = 0.72;
+        for (i = -1; i <= 1; i++) {
+          var cz = i * 0.12, cx0 = 0.02 - Math.abs(i) * 0.04, cy0 = 0.42 - Math.abs(i) * 0.05, ln = 0.46 - Math.abs(i) * 0.08;
+          elCyl(r, KP.base, 0.05, 0.04, 0.1, 6, cx0, cy0, cz, el);
+          elCyl(r, KP.shell, 0.034, 0.016, ln, 6, cx0, cy0, cz, el, 0.08);
+          for (k = 0; k < 3; k++) elCyl(tg, KP.glow, 0.052 - k * 0.009, 0.052 - k * 0.009, 0.02, 10, cx0, cy0, cz, el, 0.13 + k * 0.1);
+          tg.ico(KP.glow2, 0.036, cx0 + Math.cos(el) * (ln + 0.1), cy0 + Math.sin(el) * (ln + 0.1), cz, 1, 1, 1, 0);
+        }
+        M.pivot = [-0.04, 0]; M.muzzle = [0.02 + Math.cos(el) * 0.56, 0.42 + Math.sin(el) * 0.56]; M.recoil = 0; M.h = 0.85; M.tg = 'coil'; M.mz2 = 0.12; M.alt2 = 1;
+      } else if (!syn) {                                              // Koalition: 6×6-Radwanne, schmaler Turm mit Feuerleitradar, zwei Zwillingslafetten seitlich
+        wr = 0.088;
+        M.xparts.wheel = wheelLite(wr, 0.07, P.track, P.metal, P.body2);
+        [0.3, 0.02, -0.27].forEach(function (ax) { M.xp.push({ p: 'wheel', x: ax, y: wr, z: 0.245, k: 'wheel', r: wr }, { p: 'wheel', x: ax, y: wr, z: -0.245, k: 'wheel', r: wr }); });
+        b.box(P.dark, 0.9, 0.07, 0.32, -0.01, 0.06, 0);
+        b.prism(P.body, [[-0.48, 0.1], [0.36, 0.1], [0.51, 0.17], [0.44, 0.28], [-0.45, 0.28], [-0.49, 0.23]], 0.42, 0, 0, 0);
+        b.prism(P.body2, [[0.38, 0.17], [0.52, 0.165], [0.53, 0.185], [0.45, 0.25], [0.38, 0.25]], 0.34, 0, 0, 0);
+        for (sd = -1; sd <= 1; sd += 2) {
+          b.box(P.body2, 0.86, 0.05, 0.08, -0.02, 0.185, sd * 0.245).pbox(T.team, 0.86, 0.02, 0.084, -0.02, 0.235, sd * 0.245);
+          b.pbox(T.team, 0.62, 0.012, 0.04, -0.1, 0.28, sd * 0.17);
+          if (hi) for (i = 0; i < 2; i++) b.pbox(P.glass, 0.04, 0.025, 0.006, 0.2 - i * 0.14, 0.24, sd * 0.212);
+        }
+        b.box(P.body2, 0.22, 0.03, 0.32, -0.36, 0.28, 0);
+        for (i = 0; i < 3; i++) b.top(P.track, -0.45, -0.1 + i * 0.1, -0.27, -0.1 + i * 0.1, 0.311, 0.012);
+        b.cyl(P.body2, 0.045, 0.045, 0.02, 8, 0.3, 0.28, 0.1).pbox(P.glass, 0.012, 0.025, 0.12, 0.45, 0.25, 0, 0, 0, -0.6);
+        if (hi) { b.cyl(P.metal, 0.005, 0.007, 0.3, 4, -0.42, 0.28, 0.16).cyl(P.metal, 0.005, 0.007, 0.22, 4, -0.42, 0.28, -0.16); b.box(P.body2, 0.12, 0.06, 0.08, 0.15, 0.28, -0.15); }
+        g.pbox(LAMPC, 0.02, 0.03, 0.05, 0.515, 0.19, 0.14).pbox(LAMPC, 0.02, 0.03, 0.05, 0.515, 0.19, -0.14).pbox(TAILC, 0.02, 0.025, 0.04, -0.49, 0.24, 0.16).pbox(TAILC, 0.02, 0.025, 0.04, -0.49, 0.24, -0.16);
+        // Turm (Drehpunkt −0.06): schmaler Mittelblock, Radar hinten, Zapfengehäuse seitlich
+        t.cyl(P.body2, 0.16, 0.16, 0.04, 10, 0, 0.28, 0);
+        t.prism(P.body, [[-0.21, 0.32], [0.08, 0.32], [0.16, 0.36], [0.13, 0.47], [-0.16, 0.48], [-0.22, 0.43]], 0.22, 0, 0, 0);
+        t.box(T.team, 0.18, 0.012, 0.18, -0.04, 0.475, 0).pbox(P.pan, 0.18, 0.004, 0.012, -0.04, 0.488, 0.05);
+        t.pbox(P.dark, 0.05, 0.05, 0.05, 0.12, 0.4, 0).add(new THREE.CircleGeometry(0.02, 8), P.glass, 0.146, 0.425, 0, Math.PI / 2);
+        for (sd = -1; sd <= 1; sd += 2) t.box(P.body2, 0.16, 0.12, 0.05, 0.0, 0.33, sd * 0.135);
+        t.cyl(P.dark, 0.02, 0.025, 0.1, 6, -0.15, 0.48, 0);
+        t.box(P.metal, 0.03, 0.15, 0.26, -0.15, 0.58, 0, 0, 0, 0.25).pbox(P.dark, 0.012, 0.13, 0.24, -0.135, 0.59, 0, 0, 0, 0.25);
+        // Zwillingslafetten (Erhöhung fest 0.5 rad): Gehäuse + zwei Rohre je Seite
+        el = 0.5; sx = 0.0; sy = 0.4;
+        for (sd = -1; sd <= 1; sd += 2) {
+          r.box(P.body, 0.18, 0.09, 0.09, sx + 0.04, sy - 0.06, sd * 0.205, 0, 0, el).pbox(T.team, 0.12, 0.012, 0.094, sx + 0.03, sy - 0.005, sd * 0.205, 0, 0, el);
+          for (k = -1; k <= 1; k += 2) { elCyl(r, P.dark, 0.013, 0.011, 0.36, 6, sx, sy, sd * 0.205 + k * 0.025, el, 0.1); elCyl(r, P.metal, 0.019, 0.019, 0.04, 6, sx, sy, sd * 0.205 + k * 0.025, el, 0.44); }
+        }
+        M.pivot = [-0.06, 0]; M.muzzle = [sx + Math.cos(el) * 0.48, sy + Math.sin(el) * 0.48]; M.mz2 = 0.205; M.alt2 = 1; M.recoil = 0.035; M.h = 0.66; M.exhaust = [[-0.42, 0.3, 0.17]];
+      } else {                                                        // Syndikat: Halbkette mit offener Vierlingslafette hinter Schutzschild
+        wr = 0.095;
+        M.xparts.wheel = wheelLite(wr, 0.075, P.track, P.rust, P.dark);
+        M.xp.push({ p: 'wheel', x: 0.33, y: wr, z: 0.23, k: 'wheel', r: wr }, { p: 'wheel', x: 0.33, y: wr, z: -0.23, k: 'wheel', r: wr });
+        var ht = { L: 0.17, H: 0.16, W: 0.13, n: 3, rr: 0.05, pitch: 0.06 };
+        trackAt(b, P, ht, -0.2, 0.24, 1); trackAt(b, P, ht, -0.2, -0.24, -1);
+        M.xparts.trk = treadGeo(2 * ht.L + ht.H * 0.6, ht.W * 0.8, ht.pitch, 0.004, P.dark);
+        M.xp.push({ p: 'trk', x: -0.2, y: ht.H + 0.004, z: 0.24, k: 'trk', pitch: ht.pitch }, { p: 'trk', x: -0.2, y: ht.H + 0.004, z: -0.24, k: 'trk', pitch: ht.pitch });
+        b.box(P.dark, 0.96, 0.06, 0.3, -0.02, 0.09, 0);
+        b.prism(P.body, [[0.24, 0.13], [0.6, 0.13], [0.6, 0.25], [0.44, 0.31], [0.24, 0.31]], 0.34, 0, 0, 0);   // Motorhaube
+        b.pbox(P.track, 0.012, 0.09, 0.22, 0.605, 0.15, 0);
+        for (i = 0; i < 3; i++) b.pbox(P.dark, 0.14, 0.006, 0.012, 0.44, 0.27 + i * 0.012, -0.12 + i * 0.12, 0, 0, -0.35);
+        b.box(P.body, 0.22, 0.22, 0.42, 0.13, 0.13, 0).box(P.body2, 0.04, 0.14, 0.42, 0.24, 0.31, 0, 0, 0, -0.25);   // Fahrerstand + Panzerscheibe
+        b.pbox(P.glass, 0.012, 0.025, 0.3, 0.262, 0.38, 0, 0, 0, -0.25);
+        for (sd = -1; sd <= 1; sd += 2) {
+          b.box(P.body2, 0.22, 0.03, 0.1, 0.33, 0.2, sd * 0.23);
+          b.box(P.body2, 0.56, 0.12, 0.03, -0.23, 0.2, sd * 0.215).pbox(T.team, 0.56, 0.03, 0.034, -0.23, 0.29, sd * 0.215);
+          if (hi) rivets(b, P.metal, -0.48, 0.02, 0.25, sd * 0.232, 5);
+        }
+        b.box(P.body2, 0.6, 0.04, 0.4, -0.23, 0.18, 0);                                           // Ladefläche
+        b.cyl(P.rust, 0.045, 0.045, 0.09, 8, -0.45, 0.22, 0.12).cyl(P.rust, 0.045, 0.045, 0.09, 8, -0.45, 0.22, -0.12).cyl(P.dark, 0.046, 0.046, 0.012, 8, -0.45, 0.31, 0.12);
+        b.pbox(T.team, 0.2, 0.012, 0.3, 0.42, 0.3, 0);
+        b.cylB(P.rust, 0.022, 0.2, 6, 0.2, 0.2, 0.2, 0.004);
+        g.pbox(LAMPC, 0.02, 0.035, 0.05, 0.605, 0.2, 0.13).pbox(LAMPC, 0.02, 0.035, 0.05, 0.605, 0.2, -0.13).pbox(TAILC, 0.02, 0.025, 0.04, -0.54, 0.2, 0.17).pbox(TAILC, 0.02, 0.025, 0.04, -0.54, 0.2, -0.17);
+        // Lafette (Drehpunkt −0.24): Drehscheibe, Sitz, geneigter Schutzschild
+        t.cyl(P.dark, 0.17, 0.17, 0.035, 10, 0, 0.22, 0).box(P.body2, 0.12, 0.12, 0.16, 0.0, 0.255, 0);
+        t.box(P.rust, 0.03, 0.17, 0.34, 0.14, 0.255, 0, 0, 0, 0.3).pbox(T.team, 0.034, 0.03, 0.34, 0.12, 0.41, 0, 0, 0, 0.3);
+        t.box(P.dark, 0.08, 0.05, 0.1, -0.11, 0.255, 0).box(P.dark, 0.02, 0.1, 0.1, -0.15, 0.3, 0);
+        // Vierling (Erhöhung 0.55): Wiege + 2 × 2 Rohre
+        el = 0.55; sx = 0.0; sy = 0.4;
+        r.box(P.body, 0.18, 0.11, 0.16, sx + 0.02, sy - 0.08, 0, 0, 0, el).box(P.rust, 0.06, 0.06, 0.18, sx - 0.06, sy - 0.12, 0, 0, 0, el);
+        for (k = 0; k < 4; k++) {
+          var oz = (k & 1 ? 1 : -1) * 0.05, on = (k & 2 ? 1 : -1) * 0.028, nx = -Math.sin(el) * on, ny = Math.cos(el) * on;
+          elCyl(r, P.dark, 0.012, 0.011, 0.38, 6, sx + nx, sy + ny, oz, el, 0.06); if (hi) elCyl(r, P.dark, 0.017, 0.017, 0.04, 6, sx + nx, sy + ny, oz, el, 0.42);
+        }
+        M.pivot = [-0.24, 0]; M.muzzle = [sx + Math.cos(el) * 0.46, sy + Math.sin(el) * 0.46]; M.mz2 = 0.05; M.alt2 = 1; M.recoil = 0.03; M.h = 0.62; M.exhaust = [[0.2, 0.42, 0.2]];
+      }
+    } else if (type === 'radarcar') {
+      var rd = new MB();
+      if (kol) {                                                      // Psi-Sensor: Gleitwanne, Stiel mit schwebendem Auge, kreisende Ringe
+        kHull(b, g, T, 0.42, 0.25, 0.1, 0.12);
+        b.dome(KP.shell2, 0.16, 0.12, 0.26, 0, 1.4, 0.55, 1.1, 10).dome(KP.base2, 0.1, -0.28, 0.26, 0, 1.2, 0.7, 1.3, 8);
+        b.cyl(KP.base2, 0.06, 0.09, 0.08, 8, -0.1, 0.26, 0).cyl(KP.shell2, 0.022, 0.04, 0.36, 6, -0.1, 0.32, 0);
+        for (sd = -1; sd <= 1; sd += 2) b.add(new THREE.ConeGeometry(0.03, 0.2, 5), KP.shell, -0.1 + 0.04, 0.4, sd * 0.06, 0, 0, sd * 0.35);
+        g.ico(KP.glow2, 0.075, -0.1, 0.78, 0, 1, 1.25, 1, 1).ico('#ffffff', 0.03, -0.065, 0.79, 0, 1, 1, 1, 0);
+        if (hi) g.pbox(KP.glow, 0.012, 0.03, 0.14, 0.4, 0.17, 0);
+        kTor(rd, T.team, 0.17, 0.016, 0, 0, 0, 4, 18); rd.add(new THREE.TorusGeometry(0.13, 0.012, 4, 16), KP.shell, 0, 0, 0, 0, Math.PI / 2 - 0.7, 0);
+        for (i = 0; i < 3; i++) { var ra = i * 2.094; rd.ico(KP.shell2, 0.025, Math.cos(ra) * 0.17, 0, Math.sin(ra) * 0.17, 1, 1.6, 1, 0); }
+        M.xparts.rdr = rd.geo(false); M.xp.push({ p: 'rdr', x: -0.1, y: 0.78, z: 0, k: 'spin', w: 1.1 });
+        M.h = 0.95;
+      } else if (!syn) {                                              // Koalition: 4×4-Radfahrzeug mit Aufbau, Teleskopmast, drehende Flachantenne
+        wr = 0.1;
+        M.xparts.wheel = wheelLite(wr, 0.08, P.track, P.metal, P.body2);
+        [0.27, -0.24].forEach(function (ax) { M.xp.push({ p: 'wheel', x: ax, y: wr, z: 0.235, k: 'wheel', r: wr }, { p: 'wheel', x: ax, y: wr, z: -0.235, k: 'wheel', r: wr }); });
+        b.box(P.dark, 0.86, 0.07, 0.32, 0, 0.07, 0);
+        b.prism(P.body, [[0.06, 0.12], [0.38, 0.12], [0.47, 0.2], [0.42, 0.33], [0.06, 0.35]], 0.42, 0, 0, 0);
+        b.prism(P.glass, [[0.37, 0.27], [0.44, 0.245], [0.4, 0.325], [0.34, 0.34]], 0.36, 0, 0, 0, 0, 0.004);
+        b.box(P.body2, 0.56, 0.27, 0.44, -0.2, 0.12, 0).box(T.team, 0.5, 0.015, 0.38, -0.2, 0.39, 0);
+        insignia(b, T, P, -0.06, 0.405, 0, 0.06, 0.06);
+        for (sd = -1; sd <= 1; sd += 2) {
+          b.box(P.body, 0.24, 0.04, 0.09, 0.27, 0.2, sd * 0.235).box(P.body, 0.24, 0.04, 0.09, -0.24, 0.2, sd * 0.235);
+          b.pbox(T.team, 0.54, 0.03, 0.006, -0.2, 0.3, sd * 0.222);
+          b.pbox(P.dark, 0.12, 0.13, 0.006, -0.32, 0.16, sd * 0.222);                            // Seitentür
+          if (hi) b.pbox(P.glass, 0.06, 0.04, 0.006, -0.08, 0.3, sd * 0.223);
+        }
+        b.pbox(P.dark, 0.04, 0.06, 0.34, 0.47, 0.1, 0);
+        b.cylB(P.dark, 0.06, 0.05, 8, -0.24, 0.39, 0, 0.01).cyl(P.metal, 0.022, 0.03, 0.34, 6, -0.24, 0.44, 0).cyl(P.body2, 0.032, 0.032, 0.05, 6, -0.24, 0.6, 0);
+        if (hi) { b.cyl(P.metal, 0.005, 0.007, 0.3, 4, 0.0, 0.39, 0.16).cyl(P.metal, 0.005, 0.007, 0.24, 4, -0.44, 0.39, -0.16); acUnit(b, P, -0.42, 0.39, 0.12, 0.1); }
+        g.pbox(LAMPC, 0.02, 0.03, 0.05, 0.475, 0.2, 0.15).pbox(LAMPC, 0.02, 0.03, 0.05, 0.475, 0.2, -0.15).pbox(TAILC, 0.02, 0.025, 0.04, -0.48, 0.25, 0.17).pbox(TAILC, 0.02, 0.025, 0.04, -0.48, 0.25, -0.17);
+        g.ico('#7ee7ff', 0.022, -0.24, 0.66, 0.0, 1, 1, 1, 0);
+        // drehende Flachantenne (Ursprung = Mastspitze)
+        var pa = 0.95, pc = Math.cos(pa), ps = Math.sin(pa);   // Flachantenne, um pa nach hinten geneigt (von oben gut lesbar)
+        rd.box(P.dark, 0.05, 0.06, 0.05, 0, 0, 0).add(new THREE.BoxGeometry(0.035, 0.26, 0.46), P.body, -ps * 0.1, 0.05 + pc * 0.1, 0, 0, 0, pa);
+        rd.add(new THREE.BoxGeometry(0.01, 0.22, 0.42), '#2c3d50', -ps * 0.1 + pc * 0.019, 0.05 + pc * 0.1 + ps * 0.019, 0, 0, 0, pa);
+        for (i = 0; i < 4; i++) rd.add(new THREE.BoxGeometry(0.012, 0.012, 0.42), '#5d7a96', -ps * (0.02 + i * 0.05) + pc * 0.025, 0.05 + pc * (0.02 + i * 0.05) + ps * 0.025, 0, 0, 0, pa);
+        rd.add(new THREE.BoxGeometry(0.04, 0.03, 0.47), T.team, -ps * 0.235, 0.05 + pc * 0.235, 0, 0, 0, pa);
+        M.xparts.rdr = rd.geo(false); M.xp.push({ p: 'rdr', x: -0.24, y: 0.65, z: 0, k: 'spin', w: 2.2 });
+        M.h = 0.9; M.exhaust = [[-0.3, 0.4, 0.2]];
+      } else {                                                        // Syndikat: Sechsrad-Lkw mit Shelter und großer Parabolschüssel
+        wr = 0.095;
+        M.xparts.wheel = wheelLite(wr, 0.08, P.track, P.rust, P.dark);
+        [0.33, -0.14, -0.35].forEach(function (ax) { M.xp.push({ p: 'wheel', x: ax, y: wr, z: 0.235, k: 'wheel', r: wr }, { p: 'wheel', x: ax, y: wr, z: -0.235, k: 'wheel', r: wr }); });
+        b.box(P.dark, 1.0, 0.06, 0.3, -0.02, 0.1, 0);
+        b.box(P.body, 0.26, 0.26, 0.42, 0.36, 0.14, 0).prism(P.body, [[0.49, 0.14], [0.55, 0.14], [0.55, 0.26], [0.49, 0.38]], 0.42, 0, 0, 0);
+        b.prism(P.glass, [[0.49, 0.28], [0.525, 0.28], [0.49, 0.36], [0.48, 0.36]], 0.36, 0.012, 0, 0);
+        b.box(P.rust, 0.28, 0.03, 0.44, 0.36, 0.4, 0).pbox(T.team, 0.18, 0.012, 0.3, 0.36, 0.43, 0);
+        b.box(P.body2, 0.6, 0.3, 0.44, -0.22, 0.16, 0).box(P.rust, 0.62, 0.03, 0.46, -0.22, 0.46, 0);
+        for (sd = -1; sd <= 1; sd += 2) {
+          b.box(P.body2, 0.22, 0.03, 0.1, 0.33, 0.2, sd * 0.235).box(P.body2, 0.42, 0.03, 0.1, -0.25, 0.2, sd * 0.235);
+          b.pbox(T.team, 0.6, 0.04, 0.006, -0.22, 0.38, sd * 0.222).pbox(P.dark, 0.1, 0.16, 0.006, -0.1, 0.18, sd * 0.222);
+          if (hi) rivets(b, P.metal, -0.48, 0.04, 0.32, sd * 0.224, 6);
+        }
+        b.pbox(P.dark, 0.04, 0.08, 0.42, 0.56, 0.1, 0).cylB(P.rust, 0.025, 0.24, 6, 0.21, 0.2, 0.2, 0.004);
+        // Drehkranz mit kurzem Gittermast
+        b.cylB(P.dark, 0.1, 0.05, 8, -0.24, 0.49, 0, 0.01);
+        if (hi) lattice(b, P.metal, -0.24, 0, 0.06, 0.03, 0.54, 0.7, 2, 0.016); else b.cyl(P.metal, 0.03, 0.05, 0.16, 6, -0.24, 0.54, 0);
+        if (hi) b.cyl(P.dark, 0.006, 0.008, 0.26, 4, 0.26, 0.43, -0.16);
+        g.pbox(LAMPC, 0.02, 0.04, 0.06, 0.555, 0.22, 0.16).pbox(LAMPC, 0.02, 0.04, 0.06, 0.555, 0.22, -0.16).pbox(TAILC, 0.02, 0.03, 0.05, -0.53, 0.25, 0.16).pbox(TAILC, 0.02, 0.03, 0.05, -0.53, 0.25, -0.16);
+        g.ico('#ffb42e', 0.024, 0.36, 0.44, 0.15, 1, 0.8, 1, 1);
+        // Parabolschüssel (Ursprung = Mastspitze), schräg nach oben geöffnet
+        var de = 0.85;
+        rd.box(P.dark, 0.06, 0.05, 0.06, 0, 0, 0).box(P.rust, 0.05, 0.12, 0.05, 0.03, 0.02, 0, 0, 0, -0.5);
+        rd.add(new THREE.CylinderGeometry(0.26, 0.05, 0.09, 12, 1, true), P.metal, 0.09, 0.12, 0, 0, 0, de - Math.PI / 2 - Math.PI);
+        rd.add(new THREE.CircleGeometry(0.255, 12), '#9aa0a4', 0.09 + Math.cos(de) * -0.04, 0.12 + Math.sin(de) * -0.04, 0, 0, 0, de - Math.PI / 2).add(new THREE.CircleGeometry(0.255, 12), P.body2, 0.09 + Math.cos(de) * -0.042, 0.12 + Math.sin(de) * -0.042, 0, 0, 0, de + Math.PI / 2);
+        elCyl(rd, P.dark, 0.008, 0.008, 0.2, 4, 0.09, 0.12, 0, de - Math.PI, -0.2); rd.box(P.dark, 0.035, 0.035, 0.035, 0.09 + Math.cos(de) * 0.2 - 0.02, 0.12 + Math.sin(de) * 0.2 - 0.02, 0);
+        rd.pbox(T.team, 0.03, 0.03, 0.18, 0.04, -0.02, 0);
+        M.xparts.rdr = rd.geo(false); M.xp.push({ p: 'rdr', x: -0.24, y: 0.72, z: 0, k: 'spin', w: 1.4 });
+        M.h = 0.98; M.exhaust = [[0.21, 0.46, 0.2]];
+      }
+    } else if (type === 'submarine') {
+      buildSub12(M, P, T, syn, hi, b, g);
+    } else if (type === 'carrier') {
+      buildCarrier12(M, P, T, syn, hi, b, g, fac, color);
+    } else if (type === 'carrierjet') {
+      buildJet12(M, P, T, syn, hi, b, g);
+    } else if (type === 'psidrone' || type === 'swarmling') {
+      buildKAir12(type, M, T, hi, b, g);
+    } else if (type === 'swarmcarrier') {
+      kHull(b, g, T, 0.56, 0.34, 0.1, 0.15);
+      kOct(b, KP.base2, 0.3, 0.33, 0.08, -0.06, 0.29, 0, 1.25, 1.05);
+      for (sd = -1; sd <= 1; sd += 2) {
+        b.prism(KP.shell2, [[-0.6, 0.25], [-0.36, 0.25], [-0.5, 0.52], [-0.6, 0.52]], 0.03, 0, 0, sd * 0.2, 0, 0.006);
+        b.add(new THREE.ConeGeometry(0.035, 0.22, 5), KP.shell, 0.42, 0.3, sd * 0.16, 0, 0, -1.1);
+      }
+      b.dome(KP.shell2, 0.13, 0.38, 0.25, 0, 1.3, 0.7, 1.4, 10); g.ico(KP.glow2, 0.05, 0.5, 0.31, 0, 1.2, 0.8, 1.6, 0);
+      var cells = [[0.1, 0.14], [0.1, -0.14], [-0.21, 0.14], [-0.21, -0.14]];
+      M.hgS = [];
+      for (i = 0; i < 4; i++) {
+        var hx = cells[i][0], hz = cells[i][1];
+        b.cyl(KP.shell, 0.135, 0.15, 0.1, 6, hx, 0.35, hz).cyl(KP.dark, 0.105, 0.105, 0.012, 6, hx, 0.448, hz);
+        b.add(new THREE.CylinderGeometry(0.152, 0.152, 0.025, 6, 1, true), i & 1 ? T.team : T.teamD, hx, 0.4, hz);
+        M.hgS.push([hx, 0.47, hz, 0]);
+      }
+      var hl = new MB(); hl.flat = true; hl.add(new THREE.RingGeometry(0.085, 0.118, 6), '#ffffff', 0, 0.004, 0, 0, -Math.PI / 2, 0); M.xparts.hlamp = hl.geo(false);
+      M.xparts.hdrone = model('swarmling', 'kollektiv', color).parts.hull;
+      M.hgP = 'hdrone'; M.hgL = 'hlamp'; M.hgK = 0.85; M.hgLC = [1.0, 0.62, 1.3];
+      if (hi) for (i = 0; i < 3; i++) g.pbox(KP.glow, 0.05, 0.012, 0.012, -0.05 - i * 0.12, 0.38, 0);
+      M.h = 0.66;
+    } else if (type === 'saboteur') {
+      soldier(b, P, T, fac, 'engineer');
+      if (kol) {                                                      // Infiltrator: Kapuze mit Leuchtschlitz, Umhang, Kristallladung
+        b.dome(KP.base2, 0.068, 0.0, 0.27, 0, 1.05, 1.15, 1.1, 8).pbox(KP.dark, 0.03, 0.03, 0.07, 0.05, 0.275, 0);
+        g.pbox(KP.glow2, 0.006, 0.012, 0.06, 0.066, 0.29, 0);
+        b.prism(KP.base, [[-0.06, 0.26], [-0.02, 0.26], [-0.07, 0.04], [-0.13, 0.05]], 0.16, 0, 0, 0, 0, 0.004);
+        b.pbox(T.team, 0.012, 0.03, 0.16, -0.045, 0.24, 0);
+        c.cylB(KP.base2, 0.04, 0.05, 6, -0.12, 0.2, 0, 0.006);
+        c.add(new THREE.ConeGeometry(0.03, 0.15, 5), KP.shell2, -0.12, 0.31, 0).add(new THREE.ConeGeometry(0.022, 0.11, 5), KP.shell, -0.13, 0.28, 0.035, 0, 0, 0.4).add(new THREE.ConeGeometry(0.022, 0.1, 5), KP.shell, -0.11, 0.28, -0.035, 0, 0, -0.4);
+      } else if (!syn) {                                              // Koalition: Sturmhaube, Nachtsichtbrille, Tornister mit Sprengladung, Zünder in der Hand
+        b.pbox('#23272c', 0.058, 0.06, 0.064, 0.012, 0.272, 0).dome('#2b3038', 0.062, 0.003, 0.29, 0, 1, 0.78, 1.04, 8);
+        b.pbox(P.dark, 0.03, 0.024, 0.074, 0.05, 0.292, 0);
+        g.pbox('#7dff9a', 0.006, 0.014, 0.022, 0.066, 0.293, 0.019).pbox('#7dff9a', 0.006, 0.014, 0.022, 0.066, 0.293, -0.019);
+        b.box('#3f4537', 0.075, 0.14, 0.12, -0.095, 0.1, 0);
+        c.box('#c8b88a', 0.06, 0.035, 0.11, -0.115, 0.24, 0).box('#bcab7c', 0.06, 0.035, 0.11, -0.115, 0.275, 0).pbox('#c0392b', 0.062, 0.006, 0.112, -0.115, 0.26, 0).pbox(P.dark, 0.03, 0.03, 0.04, -0.09, 0.31, 0.03);
+      } else {                                                        // Syndikat: Kapuze, Halstuch, Patronengurt, Dynamitbündel mit Zeitzünder
+        b.dome('#5b4a35', 0.068, 0.0, 0.272, 0, 1.05, 1.1, 1.1, 8).pbox('#3a3328', 0.05, 0.036, 0.066, 0.035, 0.258, 0);
+        b.pbox(P.glass, 0.008, 0.012, 0.05, 0.062, 0.292, 0);
+        b.pbox(P.dark, 0.11, 0.02, 0.03, 0.0, 0.17, 0, 0, 0.75).box('#4a3f2c', 0.07, 0.13, 0.12, -0.095, 0.1, 0);
+        for (i = 0; i < 4; i++) c.cyl('#b3261e', 0.02, 0.02, 0.15, 6, -0.12 - (i & 1) * 0.03, 0.17, -0.045 + i * 0.03);
+        c.pbox(P.dark, 0.07, 0.015, 0.13, -0.13, 0.2, 0).pbox(P.dark, 0.07, 0.015, 0.13, -0.13, 0.28, 0).box('#d8cfb4', 0.04, 0.04, 0.05, -0.1, 0.25, 0.0);
+      }
+      b.pbox(P.cloth, 0.045, 0.12, 0.045, 0.02, 0.12, 0.1).pbox(P.cloth, 0.12, 0.045, 0.045, 0.06, 0.2, -0.07, 0.45);   // Arme
+      b.pbox(P.dark, 0.04, 0.06, 0.03, 0.03, 0.08, 0.11).cyl(P.metal, 0.004, 0.004, 0.06, 4, 0.04, 0.14, 0.11);   // Zünder
+      M.parts.chg = c.geo(false);
+      var cl = new MB(); cl.flat = true; cl.pbox('#ffffff', 0.024, 0.024, 0.024, -0.07, 0.22, 0.07); M.parts.chgl = cl.geo(false);
+      M.parts.hull = b.geo(false); if (g.list.length) M.parts.glow = g.geo(false);
+      M.muzzle = [0.1, 0.2]; M.h = 0.36; M.sab = 1; infLegs(M, P);
+      return M;
+    }
+    M.parts.hull = b.geo();
+    if (t.list.length) M.parts.turret = t.geo();
+    if (r.list.length) M.parts.barrel = r.geo();
+    if (g.list.length) M.parts.glow = g.geo(false);
+    if (tg.list.length) M.parts.tglow = tg.geo(false);
+    return M;
+  }
+
+  // ------------------------------------------------------------------ v1.2 TARNUNG (Haken in fill())
+  // G.Sim.cloakState(pid, e): 1 = eigenes getarntes Objekt, 2 = gegnerisches, gerade aufgedecktes, 3 = unsichtbar (in fill() gar nicht gezeichnet – G.Sim.hidden).
+  // Darstellung: eigenes Objekt, das der Gegner gerade NICHT sieht → halbtransparent mit bläulichem Schimmer (MAT.cloak, Deckkraft pulsiert global);
+  // eigenes, aber gerade aufgedecktes (revT/revM) und gegnerisches aufgedecktes → normal deckend + schwacher roter Warnring („enttarnt“).
+  /** Rückgabe true = Objekt halbtransparent zeichnen (pbMode). */
+  function cloakMark(e, pid, x, y, z, rad, tick) {
+    var st = G.Sim.cloakState(pid, e);
+    if (st === 1 && !(e.revT > tick) && !e.revM) return true;
+    if (st === 1 || st === 2) { var k = 0.4 + 0.3 * Math.sin(R.t * 5 + e.id * 0.7); R.selRing.put(x, y, z, 0, rad, 1, rad, 1.0 * k, 0.28 * k, 0.2 * k); }
+    return false;
   }
 
   // ------------------------------------------------------------------ v1.2 look-Rückfall (ZENTRALE STELLE, vorläufige Darstellung)
   // Neue Typen (data.js, Feld look) benutzen Modell, Maßstab und Tabellen-Einträge des look-Typs, solange sie kein eigenes Modell haben.
   // Eigenes Modell nachrüsten: Typ in OWN12 eintragen (dann greift kein Rückfall mehr) und wie gewohnt in den Bau-Tabellen ergänzen.
-  var LOOK12 = {}, OWN12 = {};
+  var LOOK12 = {}, OWN12 = { flaktank: 1, saboteur: 1, radarcar: 1, submarine: 1, carrier: 1, carrierjet: 1, psidrone: 1, swarmling: 1, swarmcarrier: 1 };   // v1.2: Typen mit eigenem Modell (Abschnitt „v1.2 Modelle“)
   function lookAlias() {
     var tabs = [SCALE, INF, NEUT, GARR, BH, LOD, K10M, KB, V4U, V4B, V5B, V5U, V7U, V8M, V9M, PCAT, IKICK, NOKNEEL, DIE_SMALL];
     [D.UNITS, D.BUILDINGS].forEach(function (T) {
