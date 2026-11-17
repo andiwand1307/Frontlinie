@@ -96,6 +96,20 @@
  *   (Süd/Nord, die dem Sammler zugewandte), Sammler-Startkachel, findOre, Garnison-Ausstieg, findTarget-Reihenfolge; Produktionsausgang auf der Seite
  *   des Sammelpunkts (Nord, wenn b.ry über der Oberkante); Werft-Ausfahrt zur Kartenmitte.
  *
+ * v1.2 (additiv, Abschnitte „v1.2 Neue Einheiten“, „TARNUNG / AUFDECKUNG“, „TRÄGER / DROHNEN“ am Dateiende; Daten: data.js Block v1.2):
+ *   S.version = D.SAVE_VERSION (2); migrateV12() ergänzt Altstände. S.charges = gelegte Sprengladungen {t, bid, owner, src, dmg, x, y}.
+ *   SPIELER: oreCap (Erz-Lagerkapazität), capFullT (Tick, an dem ein Sammler zuletzt wegen vollem Lager wartete), trade (eigene Handelsposten),
+ *            stealthT, st.capLost/capWait/stealthHits/sabotage/mineHits/repaired/stuns.
+ *   EINHEIT: clk (getarnter Typ), revM (Bitmaske aufdeckender Spieler), revT (für alle sichtbar bis Tick), repId (Reparaturziel), stunT/stunFree (gelähmt bis /
+ *            immun bis Tick), Saboteur: ord 'sab', sabId, sabMode (0 Sprengladung, 1 lahmlegen), cd (Nachladen); Träger: hg [{id, t}], hgT;
+ *            Drohne: host, slot, ammo, lifeT, ord 'dback' (Rückflug).
+ *   GEBÄUDE: clk/revM/revT wie oben, offT (lahmgelegt bis Tick), repT (Reparaturdock: Tick der letzten Reparatur), open (Tor: eigene Einheit in der Nähe),
+ *            ch (Minenfeld: Ladungen), cdT (Minenfeld: Sperrzeit nach Auslösung).
+ *   Ereignisse: reveal {id, owner, by, type}, sabotage {id, src, owner, victim, mode:'bomb'|'stun', t2, type}, sabBoom {id, owner}, mine {id, owner, r, left},
+ *               launch {id, drone, owner, slot, type}, dock {id, slot, owner, drone}, stun {id, src, owner, t2}, capLost {owner, lost},
+ *               repairFull {…, unit:true} (Fahrzeug am Dock fertig).
+ *   Abfragen: hidden(pid, e), cloakState(pid, e), hangarReady(e), isRepairSite/repairSite/canRepairUnit, sabBlock, noOccAt; Messhaken G.Sim._onDamage.
+ *
  * Laufzeit-Caches (nicht im Zustand): byId-Map, Gebäudelisten, räumliches Gitter.
  */
 var G = (typeof G !== 'undefined') ? G : {};

@@ -29,6 +29,11 @@
  * v1.0.1 KI-Leicht (SPEC_v10 §10, Block am Dateiende): Stufe „Sehr leicht“ (veryeasy); Leicht/Sehr leicht mit Wellen-Obergrenze (Stückzahl, wächst je Welle),
  * Mindestabstand zwischen Wellen, Rückzug bei Verlusten, Spezial-Infanterie erst spät, Flugfeld/Werft spät bzw. nie, kleinere Armee. Mittel gegen
  * MENSCHEN gedämpft (VS_HUMAN, cfgFor) – KI gegen KI (Balance-Serien) bleibt bitgleich. Keine Erz-/Bau-Boni oder -Abzüge in sim.js.
+ *
+ * v1.2 (Block am Dateiende, Tabelle V12 je Stufe): Flakpanzer bei Luftbedrohung, Radarwagen sobald Getarntes/Minen Schaden angerichtet haben (begleitet die
+ * Welle), Saboteure gegen bekannte Wirtschafts-/Technikgebäude abseits von Detektoren, Minenfelder auf dem Anmarschweg, Tor im Mauer-Durchlass, Erzsilo bei
+ * knappem Lager, Reparaturdock (angeschlagene Heimtruppen fahren hin, A.rep), U-Boote/Flugzeugträger mit der Flotte, Psi-Drohnen/Schwarm-Träger (Kollektiv).
+ * Getarntes sieht die KI nicht (G.Sim.isVisible berücksichtigt die Tarnung). „Sehr leicht/Leicht“ nutzen die neuen Mittel kaum bzw. sparsam.
  */
 var G = (typeof G !== 'undefined') ? G : {};
 (function () {
