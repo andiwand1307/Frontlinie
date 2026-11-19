@@ -834,6 +834,8 @@ var G = (typeof G !== 'undefined') ? G : {};
         M3.deployEvt(e);
       } else if (e.t === 'heal') {
         healEvt(e, S);
+      } else if (e.t === 'ability') {   // v1.3 Fähigkeiten
+        abEvt(e, S);
       } else if (e.t === 'takeoff' || e.t === 'land' || e.t === 'beach' || e.t === 'rearm') {   // v0.8
         v8Evt(e, S, x, z);
       } else if (e.t === 'load' || e.t === 'unload') {   // v0.7 Schützenpanzer: kleine Staubwolke an Luke/Heck
@@ -1745,6 +1747,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       var pc = teamRGB(pu2.color), pk = (1 - pf) * 1.6, pr = pu2.rad * (0.3 + 0.7 * Math.sqrt(pf));
       tgtRing.put(pu2.x, 0.07, pu2.z, 0, pr, 1, pr, pc[0] * pk, pc[1] * pk, pc[2] * pk);
     }
+    abZones(S, dt);   // v1.3 Fähigkeiten: Wirkfelder
     ambient(S, dt); updBurns(dt); updWaves(); updDebris(dt); flameUpdate(dt); updWake(dt);
     swFrame(S, alpha, dt);
   }
@@ -1753,9 +1756,75 @@ var G = (typeof G !== 'undefined') ? G : {};
     for (var i = 0; i < swFlush.length; i++) swFlush[i].flush();
     rocketB.flush(); shellB.flush(); tgtRing.flush(); bombB.flush(); missileB.flush(); if (WK) WK.bt.flush();
   }
+  // ============================================================== v1.3 Fähigkeiten (abgegrenzter Block; Daten: D.ABILITIES[id].look)
+  // abUnit(): Haken in r3-models fill() für Einheiten/Gebäude mit laufender Fähigkeit (abT), Feldschutz (zT) oder Markierung (markT) – Bodenring + Funken.
+  // abZones(): Wirkfelder S.zones (Nebel, Brand, Schleier) – Randring + Partikel in der Fläche.  abEvt(): Ereignis 'ability' (Auslösung: Ring, Sprungblitz).
+  // Nur vorhandene Mittel: tgtRing (additiver Bodenring), Punkt-Partikel emit(), addPulse(), flashAt().
+  var AB_COL = { attack: [1.5, 0.62, 0.15], shield: [0.35, 0.95, 1.5], heal: [0.3, 1.4, 0.5], psi: [1.05, 0.45, 1.5], mark: [1.6, 0.22, 0.18],
+                 smoke: [0.75, 0.82, 0.9], fire: [1.6, 0.5, 0.1], veil: [0.55, 0.5, 1.5], buff: [1, 1, 1] };
+  var AB_HEX = { attack: '#fb923c', shield: '#38bdf8', heal: '#4ade80', psi: '#c084fc', mark: '#ef4444', smoke: '#cbd5e1', fire: '#f97316', veil: '#818cf8', buff: '#ffffff' };
+  function abUnit(e, x, gy, z, rad, tick, dt, inV) {
+    var t = R.t, k, a2, c, y = gy + 0.05;
+    if (e.abT > tick) {
+      var a = D.ABILITIES[e.ab]; c = AB_COL[a ? a.look : 'buff'] || AB_COL.buff;
+      k = 0.8 + 0.3 * Math.sin(t * 8 + e.id); var r2 = rad * (0.62 + 0.12 * Math.sin(t * 5 + e.id));
+      tgtRing.put(x, y, z, 0, rad, 1, rad, c[0] * k, c[1] * k, c[2] * k);
+      tgtRing.put(x, y + 0.01, z, 0, r2, 1, r2, c[0] * 0.6, c[1] * 0.6, c[2] * 0.6);
+      if (inV && dt > 0 && rnd() < dt * (safeGPU ? 4 : 9)) { a2 = rnd() * 6.283; emit(0, x + Math.cos(a2) * rad, y, z + Math.sin(a2) * rad, 0, 0.55 + rnd() * 0.4, 0, 0.55, 0.075, 0.02, c[0], c[1], c[2], 1, c[0] * 0.5, c[1] * 0.5, c[2] * 0.5, 0, 0, 0); }
+    }
+    if (e.zT > tick && !(e.abT > tick)) { c = AB_COL.smoke; k = 0.45 + 0.15 * Math.sin(t * 4 + e.id); tgtRing.put(x, y, z, 0, rad * 0.85, 1, rad * 0.85, c[0] * k, c[1] * k, c[2] * k); }
+    if (e.markT > tick) {
+      c = AB_COL.mark; var ph = (t * 1.3 + e.id * 0.37) % 1, rm = rad * (1.75 - 0.6 * ph); k = 0.6 + 0.6 * ph;
+      tgtRing.put(x, y + 0.02, z, 0, rm, 1, rm, c[0] * k, c[1] * k, c[2] * k);
+      tgtRing.put(x, y + 0.02, z, 0, rad * 1.1, 1, rad * 1.1, c[0], c[1], c[2]);
+      if (inV && dt > 0 && rnd() < dt * 5) { a2 = ((rnd() * 4) | 0) * 1.5708 + t; emit(0, x + Math.cos(a2) * rad * 1.5, y + 0.05, z + Math.sin(a2) * rad * 1.5, -Math.cos(a2) * 0.5, 0.1, -Math.sin(a2) * 0.5, 0.45, 0.09, 0.03, 1, 0.3, 0.2, 1, 1, 0.1, 0.05, 0, 0, 0); }
+    }
+  }
+  function abZones(S, dt) {
+    var Z = S.zones, tick = S.tick, hz = D.TICK_HZ || 20;
+    if (!Z || !Z.length) return;
+    for (var i = 0; i < Z.length; i++) {
+      var zo = Z[i], a = D.ABILITIES[zo.ab]; if (!a) continue;
+      if (!(S.settings.fogOff || zo.owner === V.pid || visibleAt(zo.x, zo.y))) continue;
+      var x = zo.x / TILE, z = zo.y / TILE, r = zo.r / TILE, y = groundAt(x, z) + 0.06, c = AB_COL[a.look] || AB_COL.buff;
+      var left = (zo.t2 - tick) / hz, fade = clamp(left / 1.2, 0.15, 1) * clamp((tick - zo.t0) / 6 + 0.3, 0, 1), k = (0.7 + 0.2 * Math.sin(R.t * 3 + i)) * fade;
+      tgtRing.put(x, y, z, 0, r, 1, r, c[0] * k, c[1] * k, c[2] * k);
+      tgtRing.put(x, y, z, 0, r * 0.97, 1, r * 0.97, c[0] * k * 0.5, c[1] * k * 0.5, c[2] * k * 0.5);
+      if (!(dt > 0) || !R.inView(x, z)) continue;
+      var n = dt * r * r * (safeGPU ? 5 : 11) * fade, q = (n | 0) + (rnd() < n - (n | 0) ? 1 : 0);
+      while (q-- > 0) {
+        var an = rnd() * 6.283, d = Math.sqrt(rnd()) * r, px = x + Math.cos(an) * d, pz = z + Math.sin(an) * d, py = groundAt(px, pz);
+        if (a.look === 'smoke') emit(1, px, py + 0.15 + rnd() * 0.3, pz, (rnd() - 0.5) * 0.12, 0.1 + rnd() * 0.12, (rnd() - 0.5) * 0.12, 2.2 + rnd(), 0.5, 1.1, 0.8, 0.83, 0.86, 0.5, 0.7, 0.72, 0.76, 0, 0, 0.4);
+        else if (a.look === 'fire') { emit(0, px, py + 0.05, pz, (rnd() - 0.5) * 0.1, 0.5 + rnd() * 0.5, (rnd() - 0.5) * 0.1, 0.5 + rnd() * 0.3, 0.28, 0.06, 1, 0.65, 0.2, 0.9, 0.9, 0.2, 0.04, 0, 0, 0); if (rnd() < 0.25) emit(1, px, py + 0.4, pz, 0.04, 0.5, 0.02, 1.4, 0.2, 0.55, 0.2, 0.2, 0.22, 0.45, 0.35, 0.35, 0.38, 0, 0, 0.3); }
+        else emit(0, px, py + 0.05 + rnd() * 0.5, pz, 0, 0.12 + rnd() * 0.15, 0, 1.1, 0.1, 0.03, 0.5, 0.45, 1, 0.75, 0.3, 0.2, 0.9, 0, 0, 0);
+      }
+    }
+  }
+  function abEvt(e, S) {
+    var a = D.ABILITIES[e.ab]; if (!a) return;
+    if (!(S.settings.fogOff || e.owner === V.pid || visibleAt(e.x, e.y) || (e.tx != null && visibleAt(e.tx, e.ty)))) return;
+    var x = e.x / TILE, z = e.y / TILE, hex = AB_HEX[a.look] || '#ffffff', c = AB_COL[a.look] || AB_COL.buff, i, an;
+    if (a.fx.pulse) { addPulse(x, z, hex, e.r / TILE, 0.55); addPulse(x, z, hex, e.r / TILE * 0.6, 0.4); flashAt(x, groundAt(x, z) + 0.6, z, 0.25, 0.8); }
+    else if (a.fx.jump) {
+      var sx = e.sx / TILE, sz = e.sy / TILE;
+      addPulse(sx, sz, hex, 0.9, 0.6); addPulse(x, z, hex, 1.0, 0.6); flashAt(x, groundAt(x, z) + 0.5, z, 0.3, 1);
+      for (i = 0; i < (safeGPU ? 10 : 22); i++) {
+        var f = i / 22, px = sx + (x - sx) * f, pz = sz + (z - sz) * f;
+        emit(0, px + (rnd() - 0.5) * 0.25, groundAt(px, pz) + 0.25 + rnd() * 0.3, pz + (rnd() - 0.5) * 0.25, 0, 0.25, 0, 0.5 + f * 0.4, 0.14, 0.03, c[0], c[1], c[2], 1, c[0] * 0.4, c[1] * 0.4, c[2], 0, 0, 0);
+      }
+    }
+    else if (a.fx.zone) addPulse(e.tx / TILE, e.ty / TILE, hex, e.r / TILE, 0.5);
+    else if (a.fx.mark) addPulse(e.tx / TILE, e.ty / TILE, hex, 1.6, 0.5);
+    else {
+      addPulse(x, z, hex, 0.9, 0.45);
+      for (i = 0; i < (safeGPU ? 5 : 10); i++) { an = rnd() * 6.283; emit(0, x + Math.cos(an) * 0.3, groundAt(x, z) + 0.1, z + Math.sin(an) * 0.3, Math.cos(an) * 0.5, 0.7 + rnd() * 0.5, Math.sin(an) * 0.5, 0.6, 0.09, 0.02, c[0], c[1], c[2], 1, c[0] * 0.5, c[1] * 0.5, c[2] * 0.5, 0, 0, 0); }
+    }
+  }
+
   G.R3F = {
     link: link, init: init, reset: reset,
     emit: emit, halo: halo, sparkle: sparkle, explosion: explosion, dust: dust, tracer: tracer, beamImpact: beamImpact, arcSpark: arcSpark,
+    abUnit: abUnit,   // v1.3 Fähigkeiten
     addPulse: addPulse, flashAt: flashAt, impact: impact, puff: puff, burn: burn, wave: wave, chunk: chunk, tier: function () { return spTier; }, laserShot: laserShot, lightningShot: lightningShot,
     consumeEvents: function (S) { safeGPU = R.safeGPU; syncTier(); consumeEvents(S); },
     fill: fill, flush: flush,

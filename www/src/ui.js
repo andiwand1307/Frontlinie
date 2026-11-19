@@ -89,8 +89,18 @@ var G = (typeof G !== 'undefined') ? G : {};
     bolt: '<path d="M13.5 2.5L5 13.5h6l-1.5 8L18.5 10h-6z"/>',
     drone: '<circle cx="12" cy="12" r="2.6"/><path d="M12 9.4V5M12 14.6V19M9.4 12H5M14.6 12H19M3 5h4M17 5h4M3 19h4M17 19h4"/>',
     // v1.3 Forschung: Kolben
-    flask: '<path d="M9.5 3h5M10.5 3v6.2L5 18.6a1.6 1.6 0 0 0 1.4 2.4h11.2a1.6 1.6 0 0 0 1.4-2.4L13.5 9.2V3M7.6 15h8.8"/>'
+    flask: '<path d="M9.5 3h5M10.5 3v6.2L5 18.6a1.6 1.6 0 0 0 1.4 2.4h11.2a1.6 1.6 0 0 0 1.4-2.4L13.5 9.2V3M7.6 15h8.8"/>',
+    // v1.3 Fähigkeiten: Feuerstoß, Nebel, Täuschkörper, Flamme, Raserei, Sprung, Schleier
+    burst: '<path d="M3 8h9M3 12h13M3 16h9M16 6l5 6-5 6"/>',
+    cloud: '<path d="M7 18a4 4 0 0 1-.6-7.9A5.5 5.5 0 0 1 17 8.6a4.7 4.7 0 0 1 .6 9.4zM8 21.5h.01M12 21.5h.01M16 21.5h.01"/>',
+    flare: '<circle cx="12" cy="12" r="2.4"/><path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M18.4 5.6l-2.8 2.8M8.4 15.6l-2.8 2.8"/>',
+    flame: '<path d="M12 2.5c.6 3.6 5.5 5.8 5.5 11a5.5 5.5 0 0 1-11 0c0-2 .9-3.5 2.2-4.6.2 1.6.9 2.5 1.9 3C10.3 8.8 10.6 5.4 12 2.5zM12 20.5a2.6 2.6 0 0 0 2.6-2.8c0-1.4-1.1-2.2-2.6-3.7-1.5 1.5-2.6 2.3-2.6 3.7A2.6 2.6 0 0 0 12 20.5z"/>',
+    claw: '<path d="M5 20c0-7 1.5-12 4-16M11 20c0-7 1.5-12 4-16M17 20c0-6 1-9.5 3-13"/>',
+    jump: '<circle cx="5.5" cy="17.5" r="2.5"/><path d="M8 15.5C10 9 14 6.5 19 7M19 7l-3.5-2.5M19 7l-2.5 3.5"/><path d="M16 17.5h.01M19.5 17.5h.01M12.5 17.5h.01"/>',
+    veil: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><path d="M4 20L20 4"/>'
   };
+  var AB_IC = { c_mark: 'arty', c_salvo: 'burst', c_smoke: 'cloud', c_flare: 'flare', s_dig: 'defense', s_rush: 'bolt', s_fire: 'flame', s_fix: 'repair',
+                k_shriek: 'psi', k_frenzy: 'claw', k_jump: 'jump', k_shroud: 'veil' };
   function ic(n) { return '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">' + IC[n] + '</svg>'; }
 
   // ------------------------------------------------------------------ Neutrale / Spezialgebäude (Anzeigetexte; Namen aus G.DATA haben Vorrang)
@@ -263,6 +273,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       case 'repgo': G.Input.repairSel(); break;   // v1.2: zur Reparatur
       case 'sabmode': G.Input.sabToggle(); break; // v1.2: Saboteur-Modus
       case 'research': toggleResearch(); break;   // v1.3 Forschung
+      case 'abil': G.Input.abilPress(b.dataset.ab); break;   // v1.3 Fähigkeiten
       case 'deploy': G.Input.beginDeploy(); break;
       case 'arty': if (V.arty) G.Input.cancelArty(); else G.Input.beginArty(); break;
       case 'sw': swPress(id); break;
@@ -531,6 +542,57 @@ var G = (typeof G !== 'undefined') ? G : {};
     if (sab.length) { var sm = sab[0].sabMode ? 1 : 0; html += cb('sabmode', sm ? 'bolt' : 'bomb', sm ? 'Lahmlegen' : 'Sprengen', '', 'go'); sig += 's' + sm; }
     return { html: html, sig: sig };
   }
+  /** v1.3 Fähigkeiten: je Fähigkeit der gewählten Einheitentypen ein Knopf (Signatur + HTML); Zustand (bereit/Abklingzeit/aktiv) setzt refreshAbil(). */
+  function ctxAb(units) {
+    var seen = {}, html = '', sig = '';
+    units.forEach(function (u) {
+      if (u.owner !== V.pid) return;
+      var a = G.Sim.abilityOf(u);
+      if (!a || seen[a.id]) return;
+      seen[a.id] = 1; sig += a.id + ',';
+      html += '<button class="cb abil" data-act="abil" data-ab="' + a.id + '" aria-label="' + esc(a.name + ': ' + a.desc) + '" title="' + esc(a.desc) + '">' + ic(AB_IC[a.id] || 'bolt') +
+              '<span class="lb">' + esc(a.name) + '</span></button>';
+    });
+    return { html: html, sig: sig };
+  }
+  function refreshAbil(bar, units) {
+    var btns = bar.querySelectorAll('.cb.abil'), S = G.Sim.S;
+    for (var i = 0; i < btns.length; i++) {
+      var b = btns[i], id = b.dataset.ab, a = D.ABILITIES[id], nRdy = 0, nAct = 0, left = 1e9, tot = 1, locked = false, actLeft = 0;
+      for (var k = 0; k < units.length; k++) {
+        var u = units[k], ua = G.Sim.abilityOf(u);
+        if (!ua || ua.id !== id || u.owner !== V.pid) continue;
+        var inf = G.Sim.abInfo(u);
+        if (inf.locked) { locked = true; break; }
+        if (inf.active) { nAct++; actLeft = Math.max(actLeft, inf.activeLeft); }
+        else if (inf.ready) nRdy++;
+        else if (inf.left < left) { left = inf.left; tot = inf.total; }
+      }
+      var aim = !!(V.abil && V.abil.id === id), txt, st;
+      if (aim) { txt = 'Abbrechen'; st = 'aim'; }
+      else if (locked) { txt = a.name; st = 'lock'; }
+      else if (nRdy) { txt = a.name; st = 'rdy'; }
+      else if (nAct) { txt = (a.toggle ? 'Beenden ' : 'Aktiv ') + Math.ceil(actLeft) + ' s'; st = 'act'; }
+      else { txt = 'Lädt ' + Math.ceil(left) + ' s'; st = 'cd'; }
+      var lb = b.querySelector('.lb');
+      if (lb.textContent !== txt) lb.textContent = txt;
+      if (b.dataset.st !== st) { b.dataset.st = st; b.classList.toggle('on', st === 'aim'); b.classList.toggle('act', st === 'act'); b.classList.toggle('dim', st === 'lock' || st === 'cd'); b.classList.toggle('ready', st === 'rdy'); }
+      var pc = st === 'cd' ? Math.round((1 - Math.min(1, left / tot)) * 100) : -1;
+      if (b._pc !== pc) { b._pc = pc; b.style.backgroundImage = pc < 0 ? '' : 'linear-gradient(90deg,rgba(56,189,248,.42) ' + pc + '%,rgba(255,255,255,.035) ' + pc + '%)'; }
+    }
+    if (V.abil && !bar.querySelector('.cb.abil[data-ab="' + V.abil.id + '"]')) G.Input.abilCancel();   // Auswahl gewechselt
+    var ab = V.abil ? D.ABILITIES[V.abil.id] : null, el = document.getElementById('abilbar');
+    if (ab && !el) {
+      el = document.createElement('div'); el.id = 'abilbar';
+      el.innerHTML = '<div class="msg"></div><button data-act="abilcancel">' + ic('close') + '<span class="lb">Abbrechen</span></button>';
+      el.querySelector('button').addEventListener('click', function () { G.Input.abilCancel(); });
+      $('map').appendChild(el);
+    }
+    if (el) {
+      el.style.display = ab ? 'flex' : 'none';
+      if (ab) { var m = ab.name + ': ' + (ab.target === 'enemy' ? 'gegnerisches Ziel antippen' : 'Zielpunkt antippen') + ' (Reichweite ' + ab.range + ' Kacheln)'; var me = el.querySelector('.msg'); if (me.textContent !== m) me.textContent = m; }
+    }
+  }
   function refreshContext(force) {
     var sel = V.mySel(), box = $('selinfo'), bar = $('cmdbar');
     var units = sel.filter(function (e) { return e.kind === 'unit'; });
@@ -541,8 +603,9 @@ var G = (typeof G !== 'undefined') ? G : {};
     if (b) sig = 'b:' + b.id + ':' + b.owner + ':' + (b.gar ? b.gar.length : 0) + ':' + (b.repairing ? 1 : 0) + ':' + (b.hp < b.maxHp ? 1 : 0) + ':' + ((b.charge || 0) >= 1 ? 1 : 0) + ':' + (b.ruin ? 1 : 0) + ':' + ((b.capT > 0 && b.capT < 1) ? 1 : 0);
     var pas = 0; units.forEach(function (u) { if (G.Input.isTransport && G.Input.isTransport(u)) pas += G.Input.passengers(u); });   // v0.7 Schützenpanzer-Passagiere
     var x12 = units.length ? ctx12(units) : null;   // v1.2: Zusatzknöpfe der neuen Einheiten/Gebäude
+    var xab = units.length ? ctxAb(units) : null;   // v1.3 Fähigkeiten
     if (b) { /* unten */ }
-    else if (units.length) sig = 'u:' + order.map(function (t) { return t + counts[t]; }).join(',') + '|p' + pas + '|' + x12.sig;
+    else if (units.length) sig = 'u:' + order.map(function (t) { return t + counts[t]; }).join(',') + '|p' + pas + '|' + x12.sig + '|' + xab.sig;
     else sig = 'n';
     if (sig !== lastSel || force) {
       lastSel = sig;
@@ -567,7 +630,7 @@ var G = (typeof G !== 'undefined') ? G : {};
         }).join('') + (order.length === 1 ? '<span class="nmx">' + esc(uName(order[0])) + '</span>' : '<span class="nmx"></span>') + '<button class="x chip" data-act="desel" aria-label="Abwählen">' + ic('close') + '</button></div>';
         hs += '<div class="bar"><div data-dyn="hp"></div></div><div class="help" data-dyn="rank" style="display:none"></div>';   // Erfahrung: Rang/Fortschritt
         var onlyMcv = order.length === 1 && order[0] === 'mcv';
-        hb = '<div class="row">' + (counts.mcv ? cb('deploy', 'building', 'Aufbauen', 'D', 'go') : '') + (pas > 0 ? cb('unload', 'exit', 'Aussteigen (' + pas + ')', 'E', 'go') : '') + x12.html + cb('stop', 'stop', 'Stopp', 'S') + (onlyMcv ? '' : cb('am', 'attack', 'Angriff', 'A')) + (onlyMcv ? '' : cb('box', 'frame', 'Rahmen') + cb('add', 'plus', '', '', '', null, ' aria-label="Zur Auswahl hinzufügen"')) + groupBtns() + '</div>';
+        hb = '<div class="row">' + (counts.mcv ? cb('deploy', 'building', 'Aufbauen', 'D', 'go') : '') + (pas > 0 ? cb('unload', 'exit', 'Aussteigen (' + pas + ')', 'E', 'go') : '') + xab.html + x12.html + cb('stop', 'stop', 'Stopp', 'S') + (onlyMcv ? '' : cb('am', 'attack', 'Angriff', 'A')) + (onlyMcv ? '' : cb('box', 'frame', 'Rahmen') + cb('add', 'plus', '', '', '', null, ' aria-label="Zur Auswahl hinzufügen"')) + groupBtns() + '</div>';
         if (counts.rifle || counts.rocket) { /* Hinweis nur im Panel */ }
       } else {
         hb = '<div class="row">' + cb('army', 'army', 'Armee') + cb('idle', 'idle', 'Idle') + cb('box', 'frame', 'Rahmen') + groupBtns() + '</div>';
@@ -628,6 +691,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       if (q('am')) q('am').classList.toggle('on', V.amArmed);
       if (q('add')) q('add').classList.toggle('on', V.addMode);
     }
+    refreshAbil(bar, b ? [] : units);   // v1.3 Fähigkeiten: Knopfzustand, Zielleiste
     var qb = bar.querySelector('[data-act="box"]'); if (qb) qb.classList.toggle('on', V.boxMode);
   }
   // v0.9.2 Reparatur: Knopf hervorgehoben + Hinweisleiste, solange der Reparatur-Modus aktiv ist
@@ -1333,6 +1397,16 @@ var G = (typeof G !== 'undefined') ? G : {};
       li('Syndikat', 'Fließbandfertigung (Infanterie 15 % günstiger), Bollwerk (Gebäude erleiden 15 % weniger Schaden), Feldinstandsetzung (Fahrzeuge reparieren sich außerhalb des Gefechts langsam selbst).') +
       li('Kollektiv', 'Psi-Fokus (Gedankenkontrolle und Lähmung laden 20 % schneller nach), Schwarmbrut (Schwarmdrohnen +25 % Schaden und Haltbarkeit, Mutanten 15 % robuster), Phasenschleier (Getarntes nach einer Aktion nur halb so lang sichtbar, gegnerische Detektoren reichen 1 Kachel kürzer).') +
       li('KI', 'Auch der Computer forscht – auf „Sehr leicht“ und „Leicht“ spät und wenig.') +
+      '</ul>';
+    // v1.3: Spezialfähigkeiten (Texte aus D.ABILITIES)
+    h += '<h3>Neu in 1.3: Spezialfähigkeiten</h3><p class="help">Einige Einheiten haben eine Fähigkeit, die du selbst auslöst. Einheit wählen – der Knopf erscheint in der Befehlsleiste. Fähigkeiten ohne Ziel wirken sofort bei allen bereiten Einheiten der Auswahl. Bei Fähigkeiten mit Ziel danach die Karte antippen (eine bereite Einheit in Reichweite löst aus); „Abbrechen“ oder erneutes Tippen auf den Knopf verlässt den Zielmodus. Danach lädt die Fähigkeit nach – die Restzeit steht auf dem Knopf. Erfahrene Einheiten laden etwas schneller nach.</p><ul class="hl">' +
+      ['coalition', 'syndicate', 'kollektiv'].map(function (f) {
+        return li(D.FACTIONS[f].name, D.ABILITY_ORDER.filter(function (id) { return D.ABILITIES[id].faction === f; }).map(function (id) {
+          var a = D.ABILITIES[id];
+          return '<b>' + esc(a.name) + '</b> (' + a.units.map(function (t) { return esc(D.unitStats(f, t).name); }).join(', ') + (a.target === 'none' ? '' : ', mit Ziel') + ', lädt ' + a.cd + ' s): ' + esc(a.desc) + '.';
+        }).join(' '));
+      }).join('') +
+      li('KI', 'Auch der Computer setzt die Fähigkeiten ein – auf „Sehr leicht“ nur selten.') +
       '</ul>';
     h += '<h3>Kamera</h3><ul class="hl">' +
       li('Diagonal', 'Standard: Die Karte liegt schräg wie bei klassischen Strategiespielen, die Kacheln erscheinen als Rauten. Wischen, Tasten und Bildrand schieben immer in Bildschirmrichtung.') +

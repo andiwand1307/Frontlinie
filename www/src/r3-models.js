@@ -4145,6 +4145,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       else if (e.offT > tick) { var okf = 0.92 + 0.08 * Math.sin(R.t * 17 + e.id); drawBuildingInst(e, M, e.owner, x, z, e.tdir || 0, sy, dk * 0.5 * okf, dk * 0.56 * okf, dk * 0.74 * okf); offFx(e, M, x, z, dt, inV5); }   // v1.2 lahmgelegt: kalt entsättigt, Lichter aus, Entladungen
       else drawBuildingInst(e, M, e.owner, x, z, e.tdir || 0, sy, dk, dk, dk);
       if (selSet[e.id]) selSquare.put(x, 0.04, z, 0, e.w * 0.62 + 0.08, 1, e.h * 0.62 + 0.08, 0.6, 1, 0.6);
+      if (e.markT > tick) G.R3F.abUnit(e, x, 0.02, z, Math.max(e.w, e.h) * 0.5, tick, dt, inV5);   // v1.3 Fähigkeiten: markiertes Gebäude
       if (M.act) actDraw(e, M, x, z, sy, inV5, dt);   // GA: Produktion, Tor, Kran, Andocken, Auslastung
       if (!inView(x, z)) continue;
       dmgFx(e, M, x, z, hf, dt);   // GA: Schaden – feste Brandstellen (Rauch, Funken, Flammen)
@@ -4189,6 +4190,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       pbMode = 0;
       if (e.clk && cloakMark(e, pid, x, (e.mc === 3 ? WL8 : groundAt(x, z)) + 0.04, z, (e.r || 8) / TILE * 1.4, tick)) pbMode = 1;   // v1.2 Tarnung: eigenes, unentdecktes Objekt halbtransparent
       if (e.stunT > tick) stunFx(e, M, x, (e.mc === 3 ? WL8 : groundAt(x, z)), z, s, dt, inView(x, z));   // v1.2 gelähmt: kreisende Psi-Fesseln
+      if (e.abT > tick || e.zT > tick || e.markT > tick) G.R3F.abUnit(e, x, (e.mc === 3 ? WL8 : groundAt(x, z)), z, (e.r || 8) / TILE * 1.5, tick, dt, inView(x, z));   // v1.3 Fähigkeiten: Ring/Funken
       if (M.v8u) { drawV8U(e, M, r, x, z, s, dt, tick, alpha, !!selSet[e.id], inView(x, z)); continue; }   // v0.8: Luftfahrzeuge (Flughöhe, Rotoren, Neigung) / Schiffe (Wasserlinie, Seegang, Türme)
       y = groundAt(x, z);
       if (e.pc === 4) y = Math.max(y, WL8 + 0.02) + 0.06 + 0.03 * Math.sin(R.t * 3 + e.id);   // v1.0 Schwebepanzer schwebt (auch über Wasser)

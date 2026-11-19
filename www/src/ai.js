@@ -35,6 +35,8 @@
  * knappem Lager, Reparaturdock (angeschlagene Heimtruppen fahren hin, A.rep), U-Boote/Flugzeugträger mit der Flotte, Psi-Drohnen/Schwarm-Träger (Kollektiv).
  * Getarntes sieht die KI nicht (G.Sim.isVisible berücksichtigt die Tarnung). „Sehr leicht/Leicht“ nutzen die neuen Mittel kaum bzw. sparsam.
  *
+ * v1.3 Fähigkeiten (Block am Dateiende, Tabelle V14 je Stufe): prüft alle V14.every Ticks die eigenen Einheiten mit bereiter Fähigkeit und löst sie bei passender
+ *   Gelegenheit aus (use14: im Gefecht, unter Beschuss, Ziel/Gegnergruppe in Reichweite …) – auf „Sehr leicht“ nur selten (V14.p).
  * v1.3 Forschung (Block am Dateiende, Tabelle V13 je Stufe): forscht im Tech-Zentrum eine Forschung nach der anderen (Feuerkraft, Panzerung, Sammler zuerst,
  * Fraktionsforschung nur mit passenden Einheiten), nur mit laufender Wirtschaft und Mindest-Kontostand; bricht im Notfall (allIn, pleite) ab.
  * „Sehr leicht/Leicht“ forschen spät und wenig. A.resT = Tick des letzten Forschungsstarts.
@@ -135,6 +137,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     psiAI();    // v1.0 Gedankenkontrolle (eigene und gegnerische)
     v12();      // v1.2 Neue Einheiten & Zusatzgebäude (Block am Dateiende)
     v13();      // v1.3 Forschung (Block am Dateiende)
+    v14();      // v1.3 Fähigkeiten (Block am Dateiende)
   }
 
   // ================================================================== v1.0 Kollektiv (SPEC_v10 §6)
@@ -2234,5 +2237,69 @@ var G = (typeof G !== 'undefined') ? G : {};
     }
   }
 
-  G.AI = { update: update, DIFF: DIFF, AIRSEA: AIRSEA, VS_HUMAN: VS_HUMAN, V12: V12, V13: V13 };   // v1.0.1 KI-Leicht: VS_HUMAN
+  // ================================================================== v1.3 Fähigkeiten
+  // V14[stufe]: every = Prüfabstand (Ticks), p = Wahrscheinlichkeit, eine erkannte Gelegenheit bei dieser Prüfung zu nutzen (Sim-RNG → deterministisch),
+  //   max = höchstens so viele Auslösungen je Prüfung. use14(e, a) → Ziel ({x, y} | {id}), true (ohne Ziel) oder null (keine Gelegenheit).
+  var V14 = {
+    veryeasy: { every: 40, p: 0.06, max: 1 },
+    easy:     { every: 20, p: 0.25, max: 2 },
+    medium:   { every: 10, p: 0.6,  max: 4 },
+    hard:     { every: 10, p: 1,    max: 8 }
+  };
+  function v14() {
+    var X = V14[P.ai] || V14.medium, tick = S.tick;
+    if (tick - (A.ab14T || -1e9) < X.every) return;   // think() läuft nur alle cfg.interval Ticks → eigener Zeitstempel statt Modulo
+    A.ab14T = tick;
+    var n = 0, shroud = false;
+    for (var i = 0; i < S.ents.length && n < X.max; i++) {
+      var e = S.ents[i];
+      if (e.owner !== pid || e.kind !== 'unit' || e.dead || e.inside || e.abCd > tick || e.abT > tick) continue;
+      var a = G.Sim.abilityOf(e);
+      if (!a || (a.gcd && P.abG[a.id] > tick) || G.Sim.abBlock(pid, e)) continue;
+      if (a.id === 'k_shroud') { if (shroud) continue; shroud = true; }   // teure Umkreisprüfung nur für einen Kandidaten je Durchlauf
+      var tg = use14(e, a, tick);
+      if (!tg || G.Sim.rand() >= X.p) continue;
+      if (G.cmd.ability(pid, [e.id], a.id, tg === true ? null : tg).ok) n++;
+    }
+  }
+  function use14(e, a, tick) {
+    var t = e.tgt ? G.Sim.get(e.tgt) : null, TL = D.TILE;
+    if (t && (t.dead || t.owner === pid)) t = null;
+    var fighting = !!t && tick - e.fireT < 30, hit = tick - e.lastAtkT < 30, d = t ? Math.hypot(t.x - e.x, t.y - e.y) : 1e9, x, y, k;
+    switch (a.id) {
+      case 'c_salvo': return fighting ? true : null;
+      case 's_rush': return fighting || (t && d < 7 * TL) ? true : null;
+      case 'k_frenzy': return fighting || (t && d < 5 * TL) || (hit && e.hp < e.maxHp * 0.8) ? true : null;
+      case 'c_flare': return hit && e.hp < e.maxHp * 0.85 ? true : null;
+      case 's_dig': return (hit || fighting) && e.ord === 'idle' ? true : null;
+      case 's_fix': return e.hp < e.maxHp * 0.55 ? true : null;
+      case 'k_shriek': k = G.Sim.nearCount(pid, e.x, e.y, a.fx.pulse.r * TL, true); return k >= 2 || (k >= 1 && hit) ? true : null;
+      case 'c_mark':
+        if (!t && hit) { t = G.Sim.get(e.lastAtk); if (t && (t.dead || t.owner === pid)) t = null; }
+        if (!t || t.markT > tick || (t.kind === 'unit' && t.maxHp < 150) || G.Sim.abBlock(pid, e, t.x, t.y, t.id)) return null;
+        return { id: t.id };
+      case 'c_smoke': return (hit || fighting) && G.Sim.nearCount(pid, e.x, e.y, a.fx.zone.r * TL, false) >= 3 ? { x: e.x, y: e.y } : null;
+      case 's_fire':
+        if (!t || t.kind !== 'unit' || G.Sim.airborne(t) || d > a.range * TL) return null;
+        return G.Sim.nearCount(pid, t.x, t.y, a.fx.zone.r * TL, true) >= 2 ? { x: t.x, y: t.y } : null;
+      case 'k_jump': {
+        var st = S.map.starts[pid], wr = (G.Sim.ust(e).weapon || { range: 4 }).range * TL;
+        if (hit && e.hp < e.maxHp * 0.35) {   // Rückzug Richtung eigene Basis
+          x = (st.tx + 1.5) * TL - e.x; y = (st.ty + 1.5) * TL - e.y; k = Math.hypot(x, y);
+          if (k < 8 * TL) return null;
+          x = e.x + x / k * (a.range - 0.5) * TL; y = e.y + y / k * (a.range - 0.5) * TL;
+        } else if (t && d > wr + 1.5 * TL && d < wr + (a.range - 0.5) * TL) {   // Ziel knapp außer Reichweite → heranspringen
+          k = (d - wr + 0.7 * TL) / d; x = e.x + (t.x - e.x) * k; y = e.y + (t.y - e.y) * k;
+        } else return null;
+        return G.Sim.abBlock(pid, e, x, y) ? null : { x: x, y: y };
+      }
+      case 'k_shroud':
+        if ((e.ord !== 'amove' && e.ord !== 'move') || hit || tick - e.fireT < 60) return null;
+        if (G.Sim.nearCount(pid, e.x, e.y, a.fx.zone.r * TL, false) < 4 || G.Sim.nearCount(pid, e.x, e.y, 11 * TL, true) < 1) return null;
+        return { x: e.x, y: e.y };
+    }
+    return null;
+  }
+
+  G.AI = { update: update, DIFF: DIFF, AIRSEA: AIRSEA, VS_HUMAN: VS_HUMAN, V12: V12, V13: V13, V14: V14 };   // v1.0.1 KI-Leicht: VS_HUMAN
 })();

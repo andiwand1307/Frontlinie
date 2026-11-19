@@ -1543,6 +1543,30 @@ var G = (typeof G !== 'undefined') ? G : {};
     if (o.hp != null && o.hp < 0.55) smokeCol(cx, BY + BH * 0.3, 2);
     ctx.globalAlpha = 1;
   }
+  /** v1.3 Fähigkeiten (2D-Rückfall, bewusst schlicht): Ring um Einheiten mit laufender Fähigkeit / Feldschutz / Markierung und um Wirkfelder (S.zones). */
+  var AB2 = { attack: '251,146,60', shield: '56,189,248', heal: '74,222,128', psi: '192,132,252', mark: '239,68,68', smoke: '203,213,225', fire: '249,115,22', veil: '129,140,248', buff: '255,255,255' };
+  function drawAbil(S, pid) {
+    var ents = S.ents, tick = S.tick, pulse = (0.6 + 0.35 * Math.sin(fxTime * 6)).toFixed(2), fo = S.settings.fogOff, i;
+    ctx.save(); ctx.lineWidth = 2;
+    for (i = 0; i < ents.length; i++) {
+      var e = ents[i];
+      if (!(e.abT > tick || e.zT > tick || e.markT > tick) || e.dead || e.inside) continue;
+      if (e.owner !== pid && !fo && !G.Sim.isVisible(pid, e)) continue;
+      var X = PX(e.x, e.y), Y = PY(e.x, e.y), rr = (e.kind === 'unit' ? (e.r || 8) * 1.5 : Math.max(e.w, e.h) * TILE * 0.55);
+      if (X < -60 || X > V.vw + 60 || Y < -60 || Y > V.vh + 60) continue;
+      var a = e.abT > tick ? D.ABILITIES[e.ab] : null, col = e.markT > tick ? AB2.mark : (a ? AB2[a.look] || AB2.buff : AB2.smoke);
+      ctx.strokeStyle = 'rgba(' + col + ',' + pulse + ')';
+      groundEllipse(X, Y, rr * kx, rr * ky); ctx.stroke();
+    }
+    for (i = 0; S.zones && i < S.zones.length; i++) {
+      var z = S.zones[i], za = D.ABILITIES[z.ab];
+      if (!za || !(fo || z.owner === pid || G.Sim.S.players[pid].vis[Math.floor(z.y / TILE) * S.map.w + Math.floor(z.x / TILE)])) continue;
+      var ZX = PX(z.x, z.y), ZY = PY(z.x, z.y);
+      ctx.strokeStyle = 'rgba(' + (AB2[za.look] || AB2.buff) + ',' + pulse + ')'; ctx.fillStyle = 'rgba(' + (AB2[za.look] || AB2.buff) + ',0.14)';
+      groundEllipse(ZX, ZY, z.r * kx, z.r * ky); ctx.fill(); ctx.stroke();
+    }
+    ctx.restore();
+  }
   /** v1.2 TARNUNG: gestrichelter, pulsierender Ring um eigene getarnte (blau) bzw. gegnerische aufgedeckte (rot) Objekte. Unsichtbares wird nirgends gezeichnet (G.Sim.hidden). */
   function drawCloak(S, pid) {
     var ents = S.ents, pulse = 0.5 + 0.4 * Math.sin(fxTime * 5);
@@ -3156,6 +3180,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     var pid = V.pid, fogOff = S.settings.fogOff, ents = lookEnts(S), i, e, VW = V.vw, VH = V.vh;   // v1.2 look-Rückfall
     drawMcLinks(S, pid, fogOff, alpha, tick);   // v1.0 Gedankenkontrolle / Magnet
     drawCloak(S, pid);                          // v1.2 Tarnung
+    drawAbil(S, pid);                           // v1.3 Fähigkeiten
     // Sammelpunkt
     if (sel.length === 1 && sel[0].kind === 'building' && sel[0].rx >= 0) {
       var b = sel[0], X0 = PX(b.x, b.y), Y0 = PY(b.x, b.y), X1 = PX(b.rx, b.ry), Y1 = PY(b.rx, b.ry);

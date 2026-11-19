@@ -173,11 +173,44 @@ var G = (typeof G !== 'undefined') ? G : {};
     if (!r.ok) { toast(r.reason || 'Nicht möglich', true); return; }
     toast(r.n + (r.n === 1 ? ' Fahrzeug fährt' : ' Fahrzeuge fahren') + ' zur Reparatur');
   }
+  // ---- v1.3 Fähigkeiten: Knopf in der Befehlsleiste. Ohne Ziel sofort; mit Ziel Zielmodus V.abil = { id } (Tipp auf die Karte löst aus, abilCancel bricht ab).
+  function abilUnits(id) { return selUnits().filter(function (e) { var a = G.Sim.abilityOf(e); return a && a.id === id; }); }
+  function abilPress(id) {
+    var a = D.ABILITIES[id], us = abilUnits(id); if (!a || !us.length || !canAct()) return;
+    if (V.abil && V.abil.id === id) { abilCancel(); return; }
+    V.abil = null;
+    if (a.target === 'none') {
+      var r = G.cmd.ability(V.pid, selIds(us), id);
+      if (!r.ok) { toast(a.name + ': ' + (r.reason || 'Nicht möglich'), true); return; }
+      vib(20);   // Rückmeldung über den Knopf („Aktiv … s“ / „Lädt … s“) – kein Hinweis, der die Leiste verdeckt
+      return;
+    }
+    var why = '';
+    if (!us.some(function (e) { why = G.Sim.abBlock(V.pid, e) || ''; return !why; })) { toast(a.name + ': ' + why, true); return; }
+    if (V.placing) cancelPlacement();
+    V.arty = null; V.amArmed = false; V.repairMode = false; V.boxMode = false;
+    V.abil = { id: id };
+  }
+  function abilCancel() { V.abil = null; }
+  function abilTap(sx, sy, w, mouseBtn) {
+    var a = D.ABILITIES[V.abil.id], us = abilUnits(a.id), tg = null;
+    if (!us.length) { V.abil = null; return; }
+    if (a.target === 'enemy') {
+      var e = pick(sx, sy, mouseBtn ? 8 : 18, w);
+      if (!e || e.owner === V.pid || !G.Sim.hostile(V.pid, e)) { toast(a.name + ': gegnerisches Ziel antippen', true); return; }
+      tg = { id: e.id };
+    } else tg = { x: w.x, y: w.y };
+    var r = G.cmd.ability(V.pid, selIds(us), a.id, tg);
+    if (!r.ok) { toast(a.name + ': ' + (r.reason || 'Nicht möglich'), true); if (/Lädt/.test(r.reason || '')) V.abil = null; return; }
+    marker(tg.id ? G.Sim.get(tg.id).x : w.x, tg.id ? G.Sim.get(tg.id).y : w.y, a.fx.zone && a.fx.zone.ally || a.fx.jump ? 'move' : 'attack');
+    vib(20);
+    V.abil = null;
+  }
   function stopSel() { var u = selUnits(); if (u.length) G.cmd.stop(V.pid, selIds(u)); V.amArmed = false; }
   function toggleAttackMove() { V.amArmed = !V.amArmed && selUnits().length > 0; }
   function toggleBoxMode() { V.boxMode = !V.boxMode; }
   function toggleAddMode() { V.addMode = !V.addMode; }
-  function deselect() { setSel([]); V.amArmed = false; V.arty = null; }
+  function deselect() { setSel([]); V.amArmed = false; V.arty = null; V.abil = null; }
   // ---- v0.9.2 Reparatur: Reparatur-Modus (Gebäude antippen = Reparatur umschalten), Alle reparieren
   function toggleRepairMode(on) {
     var v = (on == null) ? !V.repairMode : !!on;
@@ -628,8 +661,10 @@ var G = (typeof G !== 'undefined') ? G : {};
     if (G.Render.glOK && !G.Render.glOK()) { G.Render.restartGL(); return; } // Grafik fehlt: Tippen = neuer Versuch
     if (!canAct()) return;
     if (V.repairMode && (V.placing || V.arty)) V.repairMode = false;       // v0.9.2 Reparatur
+    if (V.abil && (V.repairMode || V.placing || V.arty)) V.abil = null;    // v1.3 Fähigkeiten
     if (V.repairMode) { repairTap(sx, sy, mouseBtn); return; }              // v0.9.2 Reparatur
     var w = V.toWorld(sx, sy);
+    if (V.abil) { abilTap(sx, sy, w, mouseBtn); return; }                   // v1.3 Fähigkeiten: Zielmodus
     if (V.placing) {
       if (V.placing.wall || V.placing.deploy) return;           // Mauer: Ziehen; Bauhof: Knopf „Aufbauen“
       setGhost(w.x, w.y);
@@ -846,7 +881,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     if (!V.running) return;
     if (k === ' ') { ev.preventDefault(); G.Main.togglePause(); return; }
     if (k === 'Escape') {
-      if (G.UI.researchOpen && G.UI.researchOpen()) G.UI.closeResearch(); else if (V.repairMode) V.repairMode = false; else if (V.placing) cancelPlacement(); else if (V.arty) cancelArty(); else if (V.amArmed) V.amArmed = false; else if (V.boxMode) V.boxMode = false; else deselect();
+      if (G.UI.researchOpen && G.UI.researchOpen()) G.UI.closeResearch(); else if (V.abil) abilCancel(); else if (V.repairMode) V.repairMode = false; else if (V.placing) cancelPlacement(); else if (V.arty) cancelArty(); else if (V.amArmed) V.amArmed = false; else if (V.boxMode) V.boxMode = false; else deselect();
       return;
     }
     if (k >= '1' && k <= '3') {
@@ -877,6 +912,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       if (rb) { kind = rb.hp < rb.maxHp ? 'repair' : 'no'; text = rb.hp < rb.maxHp ? (rb.repairing ? 'Reparatur stoppen' : 'Reparieren') : 'Unbeschädigt'; }
       else { kind = 'repair'; text = 'Gebäude antippen zum Reparieren'; }
     } else if (V.arty) { kind = 'arty'; text = ''; }
+    else if (V.abil) { kind = 'attack'; text = D.ABILITIES[V.abil.id].name + ': Ziel wählen'; }   // v1.3 Fähigkeiten
     else if (!V.placing && !V.amArmed) {
       var units = selUnits();
       if (units.length) {
@@ -982,6 +1018,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     beginDeploy: beginDeploy, deployNow: deployNow, selMcv: selMcv, isGarrison: isGarrison, say: say,
     toggleRepairMode: toggleRepairMode, repairAll: repairAll,   // v0.9.2 Reparatur
     repairSel: repairSel, sabToggle: sabToggle,   // v1.2
+    abilPress: abilPress, abilCancel: abilCancel,   // v1.3 Fähigkeiten
     isTransport: isTransport, passengers: passengers, transportCap: tcap, unloadSel: unloadSel, unitsInScreenRect: unitsInScreenRect
   };
 })();
