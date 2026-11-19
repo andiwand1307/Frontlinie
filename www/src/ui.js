@@ -87,7 +87,9 @@ var G = (typeof G !== 'undefined') ? G : {};
     // v1.2: Sprengladung, lahmlegen (Blitz), Drohnen
     bomb: '<circle cx="11" cy="14.5" r="6.2"/><path d="M15.2 9.8l2.3-2.3M17.5 7.5c.3-1.8 1.6-2.8 3.2-2.6M20.5 2.6v.01M22 6.5v.01"/>',
     bolt: '<path d="M13.5 2.5L5 13.5h6l-1.5 8L18.5 10h-6z"/>',
-    drone: '<circle cx="12" cy="12" r="2.6"/><path d="M12 9.4V5M12 14.6V19M9.4 12H5M14.6 12H19M3 5h4M17 5h4M3 19h4M17 19h4"/>'
+    drone: '<circle cx="12" cy="12" r="2.6"/><path d="M12 9.4V5M12 14.6V19M9.4 12H5M14.6 12H19M3 5h4M17 5h4M3 19h4M17 19h4"/>',
+    // v1.3 Forschung: Kolben
+    flask: '<path d="M9.5 3h5M10.5 3v6.2L5 18.6a1.6 1.6 0 0 0 1.4 2.4h11.2a1.6 1.6 0 0 0 1.4-2.4L13.5 9.2V3M7.6 15h8.8"/>'
   };
   function ic(n) { return '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">' + IC[n] + '</svg>'; }
 
@@ -224,7 +226,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     $('cmdbar').addEventListener('click', onCmdClick);
     $('selinfo').addEventListener('click', onCmdClick);
     // Tastenhinweise (nur Desktop sichtbar)
-    $('hotkeys').innerHTML = '<b>Maus:</b> Links wählen / Rahmen, Rechts Befehl, Rad Zoom<br><b>Tasten:</b> WASD Karte · 1–3 Gruppe (Strg+Zahl speichern) · <b>A</b> Angriff · <b>S</b> Stopp · <b>E</b> Aussteigen · <b>F</b> Artillerie · <b>X</b> Superwaffe · <b>R</b> Reparieren · <b>D</b> Bauhof aufbauen · <b>Leertaste</b> Pause · <b>Esc</b> Abbruch · <b>H</b> Hilfe';
+    $('hotkeys').innerHTML = '<b>Maus:</b> Links wählen / Rahmen, Rechts Befehl, Rad Zoom<br><b>Tasten:</b> WASD Karte · 1–3 Gruppe (Strg+Zahl speichern) · <b>A</b> Angriff · <b>S</b> Stopp · <b>E</b> Aussteigen · <b>F</b> Artillerie · <b>X</b> Superwaffe · <b>R</b> Reparieren · <b>T</b> Forschung · <b>D</b> Bauhof aufbauen · <b>Leertaste</b> Pause · <b>Esc</b> Abbruch · <b>H</b> Hilfe';
     window.addEventListener('resize', function () { ovW = 0; });
     $('swstack').addEventListener('click', onSwStack);
     $('swalert').addEventListener('click', function () { if (swAlert) G.Main.jumpTo(swAlert.x, swAlert.y); });
@@ -260,6 +262,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       case 'unload': G.Input.unloadSel(); break;
       case 'repgo': G.Input.repairSel(); break;   // v1.2: zur Reparatur
       case 'sabmode': G.Input.sabToggle(); break; // v1.2: Saboteur-Modus
+      case 'research': toggleResearch(); break;   // v1.3 Forschung
       case 'deploy': G.Input.beginDeploy(); break;
       case 'arty': if (V.arty) G.Input.cancelArty(); else G.Input.beginArty(); break;
       case 'sw': swPress(id); break;
@@ -470,6 +473,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       if (mine && G.Input.swKind(b)) h += '<div class="help" data-dyn="swtxt"></div><div class="bar chg"><div data-dyn="charge"></div></div>';
       if (mine && G.Input.isGarrison(b)) h += '<div class="help">Besetzt: ' + (b.gar || []).length + '/' + G.Input.capOf(b) + ' – Infanterie wählen, dann antippen = besetzen</div>';
       if (mine && d.produces) h += '<div class="help">Karte tippen = Sammelpunkt</div>';
+      if (mine && b.type === D.RESEARCH_BUILDING) h += '<div class="help" data-dyn="restxt"></div><div class="bar cap" data-dyn="reswrap"><div data-dyn="resbar"></div></div>';   // v1.3 Forschung
       if (mine && d.store) h += '<div class="help">Erzlager: +' + fmtNum(d.store) + ' (gesamt ' + fmtNum(G.Sim.S.players[V.pid].oreCap || 0) + ')</div>';   // v1.2
       if (mine && d.sellable !== false) h += '<div class="help">Verkaufen: ₵ ' + Math.floor(d.cost * D.SELL_REFUND) + '</div>';
       return h;
@@ -551,6 +555,7 @@ var G = (typeof G !== 'undefined') ? G : {};
           if (d.sellable !== false) hb += cb('sell', 'sell', 'Verkaufen', '', '', b.id);
           if (b.hp < b.maxHp) hb += cb('repair', 'repair', 'Reparieren', '', b.repairing ? 'on' : '', b.id);
         }
+        if (isResBld(b)) hb += cb('research', 'flask', 'Forschung', 'T', 'res', b.id);   // v1.3
         if (mine && G.Input.isGarrison(b) && b.gar && b.gar.length) hb += cb('exit', 'exit', 'Aussteigen (' + b.gar.length + ')', 'E', '', b.id);
         if (mine && G.Input.bkindSpecial(b) === 'arty') hb += cb('arty', 'arty', 'Artillerieschlag', 'F', 'arty', b.id);
         if (mine && G.Input.swKind(b)) hb += cb('sw', G.Input.swKind(b), G.Input.SWD[G.Input.swKind(b)].go, 'X', 'arty sw', b.id);
@@ -590,6 +595,13 @@ var G = (typeof G !== 'undefined') ? G : {};
       if (ch) ch.style.width = (Math.min(1, c) * 100) + '%';
       if (ct) ct.textContent = c >= 1 ? 'Artillerie bereit' : 'Aufladung ' + Math.floor(c * 100) + ' % (noch ' + Math.ceil((1 - c) * 180) + ' s)';
       var cp = box.querySelector('[data-dyn="cap"]'); if (cp) cp.style.width = ((b.capT || 0) * 100) + '%';
+      var rt = box.querySelector('[data-dyn="restxt"]');   // v1.3 Forschung: Statuszeile am Tech-Zentrum
+      if (rt) {
+        var rs = resStatus(), rw = box.querySelector('[data-dyn="reswrap"]'), rbr = box.querySelector('[data-dyn="resbar"]');
+        if (rt.textContent !== rs.txt) rt.textContent = rs.txt;
+        rw.style.display = rs.cur ? '' : 'none'; if (rs.cur) rbr.style.width = (rs.cur.prog * 100) + '%';
+        var rbtn = bar.querySelector('[data-act="research"]'); if (rbtn) rbtn.classList.toggle('on', resOpen);
+      }
       var swi = b.owner === V.pid ? G.Input.swInfo(b) : null, swt = box.querySelector('[data-dyn="swtxt"]');
       if (swi) {
         if (ch) ch.style.width = (swi.c * 100) + '%';
@@ -626,7 +638,75 @@ var G = (typeof G !== 'undefined') ? G : {};
     $('repbar').style.display = on ? 'flex' : 'none';
     $('map').classList.toggle('repmode', on);
   }
-  function onSelection() { lastSel = ''; if (V.running) refreshContext(true); }
+  function onSelection() { lastSel = ''; if (resOpen && !resSelected()) openResearch(false); if (V.running) refreshContext(true); }
+
+  // ------------------------------------------------------------------ v1.3 Forschung: Liste am angewählten Tech-Zentrum (#resSheet über der Karte)
+  var resOpen = false, resSig = '', resTipShown = false;
+  function isResBld(b) { return !!b && b.kind === 'building' && b.type === D.RESEARCH_BUILDING && b.owner === V.pid; }
+  function resSelected() { var s = V.mySel(); return (s.length === 1 && isResBld(s[0])) ? s[0] : null; }
+  function resSheet() {
+    var el = $('resSheet');
+    if (!el) { el = document.createElement('div'); el.id = 'resSheet'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', 'Forschung'); $('map').appendChild(el); el.addEventListener('click', onResClick); }
+    return el;
+  }
+  /** Statuszeile: laufende Forschung, Restzeit bzw. Grund der Pause. */
+  function resStatus() {
+    var S = G.Sim.S, P = S.players[V.pid], c = P.res && P.res.cur, n = 0, list = D.researchList(P.faction);
+    list.forEach(function (id) { if (P.res.done[id]) n++; });
+    if (!c) return { cur: null, txt: n >= list.length ? 'Alles erforscht (' + n + '/' + list.length + ')' : 'Keine Forschung aktiv – ' + n + '/' + list.length + ' erforscht', n: n, total: list.length };
+    var r = D.RESEARCH[c.id], left = Math.ceil((1 - c.prog) * r.time * (G.Sim.lowPower(V.pid) ? 2 : 1));
+    var why = !G.Sim.resRunning(V.pid) ? 'pausiert: kein betriebsbereites Tech-Zentrum' : (P.credits < r.cost / r.time / D.TICK_HZ ? 'wartet auf Credits' : 'noch ' + left + ' s' + (G.Sim.lowPower(V.pid) ? ' (Energiemangel)' : ''));
+    return { cur: c, r: r, txt: 'Forscht: ' + r.name + ' – ' + why, why: why, n: n, total: list.length };
+  }
+  function openResearch(on) {
+    resOpen = !!on && !!resSelected();
+    var el = resSheet();
+    el.style.display = resOpen ? 'flex' : 'none';
+    $('map').classList.toggle('res-open', resOpen);
+    resSig = '';
+    if (resOpen) { refreshResearch(); el.scrollTop = 0; }
+  }
+  function toggleResearch() { if (!resSelected()) { if (V.running) toast('Erst das Tech-Zentrum wählen', true); return; } openResearch(!resOpen); }
+  function onResClick(ev) {
+    var b = ev.target.closest('button'); if (!b) return;
+    if (b.dataset.act === 'resclose') { openResearch(false); return; }
+    if (b.dataset.act === 'rescancel') { var rc = G.cmd.cancelResearch(V.pid); toast(rc.ok ? 'Forschung abgebrochen – Credits erstattet' : rc.reason, !rc.ok); resSig = ''; return; }
+    var id = b.dataset.res; if (!id) return;
+    var r = G.cmd.research(V.pid, id);
+    if (r.ok) { toast('Forschung gestartet: ' + D.RESEARCH[id].name); vib(20); } else toast(r.reason, true);
+    resSig = '';
+  }
+  function refreshResearch() {
+    if (!resOpen) return;
+    if (!resSelected()) { openResearch(false); return; }
+    var S = G.Sim.S, P = S.players[V.pid], el = resSheet(), list = D.researchList(P.faction), st = resStatus();
+    var sig = list.map(function (id) { return G.Sim.resState(V.pid, id)[1]; }).join('') + '|' + (st.cur ? st.cur.id : '');
+    if (sig !== resSig) {
+      resSig = sig;
+      var keep = el.querySelector('.rlist') ? el.querySelector('.rlist').scrollTop : 0;
+      var h = '<div class="rhead"><span class="t">' + ic('flask') + 'Forschung <span class="cnt">' + st.n + '/' + st.total + '</span></span><button class="x" data-act="resclose" aria-label="Forschung schließen">' + ic('close') + '</button></div><div class="rlist">';
+      list.forEach(function (id) {
+        var r = D.RESEARCH[id], state = G.Sim.resState(V.pid, id);
+        var head = '<span class="rn">' + esc(r.name) + '</span>';
+        if (state === 'done') h += '<div class="rrow done">' + head + '<span class="rc ok">' + ic('check') + 'Erforscht</span><span class="rd">' + esc(r.desc) + '</span></div>';
+        else if (state === 'active') h += '<div class="rrow active">' + head + '<span class="rc" data-dyn="rleft"></span><span class="rd">' + esc(r.desc) + '</span>' +
+          '<div class="bar cap"><div data-dyn="rprog"></div></div><button class="rcancel" data-act="rescancel">' + ic('close') + '<span data-dyn="rback">Abbrechen</span></button></div>';
+        else {
+          var lock = state === 'locked', busy = !!st.cur;
+          h += '<button class="rrow' + (lock || busy ? ' off' : '') + '" data-res="' + id + '">' + head + '<span class="rc">₵ ' + fmtNum(r.cost) + ' · ' + r.time + ' s</span><span class="rd">' + esc(r.desc) +
+            (lock ? ' <i>– benötigt ' + esc(D.RESEARCH[r.req].name) + '</i>' : '') + '</span></button>';
+        }
+      });
+      el.innerHTML = h + '</div>';
+      el.querySelector('.rlist').scrollTop = keep;
+    }
+    if (st.cur) {
+      var q = function (k) { return el.querySelector('[data-dyn="' + k + '"]'); };
+      if (q('rprog')) q('rprog').style.width = (st.cur.prog * 100) + '%';
+      var lt = Math.floor(st.cur.prog * 100) + ' % – ' + st.why; if (q('rleft') && q('rleft').textContent !== lt) q('rleft').textContent = lt;
+      var bt = 'Abbrechen (₵ ' + fmtNum(st.cur.spent) + ' zurück)'; if (q('rback') && q('rback').textContent !== bt) q('rback').textContent = bt;
+    }
+  }
 
   // ------------------------------------------------------------------ v0.4 Superwaffen: Schnellknopf, Gegner-Warnungen
   var SW_FULL = 360;                                   // s bis zur vollen Ladung (SPEC_v04 §3)
@@ -870,6 +950,12 @@ var G = (typeof G !== 'undefined') ? G : {};
     if (tilesFor !== curTab) buildTiles(); else refreshTiles();
     refreshContext(false);
     refreshRepair();   // v0.9.2 Reparatur
+    refreshResearch(); // v1.3 Forschung
+    if (!resTipShown && P.res && !P.res.cur && !P.st.research && S.tick % 20 === 0 && G.Sim.hasBuilding(V.pid, D.RESEARCH_BUILDING)) {
+      resTipShown = true;
+      var tcb = G.Sim.producerOf(V.pid, D.RESEARCH_BUILDING);
+      toast('Tech-Zentrum bereit – antippen und „Forschung“ wählen', false, tcb ? function () { jumpToEnt(tcb.id); } : undefined);
+    }
     // Ereignisse → Meldungen
     for (var i = 0; i < S.events.length; i++) {
       var ev = S.events[i];
@@ -877,6 +963,10 @@ var G = (typeof G !== 'undefined') ? G : {};
       if (ev.t === 'ready' && ev.owner === V.pid) toast(bName(ev.type) + ' fertig – antippen zum Platzieren');
       else if (ev.t === 'swBuilt' || ev.t === 'swLaunch' || ev.t === 'swReady') handleSwEvent(ev, S);
       else if (ev.t === 'mc') mcToast(ev);   // v1.0 Gedankenkontrolle
+      else if (ev.t === 'research' && ev.owner === V.pid) {   // v1.3 Forschung abgeschlossen
+        var rtc = G.Sim.producerOf(V.pid, D.RESEARCH_BUILDING);
+        toast('Forschung abgeschlossen: ' + D.RESEARCH[ev.id].name, false, rtc ? (function (tid) { return function () { jumpToEnt(tid); }; })(rtc.id) : undefined); vib(30);
+      }
       else if (ev.t === 'sabotage') {   // v1.2 Saboteur
         var sbn = bName(ev.type, ev.victim);
         if (ev.victim === V.pid) { toast(ev.mode === 'stun' ? 'Sabotage! ' + sbn + ' ist lahmgelegt' : 'Sabotage! Sprengladung an: ' + sbn, true, (function (jx, jy) { return function () { G.Main.jumpTo(jx, jy); }; })(ev.x, ev.y)); vib([80, 40, 80]); }
@@ -922,6 +1012,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     moneyTipShown = false; peaceShown = null; peaceOverShown = false; capShown = -1; capToastT = -1e9;
     curTab = 'building'; V.tab = curTab; tilesFor = ''; lastSel = ''; lastAlert = -9999; lastAlertSeen = G.Sim.S.players[V.pid].alert.tick;
     lastEvSeq = G.Sim.S.evSeq; artyReady = {};
+    resTipShown = !!(G.Sim.S.players[V.pid].res && (G.Sim.S.players[V.pid].res.cur || G.Sim.S.players[V.pid].st.research)); openResearch(false);   // v1.3
     swFoes = {}; swAlert = null; swSig = ''; swEls = {}; qSig = ''; engTipShown = false; $('swalert').style.display = 'none'; $('swstack').innerHTML = '';
     G.Sim.S.ents.forEach(function (e) { if (e.kind === 'building' && e.owner === V.pid && G.Input.bkindSpecial(e) === 'arty') artyReady[e.id] = (e.charge || 0) >= 1; });
     $('side').classList.remove('expanded'); $('expand').innerHTML = ic('up');
@@ -1231,6 +1322,15 @@ var G = (typeof G !== 'undefined') ? G : {};
       li('Tor', 'Reiter Verteidigung. Mauerstück, das eigene Bodeneinheiten durchlässt und für Gegner wie eine Mauer wirkt.') +
       li('Handelsposten', 'Neutrales Kartengebäude, mit Infanterie erobern: Fahrzeuge werden 10 % günstiger (bis zu 2 Posten zählen).') +
       '</ul>';
+    // v1.3: Forschung
+    h += '<h3>Neu in 1.3: Forschung</h3><p class="help">Im Tech-Zentrum (Kollektiv: Psi-Labor) erforschst du dauerhafte Verbesserungen für die laufende Partie. Tech-Zentrum antippen und „Forschung“ wählen (Taste T): Die Liste zeigt Kosten, Dauer und Wirkung, Erforschtes ist abgehakt.</p><ul class="hl">' +
+      li('Regeln', 'Immer nur eine Forschung gleichzeitig. Bezahlt wird nach und nach wie beim Bauen; „Abbrechen“ erstattet alles bisher Bezahlte. Ohne betriebsbereites Tech-Zentrum pausiert die Forschung (der Fortschritt bleibt), bei Energiemangel läuft sie halb so schnell. Erforschtes bleibt bis zum Ende der Partie – auch wenn das Tech-Zentrum fällt.') +
+      li('Für alle', 'Verbundpanzerung I/II (Fahrzeuge und Schiffe je 10 % weniger Schaden), Feuerkraft I/II (alle Einheiten je 8 % mehr Schaden), Großraumlader (Sammler +25 % Ladung), Fernoptik (+1 Kachel Sicht), Instandsetzung (Reparatur 60 % schneller, 25 % günstiger). Stufe II braucht Stufe I.') +
+      li('Koalition', 'Zielrechner (Fahrzeuge und Schiffe laden 10 % schneller nach), Präzisionsmunition (Scharfschützen, Jagdpanzer, Haubitzen +18 % Schaden), Luftüberlegenheit (Luftfahrzeuge und Trägerjäger +15 % Schaden und Schutz).') +
+      li('Syndikat', 'Fließbandfertigung (Infanterie 15 % günstiger), Bollwerk (Gebäude erleiden 15 % weniger Schaden), Feldinstandsetzung (Fahrzeuge reparieren sich außerhalb des Gefechts langsam selbst).') +
+      li('Kollektiv', 'Psi-Fokus (Gedankenkontrolle und Lähmung laden 20 % schneller nach), Schwarmbrut (Schwarmdrohnen +25 % Schaden und Haltbarkeit, Mutanten 15 % robuster), Phasenschleier (Getarntes nach einer Aktion nur halb so lang sichtbar, gegnerische Detektoren reichen 2 Kacheln kürzer).') +
+      li('KI', 'Auch der Computer forscht – auf „Sehr leicht“ und „Leicht“ spät und wenig.') +
+      '</ul>';
     h += '<h3>Kamera</h3><ul class="hl">' +
       li('Diagonal', 'Standard: Die Karte liegt schräg wie bei klassischen Strategiespielen, die Kacheln erscheinen als Rauten. Wischen, Tasten und Bildrand schieben immer in Bildschirmrichtung.') +
       li('Gerade', 'Die Karte ist nach Norden ausgerichtet. Umschalten im Start- oder Pausemenü unter „Grafik → Kamera“ – wirkt sofort, die Bildmitte bleibt.') +
@@ -1286,7 +1386,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     var S = G.Sim.S, me = S.players[V.pid], en = S.players[1 - V.pid];
     var win = S.winner === V.pid;
     var rows = [['Einheiten gebaut', 'unitsBuilt'], ['Einheiten verloren', 'unitsLost'], ['Gebäude gebaut', 'buildingsBuilt'],
-      ['Gebäude verloren', 'buildingsLost'], ['Abschüsse', 'kills'], ['Helden befördert', 'heroes'], ['Erz gesammelt', 'ore'], ['Gebäude erobert', 'captures']];
+      ['Gebäude verloren', 'buildingsLost'], ['Abschüsse', 'kills'], ['Helden befördert', 'heroes'], ['Forschungen', 'research'], ['Erz gesammelt', 'ore'], ['Gebäude erobert', 'captures']];
     var h = '<div class="card panel"><div class="banner ' + (win ? 'win' : 'lose') + '"><h1>' + (win ? 'SIEG!' : 'NIEDERLAGE') + '</h1></div>';
     h += '<div class="sub">Dauer ' + fmtTime(S.tick) + '</div><table class="stats"><tr><th></th><th>Du</th><th>Gegner</th></tr>';
     rows.forEach(function (r) { if (me.st[r[1]] == null) return; h += '<tr><td>' + r[0] + '</td><td>' + fmtNum(me.st[r[1]]) + '</td><td>' + fmtNum(en.st[r[1]] || 0) + '</td></tr>'; });
@@ -1301,5 +1401,6 @@ var G = (typeof G !== 'undefined') ? G : {};
   }
 
   G.UI = { init: init, update: update, onGameStart: onGameStart, onSelection: onSelection, onPause: onPause,
-           showStart: showStart, showEnd: showEnd, showHelp: showHelp, hideHelp: hideHelp, toggleHelp: toggleHelp, toast: toast, setHint: setHint };
+           showStart: showStart, showEnd: showEnd, showHelp: showHelp, hideHelp: hideHelp, toggleHelp: toggleHelp, toast: toast, setHint: setHint,
+           toggleResearch: toggleResearch, researchOpen: function () { return resOpen; }, closeResearch: function () { openResearch(false); } };   // v1.3
 })();

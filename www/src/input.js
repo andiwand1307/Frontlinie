@@ -846,7 +846,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     if (!V.running) return;
     if (k === ' ') { ev.preventDefault(); G.Main.togglePause(); return; }
     if (k === 'Escape') {
-      if (V.repairMode) V.repairMode = false; else if (V.placing) cancelPlacement(); else if (V.arty) cancelArty(); else if (V.amArmed) V.amArmed = false; else if (V.boxMode) V.boxMode = false; else deselect();
+      if (G.UI.researchOpen && G.UI.researchOpen()) G.UI.closeResearch(); else if (V.repairMode) V.repairMode = false; else if (V.placing) cancelPlacement(); else if (V.arty) cancelArty(); else if (V.amArmed) V.amArmed = false; else if (V.boxMode) V.boxMode = false; else deselect();
       return;
     }
     if (k >= '1' && k <= '3') {
@@ -866,6 +866,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     if (lk === 'f' && !ev.ctrlKey) { if (V.arty) cancelArty(); else beginArty(); return; }
     if (lk === 'x' && !ev.ctrlKey) { toggleSuper(); return; }
     if (lk === 'r' && !ev.ctrlKey && !ev.metaKey && !ev.altKey) { toggleRepairMode(); return; }   // v0.9.2 Reparatur
+    if (lk === 't' && !ev.ctrlKey && !ev.metaKey && !ev.altKey) { if (G.UI.toggleResearch) G.UI.toggleResearch(); return; }   // v1.3 Forschung (Tech-Zentrum angewählt)
   }
 
   // ------------------------------------------------------------------ Hover-Hinweis (Maus)

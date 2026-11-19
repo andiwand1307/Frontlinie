@@ -3381,7 +3381,8 @@ var G = (typeof G !== 'undefined') ? G : {};
         break;
       }
       case 'tech': {
-        if (M.parts.kspin) { st.rgA = (st.rgA || 0) + dt * (low ? 0.05 : 0.45); putRot(partBatch('b', b.type, owner, 'kspin', M), x, 0, z, M.kPiv[0], M.kPiv[1], st.rgA, sy, 1, 1, 1); }
+        st.actOn = !!(P.res && P.res.cur) && G.Sim.resRunning(owner);   // v1.3 Forschung: Gyroskop dreht schneller, Leuchtteile pulsieren (litGain)
+        if (M.parts.kspin) { st.rgA = (st.rgA || 0) + dt * (low ? 0.05 : (st.actOn ? 2.4 : 0.45)); putRot(partBatch('b', b.type, owner, 'kspin', M), x, 0, z, M.kPiv[0], M.kPiv[1], st.rgA, sy, 1, 1, 1); }
         break;
       }
       case 'air': {
@@ -3750,13 +3751,14 @@ var G = (typeof G !== 'undefined') ? G : {};
   function drawBldV4(b, M, owner, x, z, sy, dk, mem) {
     var S = G.Sim.S, st = nst(b.id), P = S.players[owner], rgb = teamRGB(P.color), t = R.t, i, xe, bt;
     var sw = b.type !== 'techcenter', ch = mem ? 0 : (b.charge || 0), ready = sw && ch >= 1, low = !mem && G.Sim.lowPower(owner);
+    var res13 = !sw && !mem && P.res && P.res.cur && G.Sim.resRunning(owner) ? P.res.cur : null; if (res13) ch = res13.prog;   // v1.3 Forschung: Ladezellen = Fortschritt
     var fl = t - st.swT, flare = sw && fl < 8 ? (fl < 3.4 ? 1 : Math.exp(-(fl - 3.4) * 1.2)) : 0;
     if (!mem && sw) st.door += ((ready || (b.type === 'silo' && fl < 3.6) ? 1 : 0) - st.door) * Math.min(1, fdt * 2.6);
     var gain;
     if (mem) gain = dk;
     else if (low) gain = 0.28;
     else if (sw) gain = 0.5 + 0.55 * ch + (ready ? 0.35 + 0.35 * Math.sin(t * 5) : 0) + flare * (1.9 + 0.5 * Math.sin(t * 22));
-    else gain = 1.05 + 0.12 * Math.sin(t * 2 + st.ph);
+    else gain = res13 ? 1.3 + 0.3 * Math.sin(t * 6 + st.ph) : 1.05 + 0.12 * Math.sin(t * 2 + st.ph);
     partBatch('b', b.type, owner, 'glow', M).put(x, 0, z, 0, 1, sy, 1, gain, gain, gain);
     for (i = 0; i < M.xp.length; i++) {
       xe = M.xp[i]; bt = partBatch('b', b.type, owner, xe.p, M);
