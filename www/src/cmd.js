@@ -61,6 +61,9 @@
  *  sabMode(pid, ids, mode)         Modus der Saboteure: 0 = Sprengladung, 1 = lahmlegen
  *  smart(...)                      Saboteur + Tipp auf gegnerisches Basisgebäude → sabotage (res.kind = 'sabotage')
  *  attack(...)                     getarnte, nicht aufgedeckte Ziele sind kein Ziel („Kein Ziel“)
+ * v1.3 Forschung:
+ *  research(pid, id)               Forschung id (D.RESEARCH) starten → {ok, reason}
+ *  cancelResearch(pid)             laufende Forschung abbrechen (Rückerstattung)
  */
 var G = (typeof G !== 'undefined') ? G : {};
 (function () {
@@ -500,6 +503,18 @@ var G = (typeof G !== 'undefined') ? G : {};
     setCheat: function (pid, on) {
       if (!active(pid)) return FAIL('Nicht aktiv');
       return G.Sim._setCheat(pid, on);
+    },
+    /** v1.3 Forschung starten (eine je Spieler, Tech-Zentrum nötig). → {ok, reason} */
+    research: function (pid, id) {
+      if (!active(pid)) return FAIL('Nicht aktiv');
+      var why = G.Sim.resBlock(pid, id);
+      if (why) return FAIL(why);
+      return G.Sim._research(pid, id) ? OK : FAIL('Nicht möglich');
+    },
+    /** v1.3 laufende Forschung abbrechen (volle Rückerstattung des bisher Bezahlten). */
+    cancelResearch: function (pid) {
+      if (!active(pid)) return FAIL('Nicht aktiv');
+      return G.Sim._resCancel(pid) ? OK : FAIL('Keine Forschung aktiv');
     },
     produce: function (pid, type) {
       if (!active(pid)) return FAIL('Nicht aktiv');

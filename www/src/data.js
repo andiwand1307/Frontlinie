@@ -680,3 +680,51 @@ var G = (typeof G !== 'undefined') ? G : {};
   D.BUILD_ORDER.push('oresilo', 'repairdock', 'gate', 'minefield');
   D.NAMES_B.kollektiv.repairdock = 'Regenerator'; D.NAMES_B.kollektiv.gate = 'Kristalltor'; D.NAMES_B.kollektiv.oresilo = 'Erzspeicher';
 })();
+
+/* ---- v1.3 Forschung – eigener Block (Sim: sim.js Abschnitt „v1.3 FORSCHUNG“ am Dateiende) ----
+ * Forschungen werden im Tech-Zentrum gegen Credits und Zeit erforscht und gelten dauerhaft für die laufende Partie (je Spieler).
+ * Immer nur EINE Forschung gleichzeitig je Spieler (auch bei mehreren Tech-Zentren); Bezahlung fortlaufend wie bei der Produktion;
+ * Abbruch erstattet den bisher bezahlten Betrag vollständig. Ohne betriebsbereites Tech-Zentrum (zerstört, verkauft, lahmgelegt)
+ * PAUSIERT die laufende Forschung (Fortschritt bleibt); abgeschlossene Forschungen bleiben auch ohne Tech-Zentrum wirksam.
+ * Energiemangel halbiert das Forschungstempo (wie die Produktion).
+ * D.RESEARCH[id] = { id, name, desc, cost, time (s), faction (fehlt = alle), req (ID der Vorstufe), tier (1|2, nur Anzeige), fx }
+ * fx (alle Felder optional; mehrere Forschungen multiplizieren sich bzw. addieren sich bei sight/regen/detectCut):
+ *   unit: [{ cat: Kategorie oder Liste | types: Typliste | all: true, dmg, hp, rof, psi (Faktoren wie D.EXP), regen (Zuschlag, Anteil maxHp/s) }]
+ *         → fließt in G.Sim.mods(e) ein (wird mit den Rangwerten multipliziert). Hinweis: Drohnentreffer zählen für den Träger (dmg am Träger angeben).
+ *   sight: +Kacheln Sichtweite (Einheiten und Gebäude)      harvCap: Faktor Sammler-Ladung
+ *   repair: Faktor Reparaturtempo (Gebäude, Reparaturdock)   repairCost: Faktor Reparaturkosten
+ *   bldHp: Schadensminderung eigener Gebäude (Treffer / bldHp)
+ *   cost: { Kategorie: Faktor } auf Einheitenkosten          cloakReveal: Faktor auf die Enttarnungsdauer nach eigener Aktion
+ *   detectCut: gegnerische Detektoren decken eigene getarnte Objekte erst um so viele Kacheln näher auf (Radius mindestens 1 Kachel)
+ * D.RESEARCH_ORDER = Anzeigereihenfolge; D.researchList(fraktion) → IDs dieser Fraktion in Anzeigereihenfolge. */
+(function () {
+  'use strict';
+  var D = G.DATA;
+  D.SAVE_VERSION = 3;   // 3 = v1.3 (Forschung: P.res)
+  D.RESEARCH_BUILDING = 'techcenter';
+  var R = D.RESEARCH = {};
+  function add(id, name, cost, time, desc, fx, extra) { var r = R[id] = { id: id, name: name, cost: cost, time: time, desc: desc, fx: fx, tier: 1 }; for (var k in extra) r[k] = extra[k]; }
+  var ARMORED = ['vehicle', 'naval'];
+  // ---- gemeinsamer Kern
+  add('armor1', 'Verbundpanzerung I', 800, 40, 'Fahrzeuge und Schiffe erleiden 10 % weniger Schaden', { unit: [{ cat: ARMORED, hp: 1.10 }] });
+  add('armor2', 'Verbundpanzerung II', 1400, 60, 'Fahrzeuge und Schiffe erleiden weitere 10 % weniger Schaden', { unit: [{ cat: ARMORED, hp: 1.10 }] }, { req: 'armor1', tier: 2 });
+  add('fire1', 'Feuerkraft I', 800, 40, 'Alle Einheiten richten 8 % mehr Schaden an', { unit: [{ all: true, dmg: 1.08 }] });
+  add('fire2', 'Feuerkraft II', 1400, 60, 'Alle Einheiten richten weitere 8 % mehr Schaden an', { unit: [{ all: true, dmg: 1.08 }] }, { req: 'fire1', tier: 2 });
+  add('harv', 'Großraumlader', 700, 35, 'Sammler laden 25 % mehr Erz je Fahrt', { harvCap: 1.25 });
+  add('optics', 'Fernoptik', 500, 30, 'Einheiten und Gebäude sehen 1 Kachel weiter', { sight: 1 });
+  add('repair', 'Instandsetzung', 600, 30, 'Gebäudereparatur und Reparaturdock arbeiten 60 % schneller und 25 % günstiger', { repair: 1.6, repairCost: 0.75 });
+  // ---- Koalition: Präzision / Luft
+  add('c_calc', 'Zielrechner', 1000, 45, 'Fahrzeuge und Schiffe laden 10 % schneller nach', { unit: [{ cat: ARMORED, rof: 0.90 }] }, { faction: 'coalition' });
+  add('c_ammo', 'Präzisionsmunition', 900, 45, 'Scharfschützen, Jagdpanzer und Haubitzen richten 18 % mehr Schaden an', { unit: [{ types: ['sniper', 'hunter', 'howitzer'], dmg: 1.18 }] }, { faction: 'coalition' });
+  add('c_air', 'Luftüberlegenheit', 1000, 45, 'Luftfahrzeuge und Trägerjäger: 15 % mehr Schaden, 15 % weniger Schaden erlitten', { unit: [{ cat: 'air', dmg: 1.15, hp: 1.15 }, { types: ['carrier'], dmg: 1.15 }] }, { faction: 'coalition' });
+  // ---- Syndikat: billig / robust
+  add('s_mass', 'Fließbandfertigung', 1000, 45, 'Infanterie kostet 15 % weniger', { cost: { infantry: 0.85 } }, { faction: 'syndicate' });
+  add('s_wall', 'Bollwerk', 900, 45, 'Eigene Gebäude erleiden 15 % weniger Schaden', { bldHp: 1.15 }, { faction: 'syndicate' });
+  add('s_patch', 'Feldinstandsetzung', 1000, 50, 'Fahrzeuge reparieren sich außerhalb des Gefechts langsam selbst', { unit: [{ cat: 'vehicle', regen: 0.006 }] }, { faction: 'syndicate' });
+  // ---- Kollektiv: Psi / Schwarm / Tarnung
+  add('k_psi', 'Psi-Fokus', 1000, 45, 'Psi-Kräfte laden 20 % schneller nach (Gedankenkontrolle, Lähmung)', { unit: [{ all: true, psi: 0.80 }, { types: ['psidrone'], rof: 0.80 }] }, { faction: 'kollektiv' });
+  add('k_swarm', 'Schwarmbrut', 900, 45, 'Schwarmdrohnen: 25 % mehr Schaden und Haltbarkeit; Mutanten 15 % robuster', { unit: [{ types: ['swarmcarrier'], dmg: 1.25 }, { types: ['swarmling'], hp: 1.25 }, { types: ['brute'], hp: 1.15 }] }, { faction: 'kollektiv' });
+  add('k_veil', 'Phasenschleier', 800, 40, 'Getarntes ist nach einer Aktion nur halb so lang sichtbar; gegnerische Detektoren reichen 2 Kacheln kürzer', { cloakReveal: 0.5, detectCut: 2 }, { faction: 'kollektiv' });
+  D.RESEARCH_ORDER = ['armor1', 'armor2', 'fire1', 'fire2', 'harv', 'optics', 'repair', 'c_calc', 'c_ammo', 'c_air', 's_mass', 's_wall', 's_patch', 'k_psi', 'k_swarm', 'k_veil'];
+  D.researchList = function (fac) { return D.RESEARCH_ORDER.filter(function (id) { var r = R[id]; return !r.faction || r.faction === fac; }); };
+})();
