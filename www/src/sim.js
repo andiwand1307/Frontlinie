@@ -1579,7 +1579,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     if ((wpn.vehicleOnly || wpn.navalOnly) && !canHit(wpn, t)) return;
     var dmg = wpn.dmg * D.DAMAGE[wpn.type][t.kind === 'building' ? 'building' : ust(t).armor];
     var aux = e.kind === 'unit' && ust(e).aa === wpn, inAir = airborne(t);   // v0.8: Zweitwaffe (Flak) dreht den Turm nicht
-    if (e.clk) e.revT = S.tick + revealT(e, D.CLOAK.fireReveal);   // v1.2 Tarnung: Schuss verrät
+    if (e.clk) e.revT = Math.max(e.revT || 0, S.tick + revealT(e, D.CLOAK.fireReveal));   // v1.2 Tarnung: Schuss verrät (v1.3: längere Aufdeckung, z. B. Zielmarkierung, nicht verkürzen)
     if (!aux) e.fireT = S.tick;
     var ang = Math.atan2(t.y - e.y, t.x - e.x);
     if (!aux) e.tdir = ang;
@@ -2997,7 +2997,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     }
     if (!hit) return;
     var AR = md.r * TILE;
-    b.ch = (b.ch || 1) - 1; b.cdT = S.tick + Math.round(md.cd * HZ); b.revT = S.tick + revealT(b, D.CLOAK.actReveal);
+    b.ch = (b.ch || 1) - 1; b.cdT = S.tick + Math.round(md.cd * HZ); b.revT = Math.max(b.revT || 0, S.tick + revealT(b, D.CLOAK.actReveal));
     emit('mine', x, y, { id: b.id, owner: b.owner, r: AR, left: b.ch });
     emit('hit', x, y, { w: 'cannon', owner: b.owner, splash: AR });   // sichtbare Explosion (vorhandener Effekt)
     S.players[b.owner].st.mineHits = (S.players[b.owner].st.mineHits || 0) + 1;
@@ -3038,7 +3038,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     e.moving = false; e.path = null; e.pp = false; e.sabTry = 0;
     if (e.cd > 0) return;   // lädt noch nach: wartet am Gebäude
     var P = S.players[e.owner];
-    e.cd = Math.round(sb.cd * HZ); e.revT = S.tick + revealT(e, D.CLOAK.actReveal); e.fireT = S.tick;
+    e.cd = Math.round(sb.cd * HZ); e.revT = Math.max(e.revT || 0, S.tick + revealT(e, D.CLOAK.actReveal)); e.fireT = S.tick;
     P.st.sabotage = (P.st.sabotage || 0) + 1;
     if (e.sabMode === 1) {
       b.offT = S.tick + Math.round(sb.stun * HZ); b.tgt = 0; offEnd = Math.max(offEnd, b.offT);
@@ -3343,7 +3343,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     else if (fx.mark) {
       var t = byId.get(tid);
       t.markT = S.tick + dur; t.markV = fx.mark.vuln;
-      if (fx.mark.reveal && t.clk) t.revT = Math.max(t.revT || 0, t.markT);
+      if (fx.mark.reveal) t.revT = Math.max(t.revT || 0, t.markT);   // auch ungetarnte Ziele: wirkt, falls sie danach getarnt werden (Schleierfeld); revT zählt nur mit clk
       ev.tx = t.x; ev.ty = t.y; ev.tid = t.id;
     }
     else if (fx.pulse) { ev.r = fx.pulse.r * TILE; ev.n = abPulse(e, fx.pulse); }
