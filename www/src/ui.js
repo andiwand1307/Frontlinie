@@ -1183,6 +1183,9 @@ var G = (typeof G !== 'undefined') ? G : {};
       li('Regler', 'Im Startmenü und im Pausemenü regelst du Musik, Effekte und Ansagen getrennt. Die Einstellung bleibt gespeichert.') +
       li('Ansagen', 'Kurze Funk-Ansagen melden z. B. „Basis unter Beschuss“, „Zu wenig Credits“ oder „Superwaffe bereit“. Der Ton startet erst nach dem ersten Antippen.') +
       '</ul>';
+    h += '<h3>Musik und Stimmen: Quellen</h3><ul class="hl">' + ((G.Audio && G.Audio.credits) || []).map(function (c) {
+      return li(c.title, c.author + ' – ' + c.license + (c.note ? ' (' + c.note + ')' : '') + ' – ' + c.url.replace('https://', ''));
+    }).join('') + '</ul>';
     h += '<h3>Tech-Zentrum</h3><p class="help">Das Tech-Zentrum (benötigt ein Fahrzeugwerk) schaltet mächtige Einheiten frei: die Mobile Artillerie (Haubitze, große Reichweite, schießt nur stehend), den Jagdpanzer (Koalition) bzw. den Kolosspanzer (Syndikat) – und die Superwaffe deiner Fraktion. Solange es fehlt, steht auf den Kacheln „erst Tech-Zentrum“.</p>';
     h += '<h3>Ingenieur</h3><ul class="hl">' +
       li('Übernehmen', 'Ingenieur wählen und ein gegnerisches Gebäude antippen (Maus: Rechtsklick): Es gehört sofort dir. Der Ingenieur wird dabei verbraucht. Das Hauptquartier geht nicht.') +

@@ -177,7 +177,7 @@ var VOICE_DATA = {
     o.start(t); o.stop(t + dur + 0.03);
   }
 
-  // ================================================================ Musik (vorkomponierte CC0-Stücke, siehe CREDITS)
+  // ================================================================ Musik (vorkomponierte Stücke, CC0 und CC-BY, siehe CREDITS)
   /*MUSIC:BEGIN*/
 var MUSIC_DATA = {
   "menu": {
@@ -185,33 +185,33 @@ var MUSIC_DATA = {
     "url": "assets/music/menu.ogg"
   },
   "calm": {
-    "dur": 95.01,
+    "dur": 200.01,
     "url": "assets/music/calm.ogg"
   },
   "tension": {
-    "dur": 108.01,
+    "dur": 136.91,
     "url": "assets/music/tension.ogg"
   },
   "battleA": {
-    "dur": 95.29,
+    "dur": 211.91,
     "url": "assets/music/battleA.ogg"
   },
   "battleB": {
-    "dur": 33.06,
+    "dur": 239.91,
     "url": "assets/music/battleB.ogg"
   }
 };
 /*MUSIC:END*/
   var CREDITS = [
     { title: 'Epic Endgame Cinematic', author: 'cynicmusic', license: 'CC0', url: 'https://opengameart.org/content/epic-endgame-cinematic', use: 'Menü, Sieg' },
-    { title: 'Some Militaristic Tune', author: 'Spring Spring', license: 'CC0', url: 'https://opengameart.org/content/some-militaristic-tune', use: 'Aufbau (ruhig)' },
-    { title: 'Determined Pursuit (epic orchestra loop)', author: 'Emma_MA', license: 'CC0', url: 'https://opengameart.org/content/determined-pursuit-epic-orchestra-loop', use: 'Spannung' },
-    { title: 'Battle Theme A', author: 'cynicmusic', license: 'CC0', url: 'https://opengameart.org/content/battle-theme-a', use: 'Gefecht' },
-    { title: 'March of Manganda', author: 'Eldritch Grim', license: 'CC0', url: 'https://opengameart.org/content/march-of-manganda', use: 'Gefecht' },
+    { title: 'The Settlement of the Frontier (Loop)', author: 'TAD', license: 'CC-BY 3.0', url: 'https://opengameart.org/content/the-settlement-of-the-frontier-loop-ver', use: 'Aufbau (ruhig)', note: 'gekürzt, Lautheit angepasst' },
+    { title: 'Unforgiving Lands', author: 'HorrorPen', license: 'CC-BY 3.0', url: 'https://opengameart.org/content/unforgiving-lands', use: 'Spannung', note: 'Lautheit angepasst' },
+    { title: 'Wasteland Showdown', author: 'Matthew Pablo (www.matthewpablo.com)', license: 'CC-BY 3.0', url: 'https://opengameart.org/content/wasteland-showdown-battle-music', use: 'Gefecht', note: 'Lautheit angepasst' },
+    { title: 'Dream Raid', author: 'Matthew Pablo (www.matthewpablo.com)', license: 'CC-BY 3.0', url: 'https://opengameart.org/content/dream-raid-cinematic-action-soundtrack', use: 'Gefecht', note: 'Lautheit angepasst' },
     { title: 'Piper TTS, Stimme „Thorsten (medium)“ – Ansagen', author: 'Thorsten Müller (Thorsten-Voice) / Rhasspy Piper', license: 'CC0', url: 'https://github.com/thorstenMueller/Thorsten-Voice', use: 'Funk-Ansagen' }
   ];
   var PLAYLIST = { menu: ['menu'], calm: ['calm'], tension: ['tension'], battle: ['battleA', 'battleB'] };
-  var TRACK_GAIN = { menu: 1, calm: 0.9, tension: 1, battleA: 0.92, battleB: 1 };
+  var TRACK_GAIN = { menu: 1, calm: 0.95, tension: 1, battleA: 0.95, battleB: 0.95 };
   var XFADE = 3.5, MOODFADE = 3.0;
   var SILENT_WAV = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=';
 
