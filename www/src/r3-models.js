@@ -4845,7 +4845,7 @@ var G = (typeof G !== 'undefined') ? G : {};
         insignia(b, T, P, -1.05, 0.602, 0.15, 0.14, 0.14);
         b.box('#55595d', 1.86, 0.02, 1.4, 0.45, 0.06, 0.0);
         hazardFrame(b, 0.45, 0.0, 1.7, 1.24, 0.06);
-        b.top(T.teamL, 0.1, 0.0, 0.8, 0.0, 0.0815, 0.12).top(T.teamL, 0.45, -0.35, 0.45, 0.35, 0.0815, 0.12);   // Plus-Zeichen (Reparatur)
+        b.top(T.teamL, 0.45 - 0.31, -0.31, 0.45 + 0.31, 0.31, 0.0815, 0.15).top(T.teamL, 0.45 - 0.31, 0.31, 0.45 + 0.31, -0.31, 0.0815, 0.15);   // Plus-Zeichen (Reparatur), um 45° gedreht: aus der Spielkamera (Gebäudeachsen laufen diagonal) liest es sich als „+“, nicht als „X“
         var pc = syn ? P.rust : P.body;
         b.box(pc, 0.12, 0.98, 0.12, -0.42, 0.06, -0.8).box(pc, 0.12, 0.98, 0.12, 1.32, 0.06, -0.8).box(pc, 1.86, 0.12, 0.15, 0.45, 1.0, -0.8);
         b.pbox(T.team, 1.7, 0.05, 0.155, 0.45, 1.05, -0.8);
@@ -5110,7 +5110,7 @@ var G = (typeof G !== 'undefined') ? G : {};
   function cloakMark(e, pid, x, y, z, rad, tick) {
     var st = G.Sim.cloakState(pid, e);
     if (st === 1 && !(e.revT > tick) && !e.revM) return true;
-    if (st === 1 || st === 2) { var k = 0.4 + 0.3 * Math.sin(R.t * 5 + e.id * 0.7); R.selRing.put(x, y, z, 0, rad, 1, rad, 1.0 * k, 0.28 * k, 0.2 * k); }
+    if (st === 1 || st === 2) { var k = 0.4 + 0.3 * Math.sin(R.t * 5 + e.id * 0.7); var rr = rad * 0.88; R.selRing.put(x, y, z, 0, rr, 1, rr, 0.7 * k, 0.2 * k, 0.15 * k); }   // dezent: kleiner (und damit dünnerer) Ring, ca. 70 % Helligkeit
     return false;
   }
 
