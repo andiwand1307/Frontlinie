@@ -110,6 +110,12 @@
  *               repairFull {…, unit:true} (Fahrzeug am Dock fertig).
  *   Abfragen: hidden(pid, e), cloakState(pid, e), hangarReady(e), isRepairSite/repairSite/canRepairUnit, sabBlock, noOccAt; Messhaken G.Sim._onDamage.
  *
+ * v1.3 Forschung (additiv, Abschnitt „v1.3 FORSCHUNG“ am Dateiende; Daten: data.js Block „v1.3 Forschung“):
+ *   S.version = 3. SPIELER: res = { done: {id: 1}, cur: null | {id, prog, spent} }, st.research. Laufzeit-Cache RM[pid] (G.Sim.resMods(pid)).
+ *   Wirkung zentral über mods(e) (Einheiten: Rang × Forschung; Gebäude: bldHp) sowie harvCap(e), sightOf(e), costOf, tickRepair/-Pad, revealT, tickReveal.
+ *   Ereignisse: researchStart {owner, id}, researchCancel {owner, id, refund}, research {owner, id} (abgeschlossen; x/y = Tech-Zentrum).
+ *   Abfragen: resState(pid, id) 'done'|'active'|'locked'|'avail', resBlock(pid, id) → '' oder Grund, resRunning(pid). Befehle: G.cmd.research / cancelResearch.
+ *
  * Laufzeit-Caches (nicht im Zustand): byId-Map, Gebäudelisten, räumliches Gitter.
  */
 var G = (typeof G !== 'undefined') ? G : {};
@@ -254,6 +260,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     }
     migrateV08();
     migrateV12();   // v1.2 Neue Einheiten (Abschnitt am Dateiende)
+    migrateV13();   // v1.3 Forschung (Abschnitt am Dateiende)
   }
 
   function circle(r) {
@@ -677,7 +684,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     if (!statsOf(e).harvester) return;
     e.ord = 'harvest'; e.tgt = 0; e.chase = false;
     e.oreT = tileIdx >= 0 ? tileIdx : -1;
-    if (e.cargo >= statsOf(e).capacity) { e.hs = 'ret'; e.refId = 0; startReturn(e); }
+    if (e.cargo >= harvCap(e)) { e.hs = 'ret'; e.refId = 0; startReturn(e); }
     else if (tileIdx >= 0 && S.map.ore[tileIdx] > 0) { e.hs = 'go'; setGoal(e, (tileIdx % S.map.w + 0.5) * TILE, (Math.floor(tileIdx / S.map.w) + 0.5) * TILE); }
     else { e.hs = 'seek'; }
   }
@@ -1267,9 +1274,11 @@ var G = (typeof G !== 'undefined') ? G : {};
 
   function costOf(pid, type) {
     if (D.BUILDINGS[type]) return D.BUILDINGS[type].cost;
-    var st = stats[pid][type], tr = S.players[pid].trade;
-    if (tr > 0 && st.cat === 'vehicle') return Math.round(st.cost * (1 - D.TRADE.discount * Math.min(tr, D.TRADE.max)));   // v1.2 Handelsposten: Rabatt auf Fahrzeuge
-    return st.cost;
+    var st = stats[pid][type], tr = S.players[pid].trade, c = st.cost;
+    var cm = RM[pid] && RM[pid].cost[st.cat];   // v1.3 Forschung: Kostenfaktor je Kategorie
+    if (cm) c = Math.round(c * cm);
+    if (tr > 0 && st.cat === 'vehicle') return Math.round(c * (1 - D.TRADE.discount * Math.min(tr, D.TRADE.max)));   // v1.2 Handelsposten: Rabatt auf Fahrzeuge
+    return c;
   }
   function timeOf(pid, type) { return D.BUILDINGS[type] ? D.BUILDINGS[type].time : stats[pid][type].time; }
 
@@ -1382,12 +1391,18 @@ var G = (typeof G !== 'undefined') ? G : {};
 
   // ------------------------------------------------------------------ Erfahrung (Rangstufen; Tabelle: D.EXP in data.js)
   var MODS = { dmg: 1, hp: 1, rof: 1, psi: 1, regen: 0 };
+  var RM = [];   // v1.3: RM[pid] = wirksame Forschungswerte (Laufzeit-Cache, s. resRecalc)
   /** ZENTRALE STELLE für wirksame Einheitenwerte: Schadensfaktor (dmg), Schadensminderung (hp: Treffer / hp), Nachladefaktor (rof, <1 = schneller),
    *  Selbstheilung (regen, Anteil maxHp/s). Gilt für Einheiten beider Seiten; Gebäude und Rekruten → neutrale Werte.
    *  Spätere Systeme (Forschung, Fähigkeiten) hier weitere Faktoren aufmultiplizieren. Gibt ein wiederverwendetes Objekt zurück: sofort auslesen. */
   function mods(e) {
     var r = D.EXP.ranks[e.rk || 0] || D.EXP.ranks[0];
     MODS.dmg = r.dmg; MODS.hp = r.hp; MODS.rof = r.rof; MODS.psi = r.psi; MODS.regen = r.regen;
+    var rm = RM[e.owner];   // v1.3 Forschung des Besitzers (Abschnitt „v1.3 FORSCHUNG“)
+    if (rm) {
+      if (e.kind !== 'unit') MODS.hp *= rm.bldHp;
+      else { var q = rm.u[e.type]; if (q) { MODS.dmg *= q.dmg; MODS.hp *= q.hp; MODS.rof *= q.rof; MODS.psi *= q.psi; MODS.regen += q.regen; } }
+    }
     return MODS;
   }
   /** src hat dealt Lebenspunkte Schaden an t verursacht → Erfahrung nach Wert des Ziels (Schadensanteil × Kosten / costDiv). */
@@ -1407,7 +1422,7 @@ var G = (typeof G !== 'undefined') ? G : {};
   }
   /** Selbstheilung (Rang mit regen > 0) außerhalb des Gefechts. */
   function expRegen(e) {
-    if (!e.rk || e.hp >= e.maxHp || e.hp <= 0) return;
+    if (e.hp >= e.maxHp || e.hp <= 0 || !(e.rk || (RM[e.owner] && RM[e.owner].regenAny))) return;
     var rg = mods(e).regen;
     if (rg > 0 && S.tick - Math.max(e.fireT, e.lastAtkT || -9999) > D.EXP.regenDelay * HZ) e.hp = Math.min(e.maxHp, e.hp + rg * e.maxHp / HZ);
   }
@@ -1420,7 +1435,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     if (src && src.host) { var hs0 = byId.get(src.host); if (hs0 && !hs0.dead && hs0.owner === src.owner) src = hs0; }   // v1.2: Treffer der Drohnen zählen für den Träger
     var xpSrc = src && src.kind === 'unit' && src.owner !== t.owner ? src : null;   // Erfahrung: nur Einheiten, nur gegen Feinde
     if (xpSrc) amount *= mods(xpSrc).dmg;
-    if (t.kind === 'unit') amount /= mods(t).hp;
+    if (t.kind === 'unit' || RM[t.owner]) amount /= mods(t).hp;   // v1.3: Gebäude nur über Forschung (bldHp)
     var hp0 = t.hp;
     t.hp -= amount;
     if (src && (src.clk || src.stealth) && src.owner !== t.owner) { var Pv = S.players[t.owner]; Pv.st.stealthHits = (Pv.st.stealthHits || 0) + 1; Pv.stealthT = S.tick; }   // v1.2: Schaden durch Getarntes (KI baut Detektoren)
@@ -1551,7 +1566,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     if ((wpn.vehicleOnly || wpn.navalOnly) && !canHit(wpn, t)) return;
     var dmg = wpn.dmg * D.DAMAGE[wpn.type][t.kind === 'building' ? 'building' : ust(t).armor];
     var aux = e.kind === 'unit' && ust(e).aa === wpn, inAir = airborne(t);   // v0.8: Zweitwaffe (Flak) dreht den Turm nicht
-    if (e.clk) e.revT = S.tick + D.CLOAK.fireReveal * HZ;   // v1.2 Tarnung: Schuss verrät
+    if (e.clk) e.revT = S.tick + revealT(e, D.CLOAK.fireReveal);   // v1.2 Tarnung: Schuss verrät
     if (!aux) e.fireT = S.tick;
     var ang = Math.atan2(t.y - e.y, t.x - e.x);
     if (!aux) e.tdir = ang;
@@ -1885,7 +1900,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     var t = e.tgt ? byId.get(e.tgt) : null;
     if (t && (!hostile(e.owner, t) || (st.weapon && !canHit(st.weapon, t)) || (t.clk && hidden(e.owner, t)))) { t = null; e.tgt = 0; }   // v0.8: Luftziele nur mit Flugabwehr; v1.2: Getarntes verliert sich
     if (st.saboteur && e.ord === 'sab') { tickSab(e, st); return; }   // v1.2 Saboteur
-    var sightPx = st.sight * TILE;
+    var sightPx = (st.sight + resSight(e.owner)) * TILE;
     if (e.gar) syncPassengers(e);                       // v0.7 Schützenpanzer: Insassen fahren mit
     if (e.salvoN > 0) tickSalvo(e, st);                 // v0.7 Raketensalve läuft
     var healing = st.medic ? tickMedic(e, st) : false;  // v0.7 Sanitäter heilt in jedem Zustand
@@ -2095,7 +2110,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       case 'mine': {
         e.moving = false;
         var amt = D.ORE_RATE / HZ;
-        var cap = st.capacity;
+        var cap = harvCap(e);
         var o = S.map.ore[e.oreT];
         if (o <= 0) {
           // benachbarte Erz-Kachel suchen
@@ -2166,7 +2181,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     for (var i = 0; i < S.ents.length; i++) {
       var e = S.ents[i];
       if (e.dead || e.owner !== P.id || e.inside) continue;
-      var sight = e.kind === 'unit' ? ust(e).sight : D.BUILDINGS[e.type].sight;
+      var sight = (e.kind === 'unit' ? ust(e).sight : D.BUILDINGS[e.type].sight) + resSight(P.id);
       var c = circle(sight);
       var cx = Math.floor(e.x / TILE), cy = Math.floor(e.y / TILE);
       for (var k = 0; k < c.length; k += 2) {
@@ -2231,7 +2246,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     if (S.charges.length) tickCharges();   // v1.2 Sprengladungen
     if (S.strikes.length) tickStrikes();
     if (S.sw.length) tickSW();
-    for (var p = 0; p < S.players.length; p++) if (!S.players[p].defeated) tickProduction(S.players[p]);
+    for (var p = 0; p < S.players.length; p++) if (!S.players[p].defeated) { tickProduction(S.players[p]); if (S.players[p].res.cur) tickResearch(S.players[p]); }
     // v0.8: Cheat „unbegrenzt Geld“ – am Tickende auffüllen, damit die Credits nie sichtbar unter CHEAT_CREDITS fallen
     for (p = 0; p < S.players.length; p++) if (S.players[p].cheat && S.players[p].credits < CHEAT_CREDITS) S.players[p].credits = CHEAT_CREDITS;
     for (p = 0; p < S.players.length; p++) if (!S.players[p].defeated) tickAirSeaQueues(S.players[p]);   // v0.8 Flugfeld/Werft
@@ -2258,8 +2273,9 @@ var G = (typeof G !== 'undefined') ? G : {};
   function tickRepair(b) {
     var P = S.players[b.owner], d = D.BUILDINGS[b.type];
     if (b.hp >= b.maxHp) { b.repairing = false; return; }
-    var heal = b.maxHp * D.REPAIR_RATE / HZ;
-    var cost = heal / b.maxHp * (d.cost || 2000) * D.REPAIR_COST;
+    var rm = RM[b.owner];
+    var heal = b.maxHp * D.REPAIR_RATE / HZ * (rm ? rm.repair : 1);
+    var cost = heal / b.maxHp * (d.cost || 2000) * D.REPAIR_COST * (rm ? rm.repairCost : 1);
     if (P.credits < cost) return;
     P.credits -= cost; P.st.spent += cost;
     b.hp = Math.min(b.maxHp, b.hp + heal);
@@ -2859,7 +2875,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       for (var k = 0; k < rvD.length; k++) {
         var d = rvD[k];
         if (d.owner === c.owner || ((m >> d.owner) & 1)) continue;
-        var R = (d.kind === 'unit' ? ust(d).detect : D.BUILDINGS[d.type].detect) * TILE + (d.kind === 'building' ? Math.max(d.w, d.h) * TILE / 2 : 0);
+        var R = Math.max(1, (d.kind === 'unit' ? ust(d).detect : D.BUILDINGS[d.type].detect) - (RM[c.owner] ? RM[c.owner].detectCut : 0)) * TILE + (d.kind === 'building' ? Math.max(d.w, d.h) * TILE / 2 : 0);   // v1.3 Phasenschleier
         if (dist2(d.x, d.y, c.x, c.y) <= R * R) m |= 1 << d.owner;
       }
       if (m && !c.revM) emit('reveal', c.x, c.y, { id: c.id, owner: c.owner, by: m, type: c.type });
@@ -2964,7 +2980,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     }
     if (!hit) return;
     var AR = md.r * TILE;
-    b.ch = (b.ch || 1) - 1; b.cdT = S.tick + Math.round(md.cd * HZ); b.revT = S.tick + D.CLOAK.actReveal * HZ;
+    b.ch = (b.ch || 1) - 1; b.cdT = S.tick + Math.round(md.cd * HZ); b.revT = S.tick + revealT(b, D.CLOAK.actReveal);
     emit('mine', x, y, { id: b.id, owner: b.owner, r: AR, left: b.ch });
     emit('hit', x, y, { w: 'cannon', owner: b.owner, splash: AR });   // sichtbare Explosion (vorhandener Effekt)
     S.players[b.owner].st.mineHits = (S.players[b.owner].st.mineHits || 0) + 1;
@@ -3005,7 +3021,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     e.moving = false; e.path = null; e.pp = false; e.sabTry = 0;
     if (e.cd > 0) return;   // lädt noch nach: wartet am Gebäude
     var P = S.players[e.owner];
-    e.cd = Math.round(sb.cd * HZ); e.revT = S.tick + D.CLOAK.actReveal * HZ; e.fireT = S.tick;
+    e.cd = Math.round(sb.cd * HZ); e.revT = S.tick + revealT(e, D.CLOAK.actReveal); e.fireT = S.tick;
     P.st.sabotage = (P.st.sabotage || 0) + 1;
     if (e.sabMode === 1) {
       b.offT = S.tick + Math.round(sb.stun * HZ); b.tgt = 0; offEnd = Math.max(offEnd, b.offT);
@@ -3077,7 +3093,8 @@ var G = (typeof G !== 'undefined') ? G : {};
   function tickRepairPad(b, rp) {
     if ((S.tick + b.id) % 10 !== 0 || b.offT > S.tick) return;
     var P = S.players[b.owner]; if (!P) return;
-    var heal = rp.rate * 10 / HZ * (lowPower(b.owner) ? 0.5 : 1), R = rp.r * TILE;
+    var rm = RM[b.owner], rcm = rm ? rm.repairCost : 1;
+    var heal = rp.rate * 10 / HZ * (lowPower(b.owner) ? 0.5 : 1) * (rm ? rm.repair : 1), R = rp.r * TILE;
     var x0 = b.tx * TILE - R, y0 = b.ty * TILE - R, x1 = (b.tx + b.w) * TILE + R, y1 = (b.ty + b.h) * TILE + R;
     var c0x = Math.max(0, Math.floor(x0 / CELL)), c1x = Math.min(gw - 1, Math.floor(x1 / CELL));
     var c0y = Math.max(0, Math.floor(y0 / CELL)), c1y = Math.min(gh - 1, Math.floor(y1 / CELL));
@@ -3087,7 +3104,7 @@ var G = (typeof G !== 'undefined') ? G : {};
         if (u.owner !== b.owner || u.dead || u.hp >= u.maxHp || u.mc !== 1) continue;
         var st = ust(u);
         if (st.cat !== 'vehicle' || distTo(b, u.x, u.y) > R) continue;
-        var h = Math.min(heal, u.maxHp - u.hp), cost = h / u.maxHp * (st.cost || 0) * rp.cost;
+        var h = Math.min(heal, u.maxHp - u.hp), cost = h / u.maxHp * (st.cost || 0) * rp.cost * rcm;
         if (P.credits < cost) continue;
         P.credits -= cost; P.st.spent += cost; P.st.repaired = (P.st.repaired || 0) + h;
         u.hp += h; b.repT = S.tick;
@@ -3113,6 +3130,114 @@ var G = (typeof G !== 'undefined') ? G : {};
     return best;
   }
   function canRepairUnit(u) { return !!u && u.kind === 'unit' && !u.dead && !u.inside && u.mc === 1 && ust(u).cat === 'vehicle'; }
+
+  // ================================================================== v1.3 FORSCHUNG (Daten: data.js Block „v1.3 Forschung“)
+  // ZUSTAND (im Spielstand): P.res = { done: {id: 1}, cur: null | { id, prog 0..1, spent } }, P.st.research (Anzahl abgeschlossen).
+  // LAUFZEIT-CACHE: RM[pid] = { u: {typ: {dmg, hp, rof, psi, regen}} (nur Typen mit Wirkung), regenAny, sight, harvCap, repair, repairCost, bldHp,
+  //   cost: {kat: faktor}, cloakReveal, detectCut } – aus P.res.done neu berechnet (resRecalc) bei create/laden/Abschluss.
+  // EINHÄNGEPUNKTE: mods(e) (dmg/hp/rof/psi/regen + bldHp für Gebäude), expRegen, damage (Gebäude), harvCap(e), resSight(pid) (Zielsuche + Nebel),
+  //   tickRepair/tickRepairPad (repair, repairCost), costOf (cost), revealT (cloakReveal), tickReveal (detectCut).
+  // REGELN: eine Forschung je Spieler; Tech-Zentrum (D.RESEARCH_BUILDING) muss betriebsbereit sein, sonst PAUSE (kein Verlust); Energiemangel → halbes
+  //   Tempo; Abbruch erstattet cur.spent; Abgeschlossenes bleibt für die Partie. Ereignisse: research {owner, id}, researchStart/researchCancel {owner, id}.
+  function migrateV13() {
+    for (var p = 0; p < S.players.length; p++) {
+      var P = S.players[p];
+      if (!P.res || !P.res.done) P.res = { done: {}, cur: null };
+      if (P.res.cur && !D.RESEARCH[P.res.cur.id]) P.res.cur = null;
+      if (P.st.research == null) P.st.research = 0;
+    }
+    S.version = D.SAVE_VERSION;
+    RM = [];
+    for (p = 0; p < S.players.length; p++) resRecalc(p);
+  }
+  function resMatch(u, st, type) {
+    if (u.all) return true;
+    if (u.types && u.types.indexOf(type) >= 0) return true;
+    if (u.cat) return typeof u.cat === 'string' ? u.cat === st.cat : u.cat.indexOf(st.cat) >= 0;
+    return false;
+  }
+  /** RM[pid] aus den abgeschlossenen Forschungen neu berechnen. */
+  function resRecalc(pid) {
+    var P = S.players[pid], m = { u: {}, regenAny: false, sight: 0, harvCap: 1, repair: 1, repairCost: 1, bldHp: 1, cost: {}, cloakReveal: 1, detectCut: 0 };
+    for (var oi = 0; oi < D.RESEARCH_ORDER.length; oi++) {
+      var id = D.RESEARCH_ORDER[oi];
+      if (!P.res.done[id]) continue;
+      var fx = D.RESEARCH[id].fx || {};
+      if (fx.sight) m.sight += fx.sight;
+      if (fx.harvCap) m.harvCap *= fx.harvCap;
+      if (fx.repair) m.repair *= fx.repair;
+      if (fx.repairCost) m.repairCost *= fx.repairCost;
+      if (fx.bldHp) m.bldHp *= fx.bldHp;
+      if (fx.cloakReveal) m.cloakReveal *= fx.cloakReveal;
+      if (fx.detectCut) m.detectCut += fx.detectCut;
+      for (var ck in (fx.cost || {})) m.cost[ck] = (m.cost[ck] || 1) * fx.cost[ck];
+      for (var ui = 0; fx.unit && ui < fx.unit.length; ui++) {
+        var u = fx.unit[ui];
+        for (var type in D.UNITS) {
+          var st = stats[pid][type];
+          if (!st || !resMatch(u, st, type)) continue;
+          var q = m.u[type] || (m.u[type] = { dmg: 1, hp: 1, rof: 1, psi: 1, regen: 0 });
+          if (u.dmg) q.dmg *= u.dmg; if (u.hp) q.hp *= u.hp; if (u.rof) q.rof *= u.rof; if (u.psi) q.psi *= u.psi;
+          if (u.regen) { q.regen += u.regen; m.regenAny = true; }
+        }
+      }
+    }
+    RM[pid] = m;
+  }
+  function resSight(pid) { var m = RM[pid]; return m ? m.sight : 0; }
+  /** Ladekapazität eines Sammlers einschließlich Forschung. */
+  function harvCap(e) { var c = ust(e).capacity, m = RM[e.owner]; return m ? c * m.harvCap : c; }
+  function revealT(e, sec) { var m = RM[e.owner]; return Math.round(sec * HZ * (m ? m.cloakReveal : 1)); }
+  /** Zustand einer Forschung für Spieler pid: 'done' | 'active' | 'locked' (Vorstufe fehlt) | 'avail'. */
+  function resState(pid, id) {
+    var P = S.players[pid], r = D.RESEARCH[id];
+    if (!r || !P) return 'locked';
+    if (P.res.done[id]) return 'done';
+    if (P.res.cur && P.res.cur.id === id) return 'active';
+    if (r.req && !P.res.done[r.req]) return 'locked';
+    return 'avail';
+  }
+  /** '' wenn pid die Forschung id jetzt starten kann, sonst der Grund (deutsch, für die Anzeige). */
+  function resBlock(pid, id) {
+    var P = S.players[pid], r = D.RESEARCH[id];
+    if (!r || !P || (r.faction && r.faction !== P.faction)) return 'Nicht verfügbar';
+    if (P.res.done[id]) return 'Bereits erforscht';
+    if (P.res.cur) return P.res.cur.id === id ? 'Wird bereits erforscht' : 'Es läuft bereits eine Forschung';
+    if (r.req && !P.res.done[r.req]) return 'Benötigt ' + D.RESEARCH[r.req].name;
+    if (!hasBuilding(pid, D.RESEARCH_BUILDING)) return 'Benötigt Tech-Zentrum';
+    return '';
+  }
+  function researchStart(pid, id) {
+    if (resBlock(pid, id)) return false;
+    S.players[pid].res.cur = { id: id, prog: 0, spent: 0 };
+    emit('researchStart', 0, 0, { owner: pid, id: id });
+    return true;
+  }
+  function researchCancel(pid) {
+    var P = S.players[pid], c = P && P.res.cur;
+    if (!c) return false;
+    P.credits += c.spent; P.st.spent -= c.spent;
+    P.res.cur = null;
+    emit('researchCancel', 0, 0, { owner: pid, id: c.id, refund: c.spent });
+    return true;
+  }
+  /** Läuft die Forschung gerade (nicht pausiert mangels Tech-Zentrum)? */
+  function resRunning(pid) { var P = S.players[pid]; return !!(P && P.res.cur && activeCount(pid, D.RESEARCH_BUILDING)); }
+  function tickResearch(P) {
+    var c = P.res.cur, r = D.RESEARCH[c.id];
+    if (!activeCount(P.id, D.RESEARCH_BUILDING)) return;   // kein betriebsbereites Tech-Zentrum: pausiert
+    var dp = DT / r.time * (lowPower(P.id) ? 0.5 : 1);
+    if (c.prog + dp > 1) dp = 1 - c.prog;
+    var dc = r.cost * dp;
+    if (P.credits < dc) return;   // pausiert mangels Credits
+    P.credits -= dc; c.spent += dc; P.st.spent += dc; c.prog += dp;
+    if (c.prog > 0.99999) {
+      P.res.done[c.id] = 1; P.res.cur = null; P.st.research = (P.st.research || 0) + 1;
+      resRecalc(P.id);
+      var tc = producerOf(P.id, D.RESEARCH_BUILDING);
+      emit('research', tc ? tc.x : 0, tc ? tc.y : 0, { owner: P.id, id: c.id });
+    }
+  }
 
   function setState(st) { S = st; rebuild(); }
   /** v0.7: verbleibende Friedenszeit in Sekunden (0 = vorbei bzw. keine). */
@@ -3149,6 +3274,9 @@ var G = (typeof G !== 'undefined') ? G : {};
     ust: function (e) { return ust(e); },
     // v1.2 Neue Einheiten:
     hangarReady: hangarReady,
+    // v1.3 Forschung:
+    resState: resState, resBlock: resBlock, resRunning: resRunning, resMods: function (pid) { return RM[pid]; }, harvCap: harvCap, sightOf: function (e) { return (e.kind === 'unit' ? ust(e).sight : D.BUILDINGS[e.type].sight) + resSight(e.owner); },
+    _research: researchStart, _resCancel: researchCancel,
     hidden: hidden, cloakState: cloakState, sabBlock: sabBlock, _orderSab: orderSab, _sabMode: function (u, m) { u.sabMode = m ? 1 : 0; }, noOccAt: noOccAt,
     isRepairSite: isRepairSite, repairSite: repairSite, canRepairUnit: canRepairUnit, _orderRepair: function (u, site) { u.repId = site.id; },
     // nur für Tests/Debug (nicht von Spiellogik/KI/UI benutzen):

@@ -34,6 +34,10 @@
  * Welle), Saboteure gegen bekannte Wirtschafts-/Technikgebäude abseits von Detektoren, Minenfelder auf dem Anmarschweg, Tor im Mauer-Durchlass, Erzsilo bei
  * knappem Lager, Reparaturdock (angeschlagene Heimtruppen fahren hin, A.rep), U-Boote/Flugzeugträger mit der Flotte, Psi-Drohnen/Schwarm-Träger (Kollektiv).
  * Getarntes sieht die KI nicht (G.Sim.isVisible berücksichtigt die Tarnung). „Sehr leicht/Leicht“ nutzen die neuen Mittel kaum bzw. sparsam.
+ *
+ * v1.3 Forschung (Block am Dateiende, Tabelle V13 je Stufe): forscht im Tech-Zentrum eine Forschung nach der anderen (Feuerkraft, Panzerung, Sammler zuerst,
+ * Fraktionsforschung nur mit passenden Einheiten), nur mit laufender Wirtschaft und Mindest-Kontostand; bricht im Notfall (allIn, pleite) ab.
+ * „Sehr leicht/Leicht“ forschen spät und wenig. A.resT = Tick des letzten Forschungsstarts.
  */
 var G = (typeof G !== 'undefined') ? G : {};
 (function () {
@@ -130,6 +134,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     airSea();   // v0.8
     psiAI();    // v1.0 Gedankenkontrolle (eigene und gegnerische)
     v12();      // v1.2 Neue Einheiten & Zusatzgebäude (Block am Dateiende)
+    v13();      // v1.3 Forschung (Block am Dateiende)
   }
 
   // ================================================================== v1.0 Kollektiv (SPEC_v10 §6)
@@ -2189,5 +2194,45 @@ var G = (typeof G !== 'undefined') ? G : {};
     if (cntU('flaktank') + inQ('vehicle', 'flaktank') < want && P.q.vehicle.length < cfg.armyQ + 1 && G.Sim.canProduce(pid, 'flaktank').ok) G.cmd.produce(pid, 'flaktank');
   }
 
-  G.AI = { update: update, DIFF: DIFF, AIRSEA: AIRSEA, VS_HUMAN: VS_HUMAN, V12: V12 };   // v1.0.1 KI-Leicht: VS_HUMAN
+  // ================================================================== v1.3 Forschung
+  // V13[stufe]: max = höchstens so viele Forschungen je Partie, at = frühestens ab s, min = Mindest-Kontostand zum Starten,
+  //   gap = s Pause zwischen zwei Forschungen (Wirtschaft schonen). Bezahlt wird fortlaufend (höchstens ~25 Credits/s), geforscht nur mit
+  //   Tech-Zentrum, mindestens einer Raffinerie und 2 Sammlern, nicht im Notfall (allIn) und nicht, während die Basis angegriffen wird und das Geld knapp ist.
+  //   Reihenfolge: RES13 (Kern zuerst Feuerkraft/Panzerung/Sammler, Fraktionsforschung nur, wenn passende Einheiten vorhanden sind – want13).
+  var V13 = {
+    veryeasy: { max: 2,  at: 840, min: 800, gap: 90 },
+    easy:     { max: 4,  at: 660, min: 500, gap: 45 },
+    medium:   { max: 99, at: 0,   min: 120,  gap: 10 },
+    hard:     { max: 99, at: 0,   min: 80,  gap: 0 }
+  };
+  var RES13 = ['fire1', 'armor1', 'harv', 'c_calc', 's_patch', 'k_psi', 'c_ammo', 's_mass', 'k_swarm', 'c_air', 's_wall', 'k_veil', 'fire2', 'armor2', 'optics', 'repair'];
+  var NEED13 = { c_ammo: ['sniper', 'hunter', 'howitzer'], c_air: ['gunship', 'bomber', 'carrier'], k_psi: ['psiadept', 'psitank', 'psidrone'],
+                 k_swarm: ['swarmcarrier', 'brute'], k_veil: ['saboteur', 'minefield'] };
+  function want13(id) {
+    var need = NEED13[id];
+    if (!need) return true;
+    var n = 0;
+    for (var i = 0; i < S.ents.length; i++) { var e = S.ents[i]; if (!e.dead && e.owner === pid && need.indexOf(e.type) >= 0) n++; }
+    return n >= (id === 'k_veil' ? 1 : 2);
+  }
+  function v13() {
+    var X = V13[P.ai] || V13.medium, R = P.res;
+    if (!R) return;
+    if (R.cur) {   // im Notfall das gebundene Geld zurückholen
+      if (A.allIn && P.credits < 300 && R.cur.prog < 0.6) G.cmd.cancelResearch(pid);
+      return;
+    }
+    var secs = S.tick / D.TICK_HZ;
+    if ((P.st.research || 0) >= X.max || secs < X.at || A.allIn || P.credits < X.min) return;
+    if (S.tick - (A.resT || -1e9) < X.gap * D.TICK_HZ) return;
+    if (A.defending && P.credits < X.min * 2) return;
+    if (!G.Sim.hasBuilding(pid, D.RESEARCH_BUILDING) || !G.Sim.hasBuilding(pid, 'refinery') || G.Sim.countOf(pid, 'harvester') < 2) return;
+    for (var i = 0; i < RES13.length; i++) {
+      var id = RES13[i];
+      if (G.Sim.resBlock(pid, id) || !want13(id)) continue;
+      if (G.cmd.research(pid, id).ok) { A.resT = S.tick; return; }
+    }
+  }
+
+  G.AI = { update: update, DIFF: DIFF, AIRSEA: AIRSEA, VS_HUMAN: VS_HUMAN, V12: V12, V13: V13 };   // v1.0.1 KI-Leicht: VS_HUMAN
 })();
