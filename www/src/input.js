@@ -739,6 +739,7 @@ var G = (typeof G !== 'undefined') ? G : {};
         if (V.placing && V.placing.wall && V.placing.tiles.length) { V.placing.tiles = []; V.placing.ok = []; V.placing.cost = 0; V.placing.valid = 0; V.placing.set = false; }
         else if (V.placing) cancelPlacement();
         else if (V.arty) cancelArty();
+        else if (V.abil) abilCancel();   // v1.3 Fähigkeiten: Rechtsklick bricht den Zielmodus ab
         else if (V.amArmed) V.amArmed = false;
         else if (V.repairMode) V.repairMode = false;   // v0.9.2 Reparatur
         else command(w.x, w.y, false, pick(p.x, p.y, 6, w));
