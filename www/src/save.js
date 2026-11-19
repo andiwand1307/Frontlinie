@@ -3,7 +3,8 @@
  *  serialize(S) → String     Typed Arrays werden lauflängenkodiert ({__ta:'Uint8Array', rle:[wert,anzahl,...]})
  *  deserialize(str) → S      (ohne Laufzeit-Caches; danach G.Sim.setState(S))
  *  save(extra) / load() / has() / clear() / info()   localStorage-Schlüssel 'frontlinie.save.v1'
- * Kurzlebige Daten (Ereignisse) werden nicht gespeichert.
+ * Ereignisse (S.events, höchstens ~2 s) werden mitgespeichert: die KI wertet sie erst im nächsten Tick aus (A.evSeq, z. B. swBuilt); ohne sie wich
+ *  eine geladene Partie von der durchgehenden ab. Die Renderer/der Ton setzen ihren Zähler beim Laden auf S.evSeq (kein erneutes Abspielen).
  * v1.2 Versionsprüfung: der Stand trägt S.version (G.DATA.SAVE_VERSION). Ältere Stände (Version fehlt/kleiner) werden geladen und in
  *  G.Sim.rebuild() → migrate() ergänzt. Stände einer NEUEREN Version, mit unbekannten Typen oder defekter Struktur gelten als
  *  „nicht mehr kompatibel“: compatible(S) → '' oder Grund; info()/has() liefern dann nichts und der Stand wird verworfen (kein Absturz).
@@ -37,7 +38,6 @@ var G = (typeof G !== 'undefined') ? G : {};
 
   function serialize(S) {
     return JSON.stringify(S, function (key, val) {
-      if (key === 'events') return [];
       if (val && typeof val === 'object' && ArrayBuffer.isView && ArrayBuffer.isView(val)) {
         return { __ta: val.constructor.name, rle: rle(val) };
       }
