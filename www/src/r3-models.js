@@ -4845,7 +4845,7 @@ var G = (typeof G !== 'undefined') ? G : {};
         insignia(b, T, P, -1.05, 0.602, 0.15, 0.14, 0.14);
         b.box('#55595d', 1.86, 0.02, 1.4, 0.45, 0.06, 0.0);
         hazardFrame(b, 0.45, 0.0, 1.7, 1.24, 0.06);
-        b.top(T.teamL, 0.1, 0.0, 0.8, 0.0, 0.0815, 0.12).top(T.teamL, 0.45, -0.35, 0.45, 0.35, 0.0815, 0.12);   // Plus-Zeichen (Reparatur)
+        b.top(T.teamL, 0.45 - 0.31, -0.31, 0.45 + 0.31, 0.31, 0.0815, 0.15).top(T.teamL, 0.45 - 0.31, 0.31, 0.45 + 0.31, -0.31, 0.0815, 0.15);   // Plus-Zeichen (Reparatur), um 45° gedreht: aus der Spielkamera (Gebäudeachsen laufen diagonal) liest es sich als „+“, nicht als „X“
         var pc = syn ? P.rust : P.body;
         b.box(pc, 0.12, 0.98, 0.12, -0.42, 0.06, -0.8).box(pc, 0.12, 0.98, 0.12, 1.32, 0.06, -0.8).box(pc, 1.86, 0.12, 0.15, 0.45, 1.0, -0.8);
         b.pbox(T.team, 1.7, 0.05, 0.155, 0.45, 1.05, -0.8);
