@@ -714,17 +714,17 @@ var G = (typeof G !== 'undefined') ? G : {};
   add('optics', 'Fernoptik', 500, 30, 'Einheiten und Gebäude sehen 1 Kachel weiter', { sight: 1 });
   add('repair', 'Instandsetzung', 600, 30, 'Gebäudereparatur und Reparaturdock arbeiten 60 % schneller und 25 % günstiger', { repair: 1.6, repairCost: 0.75 });
   // ---- Koalition: Präzision / Luft
-  add('c_calc', 'Zielrechner', 1000, 45, 'Fahrzeuge und Schiffe laden 10 % schneller nach', { unit: [{ cat: ARMORED, rof: 0.90 }] }, { faction: 'coalition' });
+  add('c_calc', 'Zielrechner', 1000, 45, 'Fahrzeuge und Schiffe laden 12 % schneller nach', { unit: [{ cat: ARMORED, rof: 0.88 }] }, { faction: 'coalition' });
   add('c_ammo', 'Präzisionsmunition', 900, 45, 'Scharfschützen, Jagdpanzer und Haubitzen richten 18 % mehr Schaden an', { unit: [{ types: ['sniper', 'hunter', 'howitzer'], dmg: 1.18 }] }, { faction: 'coalition' });
   add('c_air', 'Luftüberlegenheit', 1000, 45, 'Luftfahrzeuge und Trägerjäger: 15 % mehr Schaden, 15 % weniger Schaden erlitten', { unit: [{ cat: 'air', dmg: 1.15, hp: 1.15 }, { types: ['carrier'], dmg: 1.15 }] }, { faction: 'coalition' });
   // ---- Syndikat: billig / robust
   add('s_mass', 'Fließbandfertigung', 1000, 45, 'Infanterie kostet 15 % weniger', { cost: { infantry: 0.85 } }, { faction: 'syndicate' });
   add('s_wall', 'Bollwerk', 900, 45, 'Eigene Gebäude erleiden 15 % weniger Schaden', { bldHp: 1.15 }, { faction: 'syndicate' });
-  add('s_patch', 'Feldinstandsetzung', 1000, 50, 'Fahrzeuge reparieren sich außerhalb des Gefechts langsam selbst', { unit: [{ cat: 'vehicle', regen: 0.006 }] }, { faction: 'syndicate' });
+  add('s_patch', 'Feldinstandsetzung', 1000, 50, 'Fahrzeuge reparieren sich außerhalb des Gefechts langsam selbst', { unit: [{ cat: 'vehicle', regen: 0.008 }] }, { faction: 'syndicate' });
   // ---- Kollektiv: Psi / Schwarm / Tarnung
   add('k_psi', 'Psi-Fokus', 1000, 45, 'Psi-Kräfte laden 20 % schneller nach (Gedankenkontrolle, Lähmung)', { unit: [{ all: true, psi: 0.80 }, { types: ['psidrone'], rof: 0.80 }] }, { faction: 'kollektiv' });
   add('k_swarm', 'Schwarmbrut', 900, 45, 'Schwarmdrohnen: 25 % mehr Schaden und Haltbarkeit; Mutanten 15 % robuster', { unit: [{ types: ['swarmcarrier'], dmg: 1.25 }, { types: ['swarmling'], hp: 1.25 }, { types: ['brute'], hp: 1.15 }] }, { faction: 'kollektiv' });
-  add('k_veil', 'Phasenschleier', 800, 40, 'Getarntes ist nach einer Aktion nur halb so lang sichtbar; gegnerische Detektoren reichen 2 Kacheln kürzer', { cloakReveal: 0.5, detectCut: 2 }, { faction: 'kollektiv' });
+  add('k_veil', 'Phasenschleier', 800, 40, 'Getarntes ist nach einer Aktion nur halb so lang sichtbar; gegnerische Detektoren reichen 1 Kachel kürzer', { cloakReveal: 0.5, detectCut: 1 }, { faction: 'kollektiv' });
   D.RESEARCH_ORDER = ['armor1', 'armor2', 'fire1', 'fire2', 'harv', 'optics', 'repair', 'c_calc', 'c_ammo', 'c_air', 's_mass', 's_wall', 's_patch', 'k_psi', 'k_swarm', 'k_veil'];
   D.researchList = function (fac) { return D.RESEARCH_ORDER.filter(function (id) { var r = R[id]; return !r.faction || r.faction === fac; }); };
 })();
