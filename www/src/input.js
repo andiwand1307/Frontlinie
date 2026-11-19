@@ -14,6 +14,8 @@
  *   beginArty() / artyAim(wx,wy) / artyFire() / cancelArty()   Artillerieschlag: Zielwahl (V.arty)
  *   beginSuper(id) / swKind(b) / swInfo(b) / ownSupers() / toggleSuper()   v0.4 Superwaffen (Orbital/Rakete): Zielwahl nutzt V.arty
  *                          mit zusätzlichem Feld sw ('orbital'|'missile') und radius (Kacheln); Abfeuern über G.cmd.superweapon
+ *   abilPress(id) / abilCancel()   v1.3 Fähigkeiten: Knopf der Befehlsleiste. Ohne Ziel sofort (G.cmd.ability); mit Ziel Zielmodus V.abil = { id } –
+ *                          der nächste Tipp auf die Karte löst aus (tap → abilTap), abilCancel()/Esc/erneuter Knopfdruck bricht ab
  *   command(wx, wy, forceAM, target)   Kontextbefehl (wie Rechtsklick / Tippen mit Auswahl)
  *   tap(sx, sy, mouseBtn)  Tippen/Klick an Bildschirmposition
  *   isNeutralType(e), enterKind(e)     'enter' | 'capture' | null: kann die Auswahl dieses Gebäude betreten/erobern?

@@ -12,6 +12,8 @@
  *   showStart(), showEnd(), showHelp(), hideHelp(), toggleHelp()
  *   toast(text, bad, onTap)   kurze Meldung (onTap: Meldung wird antippbar, z. B. Kamera zur Basis)
  *   setHint(text, x, y)       Maus-Hinweis am Zeiger (Desktop)
+ * v1.3 Fähigkeiten: Knöpfe .cb.abil in der Befehlsleiste (ctxAb/refreshAbil: bereit / „Aktiv … s“ / „Lädt … s“ mit Füllstand / „Abbrechen“ im Zielmodus),
+ *       Zielleiste #abilbar (wird bei Bedarf in #map angelegt), Hilfe-Abschnitt „Neu in 1.3: Spezialfähigkeiten“ (Texte aus D.ABILITIES).
  * v0.5: Reiter Verteidigung (Mauer/Bunker/Fraktionsturm), Mauer-Modus + Bauhof-„Aufbauen“ (Platzierungsleiste), Lautsprecher-Knopf (#btnMute),
  *       Regler Musik/Effekte/Ansagen in Start- und Pausemenü, UI-Ansagen (noMoney/buildStart) über G.Audio.say – alles tolerant gegen fehlendes G.Audio.
  * v0.7: Grafik-Menü „Kamera: Diagonal / Gerade“ (G.view.setCamMode, localStorage 'frontlinie.cam', wirkt sofort), Startoption

@@ -2291,6 +2291,7 @@ var G = (typeof G !== 'undefined') ? G : {};
         } else if (t && d > wr + 1.5 * TL && d < wr + (a.range - 0.5) * TL) {   // Ziel knapp außer Reichweite → heranspringen
           k = (d - wr + 0.7 * TL) / d; x = e.x + (t.x - e.x) * k; y = e.y + (t.y - e.y) * k;
         } else return null;
+        if (!(hit && e.hp < e.maxHp * 0.35) && G.Sim.nearCount(pid, x, y, 3 * TL, false) < 2) return null;   // nicht allein vor die eigene Linie springen
         return G.Sim.abBlock(pid, e, x, y) ? null : { x: x, y: y };
       }
       case 'k_shroud':

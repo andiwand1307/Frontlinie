@@ -756,12 +756,12 @@ var G = (typeof G !== 'undefined') ? G : {};
     for (var k in extra) a[k] = extra[k];
   }
   // ---- Koalition: Präzision / Luft / Technik
-  add('c_mark', 'coalition', ['sniper'], 'Zielmarkierung', 30, 10, 'enemy', 'Markiert ein gegnerisches Ziel: 10 s aufgedeckt, erleidet 25 % mehr Schaden',
-      { mark: { vuln: 1.25, reveal: true } }, { range: 10, look: 'mark' });
-  add('c_salvo', 'coalition', ['tank'], 'Feuerstoß', 40, 6, 'none', 'Lädt 6 s lang deutlich schneller nach (8 s mit Zielrechner)',
-      { self: { rof: 0.6 } }, { boost: { res: 'c_calc', dur: 8 }, look: 'attack' });
-  add('c_smoke', 'coalition', ['scout'], 'Nebelwand', 45, 10, 'point', 'Nebelfeld am Zielpunkt: eigene Einheiten darin erleiden ein Drittel weniger Schaden',
-      { zone: { r: 2.5, ally: { hp: 1.5 } } }, { range: 7, gcd: 10, look: 'smoke' });
+  add('c_mark', 'coalition', ['sniper'], 'Zielmarkierung', 35, 10, 'enemy', 'Markiert ein gegnerisches Ziel: 10 s aufgedeckt, erleidet 15 % mehr Schaden',
+      { mark: { vuln: 1.15, reveal: true } }, { range: 10, look: 'mark' });
+  add('c_salvo', 'coalition', ['tank'], 'Feuerstoß', 45, 6, 'none', 'Lädt 6 s lang deutlich schneller nach (8 s mit Zielrechner)',
+      { self: { rof: 0.72 } }, { boost: { res: 'c_calc', dur: 8 }, look: 'attack' });
+  add('c_smoke', 'coalition', ['scout'], 'Nebelwand', 45, 10, 'point', 'Nebelfeld am Zielpunkt: eigene Einheiten darin erleiden ein Viertel weniger Schaden',
+      { zone: { r: 2.5, ally: { hp: 1.33 } } }, { range: 7, gcd: 10, look: 'smoke' });
   add('c_flare', 'coalition', ['gunship'], 'Täuschkörper', 30, 5, 'none', 'Wirft Täuschkörper ab: 5 s lang 60 % weniger Schaden',
       { self: { hp: 2.5 } }, { look: 'shield' });
   // ---- Syndikat: robust / billig / Masse
@@ -770,14 +770,14 @@ var G = (typeof G !== 'undefined') ? G : {};
   add('s_rush', 'syndicate', ['raider'], 'Nachbrenner', 35, 5, 'none', '5 s lang 60 % schneller und 30 % mehr Schaden',
       { self: { speed: 1.6, dmg: 1.3 } }, { look: 'attack' });
   add('s_fire', 'syndicate', ['flamer'], 'Brandteppich', 45, 8, 'point', 'Setzt eine Fläche 8 s in Brand – schädigt gegnerische Bodeneinheiten darin',
-      { zone: { r: 2, enemy: { dps: 16 } } }, { range: 5, gcd: 10, look: 'fire' });
+      { zone: { r: 2, enemy: { dps: 13 } } }, { range: 5, gcd: 10, look: 'fire' });
   add('s_fix', 'syndicate', ['tank', 'colossus'], 'Notreparatur', 60, 6, 'none', 'Repariert in 6 s 30 % der Panzerung – auch im Gefecht (benötigt Feldinstandsetzung)',
       { self: { regen: 0.05 } }, { req: 's_patch', look: 'heal' });
   // ---- Kollektiv: Psi / Schwarm / Tarnung
-  add('k_shriek', 'kollektiv', ['psiadept'], 'Psi-Schrei', 50, 0, 'none', 'Lähmt gegnerische Bodeneinheiten im Umkreis 2,5 s (lädt mit Psi-Fokus schneller nach)',
-      { pulse: { r: 3, stun: 2.5 } }, { psiCd: true, look: 'psi' });
-  add('k_frenzy', 'kollektiv', ['brute'], 'Raserei', 35, 6, 'none', '6 s lang 50 % schneller und viel schnellere Angriffe, erleidet aber 15 % mehr Schaden',
-      { self: { speed: 1.5, rof: 0.6, hp: 0.87 } }, { look: 'attack' });
+  add('k_shriek', 'kollektiv', ['psiadept'], 'Psi-Schrei', 50, 0, 'none', 'Lähmt gegnerische Bodeneinheiten im Umkreis 3 s (lädt mit Psi-Fokus schneller nach)',
+      { pulse: { r: 3.5, stun: 3 } }, { psiCd: true, look: 'psi' });
+  add('k_frenzy', 'kollektiv', ['brute'], 'Raserei', 30, 6, 'none', '6 s lang 50 % schneller und viel schnellere Angriffe',
+      { self: { speed: 1.5, rof: 0.6 } }, { look: 'attack' });
   add('k_jump', 'kollektiv', ['tank'], 'Phasensprung', 30, 0, 'point', 'Versetzt den Schwebepanzer sofort an einen freien Zielpunkt in der Nähe',
       { jump: true }, { range: 6, look: 'psi' });
   add('k_shroud', 'kollektiv', ['rifle'], 'Schleierfeld', 60, 8, 'point', 'Eigene Einheiten im Feld sind 8 s getarnt, solange sie nicht feuern (11 s mit Phasenschleier)',

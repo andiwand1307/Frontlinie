@@ -9,6 +9,8 @@
  *  „nicht mehr kompatibel“: compatible(S) → '' oder Grund; info()/has() liefern dann nichts und der Stand wird verworfen (kein Absturz).
  * v1.3 Forschung: SAVE_VERSION 3. Der Forschungsstand liegt als reine Daten in S.players[i].res ({done, cur}) und wird unverändert mitgespeichert;
  *  Stände der Versionen 1/2 (ohne res) ergänzt G.Sim.migrate() → migrateV13() (keine Forschung erforscht). Die wirksamen Werte (RM-Cache) baut rebuild() neu auf.
+ * v1.3 Fähigkeiten: SAVE_VERSION 4. Zustand als reine Daten (Einheit ab/abT/abCd/zT/zHp/vT/markT/markV, S.zones, S.players[i].abG, st.abil) – wird
+ *  unverändert mitgespeichert; Stände der Versionen ≤ 3 ergänzt migrateV14() (keine Wirkfelder, keine Abklingzeiten).
  */
 var G = (typeof G !== 'undefined') ? G : {};
 (function () {
