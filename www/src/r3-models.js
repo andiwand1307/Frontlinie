@@ -5110,7 +5110,7 @@ var G = (typeof G !== 'undefined') ? G : {};
   function cloakMark(e, pid, x, y, z, rad, tick) {
     var st = G.Sim.cloakState(pid, e);
     if (st === 1 && !(e.revT > tick) && !e.revM) return true;
-    if (st === 1 || st === 2) { var k = 0.4 + 0.3 * Math.sin(R.t * 5 + e.id * 0.7); R.selRing.put(x, y, z, 0, rad, 1, rad, 1.0 * k, 0.28 * k, 0.2 * k); }
+    if (st === 1 || st === 2) { var k = 0.4 + 0.3 * Math.sin(R.t * 5 + e.id * 0.7); var rr = rad * 0.88; R.selRing.put(x, y, z, 0, rr, 1, rr, 0.7 * k, 0.2 * k, 0.15 * k); }   // dezent: kleiner (und damit dünnerer) Ring, ca. 70 % Helligkeit
     return false;
   }
 
