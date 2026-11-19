@@ -424,3 +424,11 @@ p.help { margin: 6px 0 8px; }
   .tile.ready::after, .swb.ready::after { opacity: .85; }
   .cb.arty.ready::after, #swalert::after { opacity: .7; }
 }
+
+/* v1.2: Querformat mit Luftwaffe + Marine = 6 Reiter à 44px (288px Bedarf) – Seitenleiste dann etwas breiter (ab 1000px ist sie ohnehin 320px); Rückfall ohne :has(): Reiterleiste wischbar */
+@media (orientation: landscape) {
+  #tabs.many { gap: 2px; overflow-x: auto; scrollbar-width: none; touch-action: pan-x; }
+  #tabs.many::-webkit-scrollbar { display: none; }
+  #tabs.many button { flex: 1 0 44px; }
+}
+@media (orientation: landscape) and (max-width: 999px) { :root:has(#tabs.many) { --side: 288px; } }
