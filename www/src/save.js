@@ -7,6 +7,8 @@
  * v1.2 Versionsprüfung: der Stand trägt S.version (G.DATA.SAVE_VERSION). Ältere Stände (Version fehlt/kleiner) werden geladen und in
  *  G.Sim.rebuild() → migrate() ergänzt. Stände einer NEUEREN Version, mit unbekannten Typen oder defekter Struktur gelten als
  *  „nicht mehr kompatibel“: compatible(S) → '' oder Grund; info()/has() liefern dann nichts und der Stand wird verworfen (kein Absturz).
+ * v1.3 Forschung: SAVE_VERSION 3. Der Forschungsstand liegt als reine Daten in S.players[i].res ({done, cur}) und wird unverändert mitgespeichert;
+ *  Stände der Versionen 1/2 (ohne res) ergänzt G.Sim.migrate() → migrateV13() (keine Forschung erforscht). Die wirksamen Werte (RM-Cache) baut rebuild() neu auf.
  */
 var G = (typeof G !== 'undefined') ? G : {};
 (function () {
