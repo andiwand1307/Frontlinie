@@ -728,3 +728,63 @@ var G = (typeof G !== 'undefined') ? G : {};
   D.RESEARCH_ORDER = ['armor1', 'armor2', 'fire1', 'fire2', 'harv', 'optics', 'repair', 'c_calc', 'c_ammo', 'c_air', 's_mass', 's_wall', 's_patch', 'k_psi', 'k_swarm', 'k_veil'];
   D.researchList = function (fac) { return D.RESEARCH_ORDER.filter(function (id) { var r = R[id]; return !r.faction || r.faction === fac; }); };
 })();
+
+/* ---- v1.3 Spezialfähigkeiten – eigener Block (Sim: sim.js Abschnitt „v1.3 FÄHIGKEITEN“ am Dateiende) ----
+ * Aktive Fähigkeiten einzelner Einheitentypen, vom Spieler per Knopf ausgelöst (G.cmd.ability), mit Abklingzeit je Einheit.
+ * Je Einheitentyp UND Fraktion höchstens EINE Fähigkeit (D.abilityOf(fraktion, typ)); maßgeblich ist die Herkunftsfraktion der Einheit.
+ * D.ABILITIES[id] = { id, name, desc, faction, units: [Typen], cd (s Abklingzeit), dur (s Wirkdauer, 0 = sofort),
+ *   target: 'none' (sofort, alle bereiten Einheiten der Auswahl) | 'point' (Zielpunkt) | 'enemy' (gegnerische Einheit/Gebäude)
+ *           – bei point/enemy löst EINE bereite Einheit in Reichweite aus (die nächste am Ziel),
+ *   range (Kacheln, nur mit Ziel), gcd (s gemeinsame Sperre aller eigenen Einheiten mit dieser Fähigkeit nach einer Auslösung),
+ *   req (Forschungs-ID als Voraussetzung), boost { res: Forschungs-ID, dur | cd: neuer Wert mit dieser Forschung }, psiCd (Abklingzeit × Psi-Faktor aus mods),
+ *   toggle (erneutes Auslösen beendet die laufende Wirkung vorzeitig), look (Darstellung: Farbe/Art für die Renderer),
+ *   fx: GENAU EINE Wirkungsart:
+ *     self  { dmg, hp, rof, speed (Faktoren; hp = Treffer / hp), regen (Anteil maxHp/s, auch im Gefecht), root (bool: kann sich nicht bewegen) }
+ *     zone  { r (Kacheln), ally { hp (Faktor), cloak (bool: getarnt) }, enemy { dps (Flammenschaden/s an Bodeneinheiten) } }   – Feld am Zielpunkt
+ *     mark  { vuln (Schadensfaktor auf das Ziel), reveal (bool: getarntes Ziel bleibt sichtbar) }
+ *     pulse { r (Kacheln), stun (s Lähmung gegnerischer Bodeneinheiten im Umkreis) }
+ *     jump  true   – die Einheit versetzt sich an den Zielpunkt }
+ * D.ABILITY_RANK_CD = Abklingzeit-Nachlass je Erfahrungsrang (Anteil). */
+(function () {
+  'use strict';
+  var D = G.DATA;
+  D.SAVE_VERSION = 4;   // 4 = v1.3 Teil 2 (Fähigkeiten: S.zones, P.abG, Einheit ab/abT/abCd)
+  D.ABILITY_RANK_CD = 0.05;
+  var A = D.ABILITIES = {};
+  function add(id, faction, units, name, cd, dur, target, desc, fx, extra) {
+    var a = A[id] = { id: id, faction: faction, units: units, name: name, cd: cd, dur: dur, target: target, desc: desc, fx: fx, look: 'buff' };
+    for (var k in extra) a[k] = extra[k];
+  }
+  // ---- Koalition: Präzision / Luft / Technik
+  add('c_mark', 'coalition', ['sniper'], 'Zielmarkierung', 30, 10, 'enemy', 'Markiert ein gegnerisches Ziel: 10 s aufgedeckt, erleidet 25 % mehr Schaden',
+      { mark: { vuln: 1.25, reveal: true } }, { range: 10, look: 'mark' });
+  add('c_salvo', 'coalition', ['tank'], 'Feuerstoß', 40, 6, 'none', 'Lädt 6 s lang deutlich schneller nach (8 s mit Zielrechner)',
+      { self: { rof: 0.6 } }, { boost: { res: 'c_calc', dur: 8 }, look: 'attack' });
+  add('c_smoke', 'coalition', ['scout'], 'Nebelwand', 45, 10, 'point', 'Nebelfeld am Zielpunkt: eigene Einheiten darin erleiden ein Drittel weniger Schaden',
+      { zone: { r: 2.5, ally: { hp: 1.5 } } }, { range: 7, gcd: 10, look: 'smoke' });
+  add('c_flare', 'coalition', ['gunship'], 'Täuschkörper', 30, 5, 'none', 'Wirft Täuschkörper ab: 5 s lang 60 % weniger Schaden',
+      { self: { hp: 2.5 } }, { look: 'shield' });
+  // ---- Syndikat: robust / billig / Masse
+  add('s_dig', 'syndicate', ['rifle'], 'Eingraben', 30, 20, 'none', 'Gräbt sich 20 s ein: 45 % weniger Schaden, aber unbeweglich. Erneut tippen oder Fahrbefehl beendet es',
+      { self: { hp: 1.8, root: true } }, { toggle: true, look: 'shield' });
+  add('s_rush', 'syndicate', ['raider'], 'Nachbrenner', 35, 5, 'none', '5 s lang 60 % schneller und 30 % mehr Schaden',
+      { self: { speed: 1.6, dmg: 1.3 } }, { look: 'attack' });
+  add('s_fire', 'syndicate', ['flamer'], 'Brandteppich', 45, 8, 'point', 'Setzt eine Fläche 8 s in Brand – schädigt gegnerische Bodeneinheiten darin',
+      { zone: { r: 2, enemy: { dps: 16 } } }, { range: 5, gcd: 10, look: 'fire' });
+  add('s_fix', 'syndicate', ['tank', 'colossus'], 'Notreparatur', 60, 6, 'none', 'Repariert in 6 s 30 % der Panzerung – auch im Gefecht (benötigt Feldinstandsetzung)',
+      { self: { regen: 0.05 } }, { req: 's_patch', look: 'heal' });
+  // ---- Kollektiv: Psi / Schwarm / Tarnung
+  add('k_shriek', 'kollektiv', ['psiadept'], 'Psi-Schrei', 50, 0, 'none', 'Lähmt gegnerische Bodeneinheiten im Umkreis 2,5 s (lädt mit Psi-Fokus schneller nach)',
+      { pulse: { r: 3, stun: 2.5 } }, { psiCd: true, look: 'psi' });
+  add('k_frenzy', 'kollektiv', ['brute'], 'Raserei', 35, 6, 'none', '6 s lang 50 % schneller und viel schnellere Angriffe, erleidet aber 15 % mehr Schaden',
+      { self: { speed: 1.5, rof: 0.6, hp: 0.87 } }, { look: 'attack' });
+  add('k_jump', 'kollektiv', ['tank'], 'Phasensprung', 30, 0, 'point', 'Versetzt den Schwebepanzer sofort an einen freien Zielpunkt in der Nähe',
+      { jump: true }, { range: 6, look: 'psi' });
+  add('k_shroud', 'kollektiv', ['rifle'], 'Schleierfeld', 60, 8, 'point', 'Eigene Einheiten im Feld sind 8 s getarnt, solange sie nicht feuern (11 s mit Phasenschleier)',
+      { zone: { r: 2.5, ally: { cloak: true } } }, { range: 6, gcd: 20, boost: { res: 'k_veil', dur: 11 }, look: 'veil' });
+  D.ABILITY_ORDER = ['c_mark', 'c_salvo', 'c_smoke', 'c_flare', 's_dig', 's_rush', 's_fire', 's_fix', 'k_shriek', 'k_frenzy', 'k_jump', 'k_shroud'];
+  var IDX = {};
+  D.ABILITY_ORDER.forEach(function (id) { var a = A[id]; a.units.forEach(function (t) { IDX[a.faction + ':' + t] = a; }); });
+  /** Fähigkeit des Einheitentyps type der Fraktion fac oder null. */
+  D.abilityOf = function (fac, type) { return IDX[fac + ':' + type] || null; };
+})();

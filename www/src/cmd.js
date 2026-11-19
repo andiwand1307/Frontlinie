@@ -64,6 +64,11 @@
  * v1.3 Forschung:
  *  research(pid, id)               Forschung id (D.RESEARCH) starten → {ok, reason}
  *  cancelResearch(pid)             laufende Forschung abbrechen (Rückerstattung)
+ * v1.3 Fähigkeiten:
+ *  ability(pid, ids, abilityId[, target])  Spezialfähigkeit (D.ABILITIES) auslösen. Ohne Ziel (target 'none'): alle bereiten Einheiten aus ids mit dieser
+ *                                  Fähigkeit; läuft sie bei allen schon und ist sie umschaltbar (toggle), wird sie beendet. Mit Ziel: target = {x, y}
+ *                                  (Weltpixel) bzw. {id} (gegnerische Einheit/Gebäude) – EINE bereite Einheit in Reichweite löst aus.
+ *                                  → {ok, reason, n[, unit, ended]}
  */
 var G = (typeof G !== 'undefined') ? G : {};
 (function () {
@@ -510,6 +515,13 @@ var G = (typeof G !== 'undefined') ? G : {};
       var why = G.Sim.resBlock(pid, id);
       if (why) return FAIL(why);
       return G.Sim._research(pid, id) ? OK : FAIL('Nicht möglich');
+    },
+    /** v1.3 Fähigkeiten: Spezialfähigkeit auslösen (s. Kopfkommentar). */
+    ability: function (pid, ids, abilityId, target) {
+      if (!active(pid)) return FAIL('Nicht aktiv');
+      var us = ownUnits(pid, ids);
+      if (!us.length) return FAIL('Keine Einheiten');
+      return G.Sim._ability(pid, us, abilityId, target || null);
     },
     /** v1.3 laufende Forschung abbrechen (volle Rückerstattung des bisher Bezahlten). */
     cancelResearch: function (pid) {

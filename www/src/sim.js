@@ -116,6 +116,16 @@
  *   Ereignisse: researchStart {owner, id}, researchCancel {owner, id, refund}, research {owner, id} (abgeschlossen; x/y = Tech-Zentrum).
  *   Abfragen: resState(pid, id) 'done'|'active'|'locked'|'avail', resBlock(pid, id) → '' oder Grund, resRunning(pid). Befehle: G.cmd.research / cancelResearch.
  *
+ * v1.3 Fähigkeiten (additiv, Abschnitt „v1.3 FÄHIGKEITEN“ am Dateiende; Daten: data.js Block „v1.3 Spezialfähigkeiten“):
+ *   S.version = 4; migrateV14() ergänzt Altstände. S.zones = Wirkfelder { ab, owner, src, x, y, r (px), t0, t2 }.
+ *   SPIELER: abG { abilityId: Tick, bis zu dem die gemeinsame Sperre läuft }, st.abil { abilityId: Anzahl Auslösungen }.
+ *   EINHEIT: ab (ID der laufenden Fähigkeit oder ''), abT (wirkt bis Tick), abCd (wieder bereit ab Tick), zT/zHp (Feldschutz bis Tick / Faktor),
+ *            vT (vom Schleierfeld getarnt bis Tick; clk === 2 = nur vorübergehend getarnt), markT/markV (markiert bis Tick / Schadensfaktor; auch GEBÄUDE).
+ *   Ereignis: ability { id (Einheit), ab, owner, x, y (Einheit), tx, ty (Ziel), tid, r (px), t2 (Wirkende), sx, sy (Sprung: Startpunkt), n (Puls: Getroffene) },
+ *             abilityEnd { id, ab, owner }.
+ *   Abfragen: abilityOf(e), abBlock(pid, e[, x, y, tid]) → '' oder Grund, abInfo(e) → { id, ready, left (s), total (s), active, activeLeft (s) } | null.
+ *   Befehl: G.cmd.ability(pid, ids, abilityId[, target]) → G.Sim._ability.
+ *
  * Laufzeit-Caches (nicht im Zustand): byId-Map, Gebäudelisten, räumliches Gitter.
  */
 var G = (typeof G !== 'undefined') ? G : {};
@@ -261,6 +271,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     migrateV08();
     migrateV12();   // v1.2 Neue Einheiten (Abschnitt am Dateiende)
     migrateV13();   // v1.3 Forschung (Abschnitt am Dateiende)
+    migrateV14();   // v1.3 Fähigkeiten (Abschnitt am Dateiende)
   }
 
   function circle(r) {
@@ -664,6 +675,7 @@ var G = (typeof G !== 'undefined') ? G : {};
   }
   function orderMove(e, x, y, ord) {
     e.enterId = 0; e.loadId = 0; e.follow = 0; e.repId = 0;   // v1.2: repId (Reparaturziel) verfällt mit jedem neuen Fahrbefehl
+    if (e.abT > S.tick && abSelf(e).root) abEnd(e);   // v1.3 Fähigkeiten: Fahrbefehl beendet das Eingraben
     if (e.mc === 2) { e.land = false; e.bdrop = 0; }   // v0.8: Luftfahrzeug startet
     e.ord = ord || 'move'; e.tgt = 0; e.chase = false; e.hs = '';
     setGoal(e, x, y);
@@ -1403,6 +1415,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       if (e.kind !== 'unit') MODS.hp *= rm.bldHp;
       else { var q = rm.u[e.type]; if (q) { MODS.dmg *= q.dmg; MODS.hp *= q.hp; MODS.rof *= q.rof; MODS.psi *= q.psi; MODS.regen += q.regen; } }
     }
+    if (e.abT > S.tick || e.zT > S.tick || e.markT > S.tick) abMods(e);   // v1.3 Fähigkeiten (Abschnitt „v1.3 FÄHIGKEITEN“)
     return MODS;
   }
   /** src hat dealt Lebenspunkte Schaden an t verursacht → Erfahrung nach Wert des Ziels (Schadensanteil × Kosten / costDiv). */
@@ -1716,6 +1729,7 @@ var G = (typeof G !== 'undefined') ? G : {};
   /** Bewegt e entlang seines Pfades. Gibt true zurück, wenn das Ziel erreicht ist. */
   function followPath(e, st) {
     if (e.mc === 2) return flyStep(e, st);   // v0.8: Luftfahrzeuge fliegen direkt
+    if (e.abT > S.tick && abSelf(e).root) { e.moving = false; return false; }   // v1.3 Fähigkeiten: eingegraben
     if (e.pp) { e.moving = false; return false; }
     if (!e.path) { G.Path.request(S, e); e.moving = false; return false; }
     if (e.repathT >= 0) { e.repathT = -1; G.Path.request(S, e); }
@@ -1741,6 +1755,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     }
     var dx = wx - e.x, dy = wy - e.y, dist = Math.sqrt(dx * dx + dy * dy);
     var spd = st.speed * TILE / HZ;
+    if (e.abT > S.tick) spd *= abSelf(e).speed || 1;   // v1.3 Fähigkeiten: Tempo
     if (e.mc === 1) {
       var tt = S.map.terrain[tileOf(e.x, e.y)];
       if (D.TERRAIN[tt].wheelSpeed) spd *= D.TERRAIN[tt].wheelSpeed;
@@ -1882,6 +1897,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     var st = ust(e);
     e.px = e.x; e.py = e.y;
     if (e.cd > 0) e.cd--;
+    if (e.ab || e.clk === 2) tickAb(e);                                          // v1.3 Fähigkeiten: laufende Wirkung
     expRegen(e);                                                                 // Erfahrung: Selbstheilung (Held)
     if (e.magT > S.tick && tickHeld(e)) return;                                  // v1.0: vom Magnet-Werfer festgehalten
     if (e.stunT > S.tick) { e.moving = false; if (e.gar) syncPassengers(e); return; }   // v1.2: von der Psi-Drohne gelähmt
@@ -2244,6 +2260,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     separation();
     tickProjectiles();
     if (S.charges.length) tickCharges();   // v1.2 Sprengladungen
+    if (S.zones.length && S.tick % ZONE_EVERY === 0) tickZones();   // v1.3 Fähigkeiten: Wirkfelder
     if (S.strikes.length) tickStrikes();
     if (S.sw.length) tickSW();
     for (var p = 0; p < S.players.length; p++) if (!S.players[p].defeated) { tickProduction(S.players[p]); if (S.players[p].res.cur) tickResearch(S.players[p]); }
@@ -3239,6 +3256,209 @@ var G = (typeof G !== 'undefined') ? G : {};
     }
   }
 
+  // ================================================================== v1.3 FÄHIGKEITEN (Daten: data.js Block „v1.3 Spezialfähigkeiten“)
+  // ZUSTAND (im Spielstand): EINHEIT ab/abT/abCd, zT/zHp, vT (+ clk === 2), markT/markV; S.zones; P.abG; P.st.abil (s. Kopfkommentar).
+  // EINHÄNGEPUNKTE: mods(e) → abMods (self dmg/hp/rof, Feldschutz, Markierung), followPath (speed, root), orderMove (root endet), tickUnit → tickAb
+  //   (Ablauf, regen, Schleier-Ende), step → tickZones (alle ZONE_EVERY Ticks über das räumliche Gitter), hidden()/tickReveal über clk (Schleierfeld).
+  // REGELN: eine Fähigkeit je Einheitentyp und Herkunftsfraktion; Abklingzeit je Einheit (Rang senkt sie um D.ABILITY_RANK_CD je Stufe), dazu optional eine
+  //   gemeinsame Sperre je Spieler (gcd). Gelähmte/festgehaltene/eingestiegene Einheiten und Träger-Drohnen lösen nichts aus.
+  var ZONE_EVERY = 5, NOSELF = {};
+  function migrateV14() {
+    if (!S.zones) S.zones = [];
+    for (var p = 0; p < S.players.length; p++) { var P = S.players[p]; if (!P.abG) P.abG = {}; if (!P.st.abil) P.st.abil = {}; }
+    S.version = D.SAVE_VERSION;
+    buildGrid();   // Gitter für Abfragen zwischen den Ticks (Befehle direkt nach dem Laden)
+  }
+  /** Fähigkeit der Einheit (nach Herkunftsfraktion) oder null. */
+  function abilityOf(e) { return e && e.kind === 'unit' ? D.abilityOf(e.fac || S.players[e.owner].faction, e.type) : null; }
+  /** self-Wirkung der laufenden Fähigkeit (oder leeres Objekt). */
+  function abSelf(e) { var a = D.ABILITIES[e.ab]; return (a && a.fx.self) || NOSELF; }
+  function abMods(e) {
+    if (e.abT > S.tick) { var s = abSelf(e); if (s.dmg) MODS.dmg *= s.dmg; if (s.hp) MODS.hp *= s.hp; if (s.rof) MODS.rof *= s.rof; }
+    if (e.zT > S.tick) MODS.hp *= e.zHp;
+    if (e.markT > S.tick) MODS.hp /= e.markV;
+  }
+  function abVal(a, pid, key) { var b = a.boost; return b && b[key] != null && S.players[pid].res.done[b.res] ? b[key] : a[key]; }
+  /** Abklingzeit in Ticks für Einheit e. */
+  function abCdT(a, e) {
+    var cd = abVal(a, e.owner, 'cd') * (1 - D.ABILITY_RANK_CD * (e.rk || 0));
+    if (a.psiCd) cd *= mods(e).psi;
+    return Math.round(cd * HZ);
+  }
+  /** '' wenn e seine Fähigkeit jetzt auslösen kann (mit x/y bzw. tid: einschließlich Zielprüfung), sonst der Grund. */
+  function abBlock(pid, e, x, y, tid) {
+    var a = abilityOf(e);
+    if (!a || !e || e.dead || e.owner !== pid) return 'Keine Fähigkeit';
+    if (e.inside || e.host) return 'Nicht möglich';
+    if (a.req && !S.players[pid].res.done[a.req]) return 'Benötigt ' + D.RESEARCH[a.req].name;
+    if (e.abT > S.tick) return 'Bereits aktiv';
+    if (e.abCd > S.tick || S.players[pid].abG[a.id] > S.tick) return 'Lädt nach';
+    if (e.stunT > S.tick || e.magT > S.tick) return 'Gelähmt';
+    if (a.target === 'none' || x == null) return '';
+    if (a.target === 'enemy') {
+      var t = byId.get(tid);
+      if (!t || !hostile(pid, t) || isWall(t) || !isVisible(pid, t)) return 'Kein Ziel';
+      if (distTo(t, e.x, e.y) > a.range * TILE) return 'Außer Reichweite';
+      return '';
+    }
+    if (x < 0 || y < 0 || x >= S.map.w * TILE || y >= S.map.h * TILE) return 'Kein Ziel';
+    if (dist2(e.x, e.y, x, y) > a.range * TILE * a.range * TILE) return 'Außer Reichweite';
+    if (a.fx.jump && (!G.Path.passablePx(pcOf(e), x, y, e.owner) || unitAt(x, y, e.r))) return 'Zielpunkt nicht frei';
+    return '';
+  }
+  /** Steht eine Bodeneinheit näher als r + eigener Radius an (x,y)? */
+  function unitAt(x, y, r) {
+    var cx0 = Math.max(0, Math.floor((x - 40) / CELL)), cx1 = Math.min(gw - 1, Math.floor((x + 40) / CELL));
+    var cy0 = Math.max(0, Math.floor((y - 40) / CELL)), cy1 = Math.min(gh - 1, Math.floor((y + 40) / CELL));
+    for (var i = 0; i < S.ents.length; i++) {
+      var u = S.ents[i];
+      if (u.dead || u.kind !== 'unit' || u.inside || u.mc === 2) continue;
+      var c = Math.floor(u.x / CELL), d = Math.floor(u.y / CELL);
+      if (c < cx0 || c > cx1 || d < cy0 || d > cy1) continue;
+      if (dist2(u.x, u.y, x, y) < (r + u.r) * (r + u.r) * 0.6) return true;
+    }
+    return false;
+  }
+  /** Für die Anzeige: Zustand der Fähigkeit von e. */
+  function abInfo(e) {
+    var a = abilityOf(e);
+    if (!a) return null;
+    var P = S.players[e.owner], rdy = Math.max(e.abCd || 0, (P && P.abG[a.id]) || 0);
+    return { id: a.id, active: e.abT > S.tick, activeLeft: Math.max(0, ((e.abT || 0) - S.tick) / HZ), ready: !(rdy > S.tick) && !(e.abT > S.tick),
+             left: Math.max(0, (rdy - S.tick) / HZ), total: abCdT(a, e) / HZ, locked: !!(a.req && P && !P.res.done[a.req]) };
+  }
+  /** Fähigkeit von e auslösen (Prüfung: abBlock). x/y = Zielpunkt, tid = Zieleinheit. */
+  function abFire(e, x, y, tid) {
+    var a = abilityOf(e), P = S.players[e.owner], fx = a.fx, dur = Math.round(abVal(a, e.owner, 'dur') * HZ);
+    var ev = { id: e.id, ab: a.id, owner: e.owner, t2: S.tick + dur };
+    e.abCd = S.tick + abCdT(a, e);
+    if (a.gcd) P.abG[a.id] = S.tick + Math.round(a.gcd * HZ);
+    P.st.abil[a.id] = (P.st.abil[a.id] || 0) + 1;
+    if (fx.self) { e.ab = a.id; e.abT = S.tick + dur; if (fx.self.root) { var tg = e.tgt; orderStop(e); e.tgt = tg; } }
+    else if (fx.zone) {
+      S.zones.push({ ab: a.id, owner: e.owner, src: e.id, x: x, y: y, r: fx.zone.r * TILE, t0: S.tick, t2: S.tick + dur });
+      ev.tx = x; ev.ty = y; ev.r = fx.zone.r * TILE;
+      applyZone(S.zones[S.zones.length - 1]);
+    }
+    else if (fx.mark) {
+      var t = byId.get(tid);
+      t.markT = S.tick + dur; t.markV = fx.mark.vuln;
+      if (fx.mark.reveal && t.clk) t.revT = Math.max(t.revT || 0, t.markT);
+      ev.tx = t.x; ev.ty = t.y; ev.tid = t.id;
+    }
+    else if (fx.pulse) { ev.r = fx.pulse.r * TILE; ev.n = abPulse(e, fx.pulse); }
+    else if (fx.jump) {
+      ev.sx = e.x; ev.sy = e.y; ev.tx = x; ev.ty = y;
+      var tgt = e.tgt, ord = e.ord;
+      orderStop(e);
+      e.x = e.px = e.lastX = e.hx = e.gx = x; e.y = e.py = e.lastY = e.hy = e.gy = y;
+      if (tgt && ord === 'attack') { e.ord = 'attack'; e.tgt = tgt; }
+    }
+    emit('ability', e.x, e.y, ev);
+  }
+  /** Puls um e: gegnerische Bodeneinheiten im Umkreis lähmen (Regeln wie die Psi-Drohne: nicht fliegend, nicht immun). → Anzahl. */
+  function abPulse(e, pu) {
+    var R = pu.r * TILE, n = 0;
+    var c0x = Math.max(0, Math.floor((e.x - R) / CELL)), c1x = Math.min(gw - 1, Math.floor((e.x + R) / CELL));
+    var c0y = Math.max(0, Math.floor((e.y - R) / CELL)), c1y = Math.min(gh - 1, Math.floor((e.y + R) / CELL));
+    for (var cy = c0y; cy <= c1y; cy++) for (var cx = c0x; cx <= c1x; cx++) {
+      for (var k = gHead[cy * gw + cx]; k !== -1; k = gNext[k]) {
+        var u = gEnts[k];
+        if (u.dead || u.inside || u.owner === e.owner || u.owner < 0 || airborne(u) || u.stunFree > S.tick || ust(u).psiImmune) continue;
+        if (dist2(u.x, u.y, e.x, e.y) > R * R) continue;
+        u.stunT = S.tick + Math.round(pu.stun * HZ); u.stunFree = u.stunT + D.STUN_IMMUNE * HZ; n++;
+        emit('stun', u.x, u.y, { id: u.id, src: e.id, owner: e.owner, t2: u.stunT });
+      }
+    }
+    S.players[e.owner].st.stuns = (S.players[e.owner].st.stuns || 0) + n;
+    return n;
+  }
+  /** Laufende Wirkung an der Einheit: Ablauf, Reparatur (regen), Ende der Schleier-Tarnung. */
+  function tickAb(e) {
+    if (e.ab) {
+      if (!(e.abT > S.tick)) abEnd(e);
+      else { var rg = abSelf(e).regen; if (rg && e.hp < e.maxHp) e.hp = Math.min(e.maxHp, e.hp + rg * e.maxHp / HZ); }
+    }
+    if (e.clk === 2 && !(e.vT > S.tick)) e.clk = 0;
+  }
+  function abEnd(e) {
+    if (!e.ab) return;
+    emit('abilityEnd', e.x, e.y, { id: e.id, ab: e.ab, owner: e.owner });
+    e.ab = ''; e.abT = 0;
+  }
+  /** Wirkfelder: abgelaufene entfernen, die übrigen auf die Einheiten im Feld anwenden. */
+  function tickZones() {
+    var j = 0;
+    for (var i = 0; i < S.zones.length; i++) { var z = S.zones[i]; if (z.t2 > S.tick) { S.zones[j++] = z; applyZone(z); } }
+    S.zones.length = j;
+  }
+  function applyZone(z) {
+    var a = D.ABILITIES[z.ab]; if (!a || !gHead) return;
+    var zf = a.fx.zone, R = z.r, hold = ZONE_EVERY + 1, src = null;
+    var c0x = Math.max(0, Math.floor((z.x - R) / CELL)), c1x = Math.min(gw - 1, Math.floor((z.x + R) / CELL));
+    var c0y = Math.max(0, Math.floor((z.y - R) / CELL)), c1y = Math.min(gh - 1, Math.floor((z.y + R) / CELL));
+    for (var cy = c0y; cy <= c1y; cy++) for (var cx = c0x; cx <= c1x; cx++) {
+      for (var k = gHead[cy * gw + cx]; k !== -1; k = gNext[k]) {
+        var u = gEnts[k];
+        if (u.dead || u.inside || u.owner < 0 || dist2(u.x, u.y, z.x, z.y) > R * R) continue;
+        if (u.owner === z.owner) {
+          if (!zf.ally) continue;
+          if (zf.ally.hp) { u.zT = S.tick + hold; u.zHp = zf.ally.hp; }
+          if (zf.ally.cloak && u.clk !== 1 && !u.host) { u.clk = 2; u.vT = S.tick + hold; }
+        } else if (zf.enemy && zf.enemy.dps && !airborne(u)) {
+          if (!src) { src = byId.get(z.src); if (!src || src.dead || src.owner !== z.owner) src = { owner: z.owner }; }
+          damage(u, zf.enemy.dps * ZONE_EVERY / HZ * D.DAMAGE.flame[ust(u).armor], src);
+        }
+      }
+    }
+  }
+  /** Befehl (über G.cmd.ability): us = eigene Einheiten, id = Fähigkeit, tg = { x, y } | { id } | null. → { ok, reason, n } */
+  function ability(pid, us, id, tg) {
+    var a = D.ABILITIES[id], i, e, n = 0, why = '', act = [];
+    if (!a) return { ok: false, reason: 'Unbekannte Fähigkeit' };
+    var mine = [];
+    for (i = 0; i < us.length; i++) { var a2 = abilityOf(us[i]); if (a2 && a2.id === id) mine.push(us[i]); }
+    if (!mine.length) return { ok: false, reason: 'Keine passende Einheit' };
+    if (a.target === 'none') {
+      for (i = 0; i < mine.length; i++) {
+        e = mine[i];
+        var w = abBlock(pid, e);
+        if (!w) { abFire(e); n++; } else { if (!why || w === 'Lädt nach') why = w; if (e.abT > S.tick) act.push(e); }
+      }
+      if (!n && a.toggle && act.length) { for (i = 0; i < act.length; i++) abEnd(act[i]); return { ok: true, reason: '', n: act.length, ended: true }; }
+      return n ? { ok: true, reason: '', n: n } : { ok: false, reason: why };
+    }
+    if (!tg) return { ok: false, reason: 'Kein Ziel' };
+    var tid = a.target === 'enemy' ? tg.id : 0, t = tid ? byId.get(tid) : null;
+    if (a.target === 'enemy' && !t) return { ok: false, reason: 'Kein Ziel' };
+    var x = t ? t.x : tg.x, y = t ? t.y : tg.y, best = null, bd = 1e18;
+    var RANK = { '': 0, 'Außer Reichweite': 1, 'Lädt nach': 2 };
+    for (i = 0; i < mine.length; i++) {
+      e = mine[i];
+      var wb = abBlock(pid, e, x, y, tid), d = dist2(e.x, e.y, x, y);
+      if (!wb) { if (d < bd) { bd = d; best = e; } }
+      else if (!why || (RANK[wb] || 3) < (RANK[why] || 3)) why = wb;
+    }
+    if (!best) return { ok: false, reason: why };
+    abFire(best, x, y, tid);
+    return { ok: true, reason: '', n: 1, unit: best.id };
+  }
+  /** Anzahl Einheiten im Umkreis R px um (x,y): foe = true → für pid feindliche sichtbare Bodeneinheiten, sonst eigene. (für die KI) */
+  function nearCount(pid, x, y, R, foe) {
+    var n = 0, P = S.players[pid];
+    var c0x = Math.max(0, Math.floor((x - R) / CELL)), c1x = Math.min(gw - 1, Math.floor((x + R) / CELL));
+    var c0y = Math.max(0, Math.floor((y - R) / CELL)), c1y = Math.min(gh - 1, Math.floor((y + R) / CELL));
+    for (var cy = c0y; cy <= c1y; cy++) for (var cx = c0x; cx <= c1x; cx++) {
+      for (var k = gHead[cy * gw + cx]; k !== -1; k = gNext[k]) {
+        var u = gEnts[k];
+        if (u.dead || u.inside || u.owner < 0 || (u.owner === pid) === !!foe || dist2(u.x, u.y, x, y) > R * R) continue;
+        if (foe && (airborne(u) || !P.vis[tileOf(u.x, u.y)] || (u.clk && hidden(pid, u)))) continue;
+        n++;
+      }
+    }
+    return n;
+  }
+
   function setState(st) { S = st; rebuild(); }
   /** v0.7: verbleibende Friedenszeit in Sekunden (0 = vorbei bzw. keine). */
   function peaceLeft() { return S ? Math.max(0, (S.settings.peace || 0) - S.tick / HZ) : 0; }
@@ -3277,6 +3497,8 @@ var G = (typeof G !== 'undefined') ? G : {};
     // v1.3 Forschung:
     resState: resState, resBlock: resBlock, resRunning: resRunning, resMods: function (pid) { return RM[pid]; }, harvCap: harvCap, sightOf: function (e) { return (e.kind === 'unit' ? ust(e).sight : D.BUILDINGS[e.type].sight) + resSight(e.owner); },
     _research: researchStart, _resCancel: researchCancel,
+    // v1.3 Fähigkeiten:
+    abilityOf: abilityOf, abBlock: abBlock, abInfo: abInfo, _ability: ability, nearCount: nearCount,
     hidden: hidden, cloakState: cloakState, sabBlock: sabBlock, _orderSab: orderSab, _sabMode: function (u, m) { u.sabMode = m ? 1 : 0; }, noOccAt: noOccAt,
     isRepairSite: isRepairSite, repairSite: repairSite, canRepairUnit: canRepairUnit, _orderRepair: function (u, site) { u.repId = site.id; },
     // nur für Tests/Debug (nicht von Spiellogik/KI/UI benutzen):
