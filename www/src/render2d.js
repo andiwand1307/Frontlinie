@@ -1551,7 +1551,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     for (i = 0; i < ents.length; i++) {
       var e = ents[i];
       if (!(e.abT > tick || e.zT > tick || e.markT > tick) || e.dead || e.inside) continue;
-      if (e.owner !== pid && !fo && !G.Sim.isVisible(pid, e)) continue;
+      if (G.Sim.hidden(pid, e) || (e.owner !== pid && !fo && !G.Sim.isVisible(pid, e))) continue;   // Getarntes nie verraten (auch bei „Nebel aus“)
       var X = PX(e.x, e.y), Y = PY(e.x, e.y), rr = (e.kind === 'unit' ? (e.r || 8) * 1.5 : Math.max(e.w, e.h) * TILE * 0.55);
       if (X < -60 || X > V.vw + 60 || Y < -60 || Y > V.vh + 60) continue;
       var a = e.abT > tick ? D.ABILITIES[e.ab] : null, col = e.markT > tick ? AB2.mark : (a ? AB2[a.look] || AB2.buff : AB2.smoke);
