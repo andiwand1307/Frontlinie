@@ -675,11 +675,13 @@ var G = (typeof G !== 'undefined') ? G : {};
   }
   function orderMove(e, x, y, ord) {
     e.enterId = 0; e.loadId = 0; e.follow = 0; e.repId = 0;   // v1.2: repId (Reparaturziel) verfällt mit jedem neuen Fahrbefehl
-    if (e.abT > S.tick && abSelf(e).root) abEnd(e);   // v1.3 Fähigkeiten: Fahrbefehl beendet das Eingraben
+    unroot(e);   // v1.3 Fähigkeiten: Fahrbefehl beendet das Eingraben
     if (e.mc === 2) { e.land = false; e.bdrop = 0; }   // v0.8: Luftfahrzeug startet
     e.ord = ord || 'move'; e.tgt = 0; e.chase = false; e.hs = '';
     setGoal(e, x, y);
   }
+  /** v1.3 Fähigkeiten: Fahrbefehl (auch Einsteigen, Besetzen, Recyceln) beendet eine Wirkung mit root (Eingraben). */
+  function unroot(e) { if (e.abT > S.tick && abSelf(e).root) abEnd(e); }
   function orderAttack(e, tid) {
     var t = byId.get(tid);
     if (!t || t.dead) return;
@@ -793,6 +795,7 @@ var G = (typeof G !== 'undefined') ? G : {};
   function orderEnter(e, b) {
     var st = statsOf(e);
     if (st.cat !== 'infantry' || e.mcBy) return false;   // v1.0: gedankenkontrollierte Infanterie betritt keine Gebäude
+    unroot(e);
     e.ord = 'enter'; e.enterId = b.id; e.tgt = 0; e.chase = false; e.hs = '';
     var ring = ringTiles(b), w = S.map.w, best = -1, bd = 1e18;
     // Eingangskacheln, die schon andere Einheiten ansteuern, meiden (sonst blockieren sie sich gegenseitig)
@@ -915,6 +918,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       var u = inf[i], sz = slotOf(u);
       if (sz > free) continue;
       free -= sz; n++;
+      unroot(u);
       u.ord = 'load'; u.loadId = a.id; u.tgt = 0; u.chase = false; u.hs = ''; u.enterId = 0; u.follow = 0; u.loadTry = 0;
       setGoal(u, a.x, a.y);
     }
@@ -2832,7 +2836,7 @@ var G = (typeof G !== 'undefined') ? G : {};
     return '';
   }
   function orderRecycle(e, ref) {
-    orderStop(e);
+    orderStop(e); unroot(e);
     e.ord = 'recycle'; e.recId = ref.id;
     var ring = ringTiles(ref), w = S.map.w, best = -1, bd = 1e18;
     for (var i = 0; i < ring.length; i++) { var cx = (ring[i] % w + 0.5) * TILE, cy = (Math.floor(ring[i] / w) + 0.5) * TILE, d = dist2(cx, cy, e.x, e.y); if (d < bd) { bd = d; best = ring[i]; } }
