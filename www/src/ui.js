@@ -588,6 +588,7 @@ var G = (typeof G !== 'undefined') ? G : {};
       el.querySelector('button').addEventListener('click', function () { G.Input.abilCancel(); });
       $('map').appendChild(el);
     }
+    $('map').classList.toggle('abil-aim', !!ab);   // Zielmodus: Auswahl-Info weicht der Zielleiste (CSS)
     if (el) {
       el.style.display = ab ? 'flex' : 'none';
       if (ab) { var m = ab.name + ': ' + (ab.target === 'enemy' ? 'gegnerisches Ziel antippen' : 'Zielpunkt antippen') + ' (Reichweite ' + ab.range + ' Kacheln)'; var me = el.querySelector('.msg'); if (me.textContent !== m) me.textContent = m; }

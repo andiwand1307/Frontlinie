@@ -471,3 +471,4 @@ p.help { margin: 6px 0 8px; }
 #abilbar .msg { flex: 1; min-width: 0; font-size: 16px; font-weight: 700; color: #fff; line-height: 1.25; }
 #abilbar button { flex: none; display: flex; align-items: center; gap: 6px; min-height: 44px; min-width: 44px; padding: 0 12px; font-size: 16px; font-weight: 800; border-color: var(--bad-line); color: #fecaca; }
 #map.res-open #abilbar, #map.repmode #abilbar, #map.mode-place #abilbar { display: none !important; }
+#map.abil-aim #selinfo { visibility: hidden; }

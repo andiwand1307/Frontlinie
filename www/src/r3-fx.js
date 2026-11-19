@@ -1760,14 +1760,14 @@ var G = (typeof G !== 'undefined') ? G : {};
   // abUnit(): Haken in r3-models fill() für Einheiten/Gebäude mit laufender Fähigkeit (abT), Feldschutz (zT) oder Markierung (markT) – Bodenring + Funken.
   // abZones(): Wirkfelder S.zones (Nebel, Brand, Schleier) – Randring + Partikel in der Fläche.  abEvt(): Ereignis 'ability' (Auslösung: Ring, Sprungblitz).
   // Nur vorhandene Mittel: tgtRing (additiver Bodenring), Punkt-Partikel emit(), addPulse(), flashAt().
-  var AB_COL = { attack: [1.5, 0.62, 0.15], shield: [0.35, 0.95, 1.5], heal: [0.3, 1.4, 0.5], psi: [1.05, 0.45, 1.5], mark: [1.6, 0.22, 0.18],
-                 smoke: [0.75, 0.82, 0.9], fire: [1.6, 0.5, 0.1], veil: [0.55, 0.5, 1.5], buff: [1, 1, 1] };
+  var AB_COL = { attack: [1, 0.42, 0.08], shield: [0.15, 0.6, 1], heal: [0.15, 0.95, 0.3], psi: [0.7, 0.25, 1], mark: [1, 0.1, 0.08],
+                 smoke: [0.5, 0.55, 0.6], fire: [1, 0.3, 0.04], veil: [0.3, 0.25, 1], buff: [0.7, 0.7, 0.7] };   // additiv: Werte ≤ 1, damit der Farbton erhalten bleibt
   var AB_HEX = { attack: '#fb923c', shield: '#38bdf8', heal: '#4ade80', psi: '#c084fc', mark: '#ef4444', smoke: '#cbd5e1', fire: '#f97316', veil: '#818cf8', buff: '#ffffff' };
   function abUnit(e, x, gy, z, rad, tick, dt, inV) {
     var t = R.t, k, a2, c, y = gy + 0.05;
     if (e.abT > tick) {
       var a = D.ABILITIES[e.ab]; c = AB_COL[a ? a.look : 'buff'] || AB_COL.buff;
-      k = 0.8 + 0.3 * Math.sin(t * 8 + e.id); var r2 = rad * (0.62 + 0.12 * Math.sin(t * 5 + e.id));
+      k = 0.75 + 0.25 * Math.sin(t * 8 + e.id); var r2 = rad * (0.62 + 0.12 * Math.sin(t * 5 + e.id));
       tgtRing.put(x, y, z, 0, rad, 1, rad, c[0] * k, c[1] * k, c[2] * k);
       tgtRing.put(x, y + 0.01, z, 0, r2, 1, r2, c[0] * 0.6, c[1] * 0.6, c[2] * 0.6);
       if (inV && dt > 0 && rnd() < dt * (safeGPU ? 4 : 9)) { a2 = rnd() * 6.283; emit(0, x + Math.cos(a2) * rad, y, z + Math.sin(a2) * rad, 0, 0.55 + rnd() * 0.4, 0, 0.55, 0.075, 0.02, c[0], c[1], c[2], 1, c[0] * 0.5, c[1] * 0.5, c[2] * 0.5, 0, 0, 0); }
@@ -1787,16 +1787,15 @@ var G = (typeof G !== 'undefined') ? G : {};
       var zo = Z[i], a = D.ABILITIES[zo.ab]; if (!a) continue;
       if (!(S.settings.fogOff || zo.owner === V.pid || visibleAt(zo.x, zo.y))) continue;
       var x = zo.x / TILE, z = zo.y / TILE, r = zo.r / TILE, y = groundAt(x, z) + 0.06, c = AB_COL[a.look] || AB_COL.buff;
-      var left = (zo.t2 - tick) / hz, fade = clamp(left / 1.2, 0.15, 1) * clamp((tick - zo.t0) / 6 + 0.3, 0, 1), k = (0.7 + 0.2 * Math.sin(R.t * 3 + i)) * fade;
+      var left = (zo.t2 - tick) / hz, fade = clamp(left / 1.2, 0.15, 1) * clamp((tick - zo.t0) / 6 + 0.3, 0, 1), k = (0.55 + 0.15 * Math.sin(R.t * 3 + i)) * fade;
       tgtRing.put(x, y, z, 0, r, 1, r, c[0] * k, c[1] * k, c[2] * k);
-      tgtRing.put(x, y, z, 0, r * 0.97, 1, r * 0.97, c[0] * k * 0.5, c[1] * k * 0.5, c[2] * k * 0.5);
       if (!(dt > 0) || !R.inView(x, z)) continue;
       var n = dt * r * r * (safeGPU ? 5 : 11) * fade, q = (n | 0) + (rnd() < n - (n | 0) ? 1 : 0);
       while (q-- > 0) {
         var an = rnd() * 6.283, d = Math.sqrt(rnd()) * r, px = x + Math.cos(an) * d, pz = z + Math.sin(an) * d, py = groundAt(px, pz);
         if (a.look === 'smoke') emit(1, px, py + 0.15 + rnd() * 0.3, pz, (rnd() - 0.5) * 0.12, 0.1 + rnd() * 0.12, (rnd() - 0.5) * 0.12, 2.2 + rnd(), 0.5, 1.1, 0.8, 0.83, 0.86, 0.5, 0.7, 0.72, 0.76, 0, 0, 0.4);
-        else if (a.look === 'fire') { emit(0, px, py + 0.05, pz, (rnd() - 0.5) * 0.1, 0.5 + rnd() * 0.5, (rnd() - 0.5) * 0.1, 0.5 + rnd() * 0.3, 0.28, 0.06, 1, 0.65, 0.2, 0.9, 0.9, 0.2, 0.04, 0, 0, 0); if (rnd() < 0.25) emit(1, px, py + 0.4, pz, 0.04, 0.5, 0.02, 1.4, 0.2, 0.55, 0.2, 0.2, 0.22, 0.45, 0.35, 0.35, 0.38, 0, 0, 0.3); }
-        else emit(0, px, py + 0.05 + rnd() * 0.5, pz, 0, 0.12 + rnd() * 0.15, 0, 1.1, 0.1, 0.03, 0.5, 0.45, 1, 0.75, 0.3, 0.2, 0.9, 0, 0, 0);
+        else if (a.look === 'fire') { emit(0, px, py + 0.05, pz, (rnd() - 0.5) * 0.1, 0.5 + rnd() * 0.5, (rnd() - 0.5) * 0.1, 0.55 + rnd() * 0.3, 0.42, 0.1, 1, 0.55, 0.15, 0.9, 0.9, 0.15, 0.03, 0, 0, 0); if (rnd() < 0.25) emit(1, px, py + 0.4, pz, 0.04, 0.5, 0.02, 1.4, 0.2, 0.55, 0.2, 0.2, 0.22, 0.45, 0.35, 0.35, 0.38, 0, 0, 0.3); }
+        else emit(0, px, py + 0.05 + rnd() * 0.5, pz, 0, 0.12 + rnd() * 0.15, 0, 1.1, 0.16, 0.04, 0.45, 0.35, 1, 0.8, 0.25, 0.15, 0.9, 0, 0, 0);
       }
     }
   }
