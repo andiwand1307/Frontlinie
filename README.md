@@ -43,7 +43,7 @@ Die APK steht nach dem Lauf auf der Seite des Workflow-Laufs unter **Artifacts**
 
 Musik und Stimmen stammen aus CC0- und CC-BY-Quellen (OpenGameArt). Die Namensnennung steht im Spiel unter Hilfe → „Musik und Stimmen: Quellen" und in `www/src/audio.js` unter `CREDITS`:
 
-- „The Settlement of the Frontier (Loop)" – TAD – CC-BY 3.0 (gekürzt, Lautheit angepasst)
+- „Heroes Theme" – Alexandr Zhelanov (soundcloud.com/alexandr-zhelanov) – CC-BY 3.0 (Lautheit angepasst)
 - „Unforgiving Lands" – HorrorPen – CC-BY 3.0 (Lautheit angepasst)
-- „Wasteland Showdown" und „Dream Raid" – Matthew Pablo (www.matthewpablo.com) – CC-BY 3.0 (Lautheit angepasst)
+- „Tropic Strike", „Wasteland Showdown" und „Dream Raid" – Matthew Pablo (www.matthewpablo.com) – CC-BY 3.0 (Lautheit angepasst)
 - „Epic Endgame Cinematic" – cynicmusic – CC0

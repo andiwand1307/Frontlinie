@@ -185,8 +185,12 @@ var MUSIC_DATA = {
     "url": "assets/music/menu.ogg"
   },
   "calm": {
-    "dur": 200.01,
+    "dur": 117.71,
     "url": "assets/music/calm.ogg"
+  },
+  "calmB": {
+    "dur": 131.71,
+    "url": "assets/music/calmB.ogg"
   },
   "tension": {
     "dur": 136.91,
@@ -204,14 +208,15 @@ var MUSIC_DATA = {
 /*MUSIC:END*/
   var CREDITS = [
     { title: 'Epic Endgame Cinematic', author: 'cynicmusic', license: 'CC0', url: 'https://opengameart.org/content/epic-endgame-cinematic', use: 'Menü, Sieg' },
-    { title: 'The Settlement of the Frontier (Loop)', author: 'TAD', license: 'CC-BY 3.0', url: 'https://opengameart.org/content/the-settlement-of-the-frontier-loop-ver', use: 'Aufbau (ruhig)', note: 'gekürzt, Lautheit angepasst' },
+    { title: 'Heroes Theme', author: 'Alexandr Zhelanov (soundcloud.com/alexandr-zhelanov)', license: 'CC-BY 3.0', url: 'https://opengameart.org/content/heroes-theme', use: 'Aufbau', note: 'Lautheit angepasst' },
+    { title: 'Tropic Strike', author: 'Matthew Pablo (www.matthewpablo.com)', license: 'CC-BY 3.0', url: 'https://opengameart.org/content/tropic-strike-live-orchestra', use: 'Aufbau', note: 'Lautheit angepasst' },
     { title: 'Unforgiving Lands', author: 'HorrorPen', license: 'CC-BY 3.0', url: 'https://opengameart.org/content/unforgiving-lands', use: 'Spannung', note: 'Lautheit angepasst' },
     { title: 'Wasteland Showdown', author: 'Matthew Pablo (www.matthewpablo.com)', license: 'CC-BY 3.0', url: 'https://opengameart.org/content/wasteland-showdown-battle-music', use: 'Gefecht', note: 'Lautheit angepasst' },
     { title: 'Dream Raid', author: 'Matthew Pablo (www.matthewpablo.com)', license: 'CC-BY 3.0', url: 'https://opengameart.org/content/dream-raid-cinematic-action-soundtrack', use: 'Gefecht', note: 'Lautheit angepasst' },
     { title: 'Piper TTS, Stimme „Thorsten (medium)“ – Ansagen', author: 'Thorsten Müller (Thorsten-Voice) / Rhasspy Piper', license: 'CC0', url: 'https://github.com/thorstenMueller/Thorsten-Voice', use: 'Funk-Ansagen' }
   ];
-  var PLAYLIST = { menu: ['menu'], calm: ['calm'], tension: ['tension'], battle: ['battleA', 'battleB'] };
-  var TRACK_GAIN = { menu: 1, calm: 0.95, tension: 1, battleA: 0.95, battleB: 0.95 };
+  var PLAYLIST = { menu: ['menu'], calm: ['calm', 'calmB'], tension: ['tension'], battle: ['battleA', 'battleB'] };
+  var TRACK_GAIN = { menu: 1, calm: 0.95, calmB: 0.95, tension: 1, battleA: 0.95, battleB: 0.95 };
   var XFADE = 3.5, MOODFADE = 3.0;
   var SILENT_WAV = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=';
 
